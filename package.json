@@ -1,13 +1,17 @@
 {
-  "name": "EvalFlow",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "packageManager": "pnpm@10.34.3"
+    "name": "evalflow",
+    "version": "0.1.0",
+    "private": true,
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "dev:api": "pnpm --filter server dev:api",
+        "dev:worker": "pnpm --filter server dev:worker",
+        "dev:frontend": "pnpm --filter frontend dev",
+        "build": "pnpm --filter server build && pnpm --filter frontend build"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "packageManager": "pnpm@10.34.3"
 }
