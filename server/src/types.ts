@@ -9,3 +9,12 @@ export const CreateJobSchema = z.object({
 });
 
 export type CreateJobInput = z.infer<typeof CreateJobSchema>;
+
+export const RetentionAnalysisSchema = z.object({
+    summary: z.string(),
+    retentionRisk: z.enum(["low", "medium", "high"]),
+    evidence: z.array(z.string()).min(1),
+    recommendedActions: z.array(z.string()).min(1),
+});
+
+export type RetentionAnalysis = z.infer<typeof RetentionAnalysisSchema>;
