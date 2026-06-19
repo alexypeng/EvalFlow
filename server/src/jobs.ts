@@ -93,25 +93,28 @@ export async function claimNextJob() {
     return jobs[0] ?? null;
 }
 
-export async function completeJob(
-    id: string,
-    result: Prisma.InputJsonValue,
-    latencyMs: number,
-) {
+export async function completeJob(params: {
+    id: string;
+    result: Prisma.InputJsonValue;
+    latencyMs: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    estimatedCost: number;
+    evalScore?: number;
+}) {
     return prisma.job.update({
         where: {
-            id,
+            id: params.id,
         },
         data: {
             status: "completed",
-            result,
+            result: params.result,
             completedAt: new Date(),
-            latencyMs,
-            promptTokens: 120,
-            completionTokens: 80,
-            totalTokens: 200,
-            estimatedCost: 0,
-            evalScore: 100,
+            latencyMs: params.latencyMs,
+            promptTokens: params.promptTokens,
+            completionTokens: params.completionTokens,
+            totalTokens: params.totalTokens,
         },
     });
 }
