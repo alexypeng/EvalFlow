@@ -115,3 +115,21 @@ export async function completeJob(
         },
     });
 }
+
+export async function addTrace(params: {
+    jobId: string;
+    stepName: string;
+    input?: Prisma.InputJsonValue;
+    output?: Prisma.InputJsonValue;
+    latencyMs?: number;
+}) {
+    return prisma.trace.create({
+        data: {
+            jobId: params.jobId,
+            stepName: params.stepName,
+            input: params.input,
+            output: params.output,
+            latencyMs: params.latencyMs,
+        },
+    });
+}

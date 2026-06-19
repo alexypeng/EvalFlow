@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { claimNextJob, completeJob } from "./jobs.js";
+import { addTrace, claimNextJob, completeJob } from "./jobs.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
 
@@ -21,6 +21,16 @@ async function processJob(job: { id: string }) {
             "Offer a workflow review focused on underused features.",
         ],
     };
+
+    await addTrace({
+        jobId: job.id,
+        stepName: "mock_result",
+        input: {
+            jobId: job.id,
+        },
+        output: mockResult,
+        latencyMs: Date.now() - startedAt,
+    });
 
     await completeJob(job.id, mockResult, Date.now() - startedAt);
 
