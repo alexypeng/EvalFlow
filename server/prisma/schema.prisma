@@ -4,70 +4,76 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-    provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
-    provider = "postgresql"
+  provider = "postgresql"
 }
 
 enum JobStatus {
-    queued
-    running
-    completed
-    failed
+  queued
+  running
+  completed
+  failed
 }
 
 model Job {
-    id               String    @id @default(uuid()) @db.Uuid
-    type             String
-    status           JobStatus @default(queued)
-    input            Json
-    result           Json?
-    error            String?
-    attempts         Int       @default(0)
-    maxAttempts      Int       @default(3) @map("max_attempts")
-    createdAt        DateTime  @default(now()) @map("created_at")
-    startedAt        DateTime? @map("started_at")
-    completedAt      DateTime? @map("completed_at")
-    latencyMs        Int?      @map("latency_ms")
-    promptTokens     Int?      @map("prompt_tokens")
-    completionTokens Int?      @map("completion_tokens")
-    totalTokens      Int?      @map("total_tokens")
-    estimatedCost    Decimal?  @map("estimated_cost") @db.Decimal(12, 6)
-    evalScore        Int?      @map("eval_score")
+  id               String    @id @default(uuid()) @db.Uuid
+  type             String
+  status           JobStatus @default(queued)
+  input            Json
+  result           Json?
+  error            String?
+  attempts         Int       @default(0)
+  maxAttempts      Int       @default(3) @map("max_attempts")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  startedAt        DateTime? @map("started_at")
+  completedAt      DateTime? @map("completed_at")
+  latencyMs        Int?      @map("latency_ms")
+  promptTokens     Int?      @map("prompt_tokens")
+  completionTokens Int?      @map("completion_tokens")
+  totalTokens      Int?      @map("total_tokens")
+  estimatedCost    Decimal?  @map("estimated_cost") @db.Decimal(12, 6)
+  evalScore        Int?      @map("eval_score")
 
-    traces Trace[]
-    evals  Eval[]
+  traces Trace[]
+  evals  Eval[]
 
-    @@index([status, createdAt])
-    @@map("jobs")
+  @@index([status, createdAt])
+  @@map("jobs")
 }
 
 model Trace {
-    id        String   @id @default(uuid()) @db.Uuid
-    jobId     String   @map("job_id") @db.Uuid
-    stepName  String   @map("step_name")
-    input     Json?
-    output    Json?
-    latencyMs Int?     @map("latency_ms")
-    createdAt DateTime @default(now()) @map("created_at")
+  id        String   @id @default(uuid()) @db.Uuid
+  jobId     String   @map("job_id") @db.Uuid
+  stepName  String   @map("step_name")
+  input     Json?
+  output    Json?
+  latencyMs Int?     @map("latency_ms")
+  createdAt DateTime @default(now()) @map("created_at")
 
-    job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
-    @@index([jobId])
-    @@map("traces")
+  @@index([jobId])
+  @@map("traces")
 }
 
 model Eval {
-    id                String   @id @default(uuid()) @db.Uuid
-    jobId             String   @map("job_id") @db.Uuid
-    validJson         Boolean  @map("valid_json")
-    hasRequiredFields Boolean  @map("has_required_fields")
-    notes             String?
-    createdAt         DateTime @default(now()) @map("created_at")
-    job               Job      @relation(fields: [jobId], references: [id])
+  id                  String   @id @default(uuid()) @db.Uuid
+  jobId               String   @map("job_id") @db.Uuid
+  validJson           Boolean  @map("valid_json")
+  hasRequiredFields   Boolean  @map("has_required_fields")
+  evidenceIncluded    Boolean  @map("evidence_included")
+  evidenceSupported   Boolean  @map("evidence_supported")
+  reasonableRiskLabel Boolean  @map("reasonable_risk_label")
+  taskCompletionScore Int      @map("task_completion_score")
+  notes               String?
+  createdAt           DateTime @default(now()) @map("created_at")
 
-    @@index([jobId])
-    @@map("evals")
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@map("evals")
 }
