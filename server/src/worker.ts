@@ -6,6 +6,8 @@ import {
     getUserEvents,
 } from "./analyticsTools.js";
 import { addTrace, claimNextJob, completeJob } from "./jobs.js";
+import { parseLlmJson, validateRetentionOutput } from "./evaluator.js";
+import { buildRetentionPrompt, callLlm } from "./llm.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
 
@@ -19,30 +21,6 @@ async function timed<T>(fn: () => Promise<T>) {
         output,
         latencyMs: Date.now() - startedAt,
     };
-}
-
-function getRiskLabel(summary: {
-    activeDaysLast30: number;
-    activeDaysPrevious30: number;
-    supportTicketsLast30: number;
-    npsScore: number;
-}) {
-    const activityDrop =
-        summary.activeDaysPrevious30 - summary.activeDaysLast30;
-
-    if (
-        summary.npsScore <= 4 ||
-        summary.supportTicketsLast30 >= 2 ||
-        activityDrop >= 10
-    ) {
-        return "high";
-    }
-
-    if (summary.npsScore <= 6 || activityDrop >= 5) {
-        return "medium";
-    }
-
-    return "low";
 }
 
 async function processJob(job: { id: string; input: unknown }) {
@@ -89,56 +67,56 @@ async function processJob(job: { id: string; input: unknown }) {
         latencyMs: retentionSummary.latencyMs,
     });
 
-    const risk = getRiskLabel(retentionSummary.output);
-
-    const result = {
-        summary: `User ${userId} has ${risk} retention risk based on recent activity, feature usage,
-          subscription state, and NPS.`,
-        retentionRisk: risk,
-        evidence: [
-            `Active days changed from ${retentionSummary.output.activeDaysPrevious30} to
-              ${retentionSummary.output.activeDaysLast30}.`,
-            `Support tickets in last 30 days: ${retentionSummary.output.supportTicketsLast30}.`,
-            `NPS score is ${retentionSummary.output.npsScore}.`,
-        ],
-        recommendedActions:
-            risk === "high"
-                ? [
-                      "Schedule customer success outreach.",
-                      "Offer a workflow review focused on underused features.",
-                  ]
-                : risk === "medium"
-                  ? [
-                        "Send targeted enablement content.",
-                        "Monitor usage trend over the next week.",
-                    ]
-                  : [
-                        "Continue normal lifecycle messaging.",
-                        "Invite the user to try advanced features.",
-                    ],
+    const snapshot = {
+        events: events.output,
+        featureUsage: featureUsage.output,
+        subscriptionHistory: subscriptionHistory.output,
+        retentionSummary: retentionSummary.output,
     };
+
+    const prompt = buildRetentionPrompt(userId, snapshot);
+
+    const llmCall = await timed(() => callLlm(prompt, snapshot));
 
     await addTrace({
         jobId: job.id,
-        stepName: "mock_analysis",
+        stepName: "llm_call",
         input: {
-            events: events.output,
-            featureUsage: featureUsage.output,
-            subscriptionHistory: subscriptionHistory.output,
-            retentionSummary: retentionSummary.output,
+            provider: process.env.LLM_PROVIDER ?? "mock",
+            prompt,
         },
-        output: result,
-        latencyMs: Date.now() - startedAt,
+        output: {
+            text: llmCall.output.text,
+            promptTokens: llmCall.output.promptTokens,
+            completionTokens: llmCall.output.completionTokens,
+            totalTokens: llmCall.output.totalTokens,
+            estimatedCost: llmCall.output.estimatedCost,
+        },
+        latencyMs: llmCall.latencyMs,
     });
+
+    const parsed = parseLlmJson(llmCall.output.text);
+
+    if (!parsed.validJson) {
+        throw new Error("LLM returned invalid JSON");
+    }
+
+    const validation = validateRetentionOutput(parsed.parsed);
+
+    if (!validation.success) {
+        throw new Error(
+            `LLM output failed schema validation: ${validation.error.message}`,
+        );
+    }
 
     await completeJob({
         id: job.id,
-        result,
+        result: validation.data,
         latencyMs: Date.now() - startedAt,
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
-        estimatedCost: 0,
+        promptTokens: llmCall.output.promptTokens,
+        completionTokens: llmCall.output.completionTokens,
+        totalTokens: llmCall.output.totalTokens,
+        estimatedCost: llmCall.output.estimatedCost,
     });
 
     console.log(`Completed job ${job.id}`);
