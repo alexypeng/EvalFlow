@@ -92,3 +92,26 @@ export async function claimNextJob() {
 
     return jobs[0] ?? null;
 }
+
+export async function completeJob(
+    id: string,
+    result: Prisma.InputJsonValue,
+    latencyMs: number,
+) {
+    return prisma.job.update({
+        where: {
+            id,
+        },
+        data: {
+            status: "completed",
+            result,
+            completedAt: new Date(),
+            latencyMs,
+            promptTokens: 120,
+            completionTokens: 80,
+            totalTokens: 200,
+            estimatedCost: 0,
+            evalScore: 100,
+        },
+    });
+}
