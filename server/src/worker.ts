@@ -5,7 +5,7 @@ import {
     getSubscriptionHistory,
     getUserEvents,
 } from "./analyticsTools.js";
-import { addTrace, claimNextJob, completeJob } from "./jobs.js";
+import { addTrace, claimNextJob, completeJob, failOrRetryJob } from "./jobs.js";
 import { parseLlmJson, validateRetentionOutput } from "./evaluator.js";
 import { buildRetentionPrompt, callLlm } from "./llm.js";
 
@@ -23,7 +23,12 @@ async function timed<T>(fn: () => Promise<T>) {
     };
 }
 
-async function processJob(job: { id: string; input: unknown }) {
+async function processJob(job: {
+    id: string;
+    input: unknown;
+    attempts: number;
+    maxAttempts: number;
+}) {
     const startedAt = Date.now();
 
     const input = job.input as { userId: string };
@@ -129,7 +134,20 @@ async function poll() {
 
     console.log(`Claimed job ${job.id}`);
 
-    await processJob(job);
+    try {
+        await processJob(job);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        await failOrRetryJob({
+            id: job.id,
+            attempts: job.attempts,
+            maxAttempts: job.maxAttempts,
+            error: message,
+        });
+
+        console.error(`Job ${job.id} failed`, error);
+    }
 }
 
 setInterval(() => {

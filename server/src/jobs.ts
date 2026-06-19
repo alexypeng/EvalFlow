@@ -119,6 +119,26 @@ export async function completeJob(params: {
     });
 }
 
+export async function failOrRetryJob(params: {
+    id: string;
+    attempts: number;
+    maxAttempts: number;
+    error: string;
+}) {
+    const shouldRetry = params.attempts < params.maxAttempts;
+
+    return prisma.job.update({
+        where: {
+            id: params.id,
+        },
+        data: {
+            status: shouldRetry ? "queued" : "failed",
+            error: params.error,
+            completedAt: shouldRetry ? null : new Date()
+        }
+    });
+}
+
 export async function addTrace(params: {
     jobId: string;
     stepName: string;
