@@ -133,3 +133,34 @@ export async function addTrace(params: {
         },
     });
 }
+
+export async function getJobDetails(id: string) {
+    const job = await prisma.job.findUnique({
+        where: {
+            id,
+        },
+        include: {
+            traces: {
+                orderBy: {
+                    createdAt: "asc",
+                },
+            },
+            evals: {
+                orderBy: {
+                    createdAt: "desc",
+                },
+                take: 1,
+            },
+        },
+    });
+
+    if (!job) {
+        return null;
+    }
+
+    return {
+        job,
+        traces: job.traces,
+        eval: job.evals[0] ?? null,
+    };
+}

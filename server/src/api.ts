@@ -2,7 +2,7 @@ import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { checkDatabaseConnection } from "./db.js";
-import { createJob, getJobById, listJobs } from "./jobs.js";
+import { createJob, getJobDetails, listJobs } from "./jobs.js";
 import { CreateJobSchema } from "./types.js";
 
 const app = Fastify({
@@ -36,15 +36,15 @@ app.get("/jobs", async () => {
 });
 
 app.get<{ Params: { id: string } }>("/jobs/:id", async (request, reply) => {
-    const job = await getJobById(request.params.id);
+    const details = await getJobDetails(request.params.id);
 
-    if (!job) {
+    if (!details) {
         return reply.code(404).send({
             error: "Job not found",
         });
     }
 
-    return job;
+    return details;
 });
 
 app.get("/health", async () => {
