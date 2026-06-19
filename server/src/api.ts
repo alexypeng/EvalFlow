@@ -1,7 +1,7 @@
 import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { checkDatabaseConnection } from "./db.js";
+import { checkDatabaseConnection, migrate } from "./db.js";
 
 const app = Fastify({
     logger: true,
@@ -10,6 +10,8 @@ const app = Fastify({
 await app.register(cors, {
     origin: true,
 });
+
+await migrate();
 
 app.get("/health", async () => {
     const db = await checkDatabaseConnection();
