@@ -131,7 +131,15 @@ async function processJob(job: { id: string; input: unknown }) {
         latencyMs: Date.now() - startedAt,
     });
 
-    await completeJob(job.id, result, Date.now() - startedAt);
+    await completeJob({
+        id: job.id,
+        result,
+        latencyMs: Date.now() - startedAt,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        estimatedCost: 0,
+    });
 
     console.log(`Completed job ${job.id}`);
 }
