@@ -115,6 +115,8 @@ export async function completeJob(params: {
             promptTokens: params.promptTokens,
             completionTokens: params.completionTokens,
             totalTokens: params.totalTokens,
+            estimatedCost: params.estimatedCost,
+            evalScore: params.evalScore,
         },
     });
 }
@@ -134,8 +136,32 @@ export async function failOrRetryJob(params: {
         data: {
             status: shouldRetry ? "queued" : "failed",
             error: params.error,
-            completedAt: shouldRetry ? null : new Date()
-        }
+            completedAt: shouldRetry ? null : new Date(),
+        },
+    });
+}
+
+export async function createEval(params: {
+    jobId: string;
+    validJson: boolean;
+    hasRequiredFields: boolean;
+    evidenceIncluded: boolean;
+    evidenceSupported: boolean;
+    reasonableRiskLabel: boolean;
+    taskCompletionScore: number;
+    notes: string;
+}) {
+    return prisma.eval.create({
+        data: {
+            jobId: params.jobId,
+            validJson: params.validJson,
+            hasRequiredFields: params.hasRequiredFields,
+            evidenceIncluded: params.evidenceIncluded,
+            evidenceSupported: params.evidenceSupported,
+            reasonableRiskLabel: params.reasonableRiskLabel,
+            taskCompletionScore: params.taskCompletionScore,
+            notes: params.notes,
+        },
     });
 }
 

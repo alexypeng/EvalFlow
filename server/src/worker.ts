@@ -5,8 +5,18 @@ import {
     getSubscriptionHistory,
     getUserEvents,
 } from "./analyticsTools.js";
-import { addTrace, claimNextJob, completeJob, failOrRetryJob } from "./jobs.js";
-import { parseLlmJson, validateRetentionOutput } from "./evaluator.js";
+import {
+    addTrace,
+    claimNextJob,
+    completeJob,
+    failOrRetryJob,
+    createEval,
+} from "./jobs.js";
+import {
+    parseLlmJson,
+    validateRetentionOutput,
+    scoreRetentionAnalysis,
+} from "./evaluator.js";
 import { buildRetentionPrompt, callLlm } from "./llm.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
@@ -114,6 +124,24 @@ async function processJob(job: {
         );
     }
 
+    const evalResult = scoreRetentionAnalysis({
+        output: validation.data,
+        snapshot,
+        validJson: parsed.validJson,
+        hasRequiredFields: validation.success,
+    });
+
+    await createEval({
+        jobId: job.id,
+        validJson: evalResult.validJson,
+        hasRequiredFields: evalResult.hasRequiredFields,
+        evidenceIncluded: evalResult.evidenceIncluded,
+        evidenceSupported: evalResult.evidenceSupported,
+        reasonableRiskLabel: evalResult.reasonableRiskLabel,
+        taskCompletionScore: evalResult.taskCompletionScore,
+        notes: evalResult.notes,
+    });
+
     await completeJob({
         id: job.id,
         result: validation.data,
@@ -122,6 +150,7 @@ async function processJob(job: {
         completionTokens: llmCall.output.completionTokens,
         totalTokens: llmCall.output.totalTokens,
         estimatedCost: llmCall.output.estimatedCost,
+        evalScore: evalResult.taskCompletionScore,
     });
 
     console.log(`Completed job ${job.id}`);
