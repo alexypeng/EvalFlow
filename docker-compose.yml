@@ -10,5 +10,33 @@ services:
         volumes:
             - evalflow_postgres:/var/lib/postgresql/data
 
+    api:
+        build:
+            context: .
+            dockerfile: server/Dockerfile
+        environment:
+            DATABASE_URL: postgresql://postgres:postgres@postgres:5432/evalflow
+            GEMINI_API_KEY:
+            LLM_PROVIDER: mock
+            PORT: 3000
+        ports:
+            - "3000:3000"
+        depends_on:
+            - postgres
+        command:
+            ["sh", "-c", "pnpm exec prisma migrate deploy && pnpm start:api"]
+    worker:
+        build:
+            context: .
+            dockerfile: server/Dockerfile
+        environment:
+            DATABASE_URL: postgresql://postgres:postgres@postgres:5432/evalflow
+            GEMINI_API_KEY:
+            LLM_PROVIDER: mock
+        depends_on:
+            - postgres
+        command:
+            ["sh", "-c", "pnpm exec prisma migrate deploy && pnpm start:worker"]
+
 volumes:
     evalflow_postgres:
