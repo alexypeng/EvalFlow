@@ -60,23 +60,44 @@ export type Metrics = {
     totalTokens: number;
 };
 
+async function parseResponseError(response: Response, fallback: string) {
+    try {
+        const body = (await response.json()) as { error?: unknown; message?: unknown };
+        const detail = body.message ?? body.error;
+
+        if (typeof detail === "string") {
+            return `${fallback}: ${detail}`;
+        }
+    } catch {
+        // Fall back to the generic message below.
+    }
+
+    return fallback;
+}
+
 export async function listJobs(): Promise<Job[]> {
     const response = await fetch(`${API_URL}/jobs`);
     if (!response.ok) {
-        throw new Error("Failed to fetch jobs");
+        throw new Error(await parseResponseError(response, "Failed to fetch jobs"));
     }
     return response.json();
 }
 
 export async function getJobDetails(id: string): Promise<JobDetails> {
     const response = await fetch(`${API_URL}/jobs/${id}`);
-    if (!response.ok) throw new Error("Failed to fetch job details");
+    if (!response.ok) {
+        throw new Error(
+            await parseResponseError(response, "Failed to fetch job details"),
+        );
+    }
     return response.json();
 }
 
 export async function getMetrics(): Promise<Metrics> {
     const response = await fetch(`${API_URL}/metrics`);
-    if (!response.ok) throw new Error("Failed to fetch metrics");
+    if (!response.ok) {
+        throw new Error(await parseResponseError(response, "Failed to fetch metrics"));
+    }
     return response.json();
 }
 
@@ -92,7 +113,9 @@ export async function createJob(userId: string): Promise<Job> {
         }),
     });
 
-    if (!response.ok) throw new Error("Failed to create job");
+    if (!response.ok) {
+        throw new Error(await parseResponseError(response, "Failed to create job"));
+    }
     return response.json();
 }
 
@@ -101,6 +124,8 @@ export async function retryJob(id: string): Promise<Job> {
         method: "POST",
     });
 
-    if (!response.ok) throw new Error("Failed to retry job");
+    if (!response.ok) {
+        throw new Error(await parseResponseError(response, "Failed to retry job"));
+    }
     return response.json();
 }
