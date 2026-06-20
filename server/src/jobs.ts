@@ -259,7 +259,7 @@ export async function addTrace(params: {
 }
 
 export async function getJobDetails(id: string) {
-    const job = await prisma.job.findUnique({
+    const details = await prisma.job.findUnique({
         where: {
             id,
         },
@@ -278,13 +278,15 @@ export async function getJobDetails(id: string) {
         },
     });
 
-    if (!job) {
+    if (!details) {
         return null;
     }
 
+    const { traces, evals, ...job } = details;
+
     return {
         job,
-        traces: job.traces,
-        eval: job.evals[0] ?? null,
+        traces,
+        eval: evals[0] ?? null,
     };
 }
