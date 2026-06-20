@@ -2,7 +2,13 @@ import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { checkDatabaseConnection } from "./db.js";
-import { createJob, getJobDetails, listJobs } from "./jobs.js";
+import {
+    createJob,
+    getJobDetails,
+    getMetrics,
+    listJobs,
+    retryJob,
+} from "./jobs.js";
 import { CreateJobSchema } from "./types.js";
 
 const app = Fastify({
@@ -45,6 +51,32 @@ app.get<{ Params: { id: string } }>("/jobs/:id", async (request, reply) => {
     }
 
     return details;
+});
+
+app.post<{ Params: { id: string } }>(
+    "/jobs/:id/retry",
+    async (request, reply) => {
+        const result = await retryJob(request.params.id);
+
+        if (!result.ok && result.reason === "not_found") {
+            return reply.code(404).send({
+                error: "Job not found",
+            });
+        }
+
+        if (!result.ok && result.reason === "not_failed") {
+            return reply.code(409).send({
+                error: "Only failed jobs can be retried",
+                status: result.job.status,
+            });
+        }
+
+        return result.job;
+    },
+);
+
+app.get("/metrics", async () => {
+    return getMetrics();
 });
 
 app.get("/health", async () => {

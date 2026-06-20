@@ -33,6 +33,37 @@ export async function getJobById(id: string) {
     });
 }
 
+export async function getMetrics() {
+    const [totalJobs, completedJobs, failedJobs, aggregates] =
+        await Promise.all([
+            prisma.job.count(),
+            prisma.job.count({
+                where: { status: "completed" },
+            }),
+            prisma.job.count({
+                where: { status: "failed" },
+            }),
+            prisma.job.aggregate({
+                _avg: {
+                    latencyMs: true,
+                    evalScore: true,
+                },
+                _sum: {
+                    totalTokens: true,
+                },
+            }),
+        ]);
+
+    return {
+        totalJobs,
+        completedJobs,
+        failedJobs,
+        averageLatencyMs: aggregates._avg.latencyMs,
+        averageEvalScore: aggregates._avg.evalScore,
+        totalTokens: aggregates._sum.totalTokens ?? 0,
+    };
+}
+
 export async function claimNextJob() {
     const jobs = await prisma.$queryRaw<
         Array<{
@@ -139,6 +170,50 @@ export async function failOrRetryJob(params: {
             completedAt: shouldRetry ? null : new Date(),
         },
     });
+}
+
+export async function retryJob(id: string) {
+    const job = await prisma.job.findUnique({
+        where: { id },
+    });
+
+    if (!job) {
+        return {
+            ok: false as const,
+            reason: "not_found" as const,
+        };
+    }
+
+    if (job.status !== "failed") {
+        return {
+            ok: false as const,
+            reason: "not_failed" as const,
+            job,
+        };
+    }
+
+    const retriedJob = await prisma.job.update({
+        where: { id },
+        data: {
+            status: "queued",
+            attemps: 0,
+            error: null,
+            result: Prisma.DbNull,
+            startedAt: null,
+            completedAt: null,
+            latencyMs: null,
+            promptTokens: null,
+            completionTokens: null,
+            totalTokens: null,
+            estimatedCost: null,
+            evalScore: null,
+        },
+    });
+
+    return {
+        ok: true as const,
+        job: retriedJob,
+    };
 }
 
 export async function createEval(params: {
