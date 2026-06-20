@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SubmitEventHandler } from "react";
+import { ChevronDown } from "lucide-react";
 import {
     createJob,
     getJobDetails,
@@ -315,14 +316,14 @@ function TopDropdowns(props: {
 
 function DropdownArrow(props: { open: boolean }) {
     return (
-        <span
+        <ChevronDown
             aria-hidden="true"
-            className={`text-xs text-slate-400 transition-transform duration-200 ${
+            size={14}
+            strokeWidth={2.25}
+            className={`text-slate-400 transition-transform duration-200 ${
                 props.open ? "rotate-180" : ""
             }`}
-        >
-            v
-        </span>
+        />
     );
 }
 
