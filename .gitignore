@@ -6,6 +6,9 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
+# macOS
+.DS_Store
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
@@ -115,6 +118,10 @@ dist
 
 # DynamoDB Local files
 .dynamodb/
+
+# Local database exports
+*.dump
+*.sql.gz
 
 # Firebase cache directory
 .firebase/
