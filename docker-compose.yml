@@ -38,5 +38,16 @@ services:
         command:
             ["sh", "-c", "pnpm exec prisma migrate deploy && pnpm start:worker"]
 
+    frontend:
+        build:
+            context: .
+            dockerfile: frontend/Dockerfile
+        environment:
+            VITE_API_URL: http://localhost:3000
+        ports:
+            - "5173:5173"
+        depends_on:
+            - api
+
 volumes:
     evalflow_postgres:
