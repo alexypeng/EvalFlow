@@ -196,7 +196,7 @@ export async function retryJob(id: string) {
         where: { id },
         data: {
             status: "queued",
-            attemps: 0,
+            attempts: 0,
             error: null,
             result: Prisma.DbNull,
             startedAt: null,
