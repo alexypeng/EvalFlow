@@ -271,18 +271,6 @@ TODO: Add traces and eval screenshot.
 - Add better cost modeling for Gemini usage.
 - Add exportable run reports.
 
-## Resume Bullets
-
-```latex
-\resumeProjectHeading
-{\textbf{\href{https://github.com/alexypeng/evalflow}{EvalFlow}} $|$ \emph{TypeScript, Node.js, PostgreSQL, Gemini API, React, Docker, Zod}}{}
-\resumeItemListStart
-\resumeItem{Built an AI agent orchestration platform with PostgreSQL-backed job execution, asynchronous worker processing, tool invocation, retries, and structured output validation.}
-\resumeItem{Implemented an evaluation layer to score LLM outputs for required fields, unsupported claims, task completion, latency, and token usage across analytics-style workflows.}
-\resumeItem{Developed an observability dashboard for agent runs, showing job status, execution traces, model latency, token usage, errors, and evaluation results.}
-\resumeItemListEnd
-```
-
 ## Maintainers
 
 - Alex Peng, GitHub: `alexypeng`
