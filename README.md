@@ -314,11 +314,17 @@ curl http://localhost:3000/health
 
 ## Screenshots
 
-TODO: Add dashboard screenshot.
+### Initial Dashboard
 
-TODO: Add completed run detail screenshot.
+![Initial dashboard](docs/screenshots/dashboard-initial.png)
 
-TODO: Add traces and eval screenshot.
+### Completed Run
+
+![Completed run](docs/screenshots/completed-run.png)
+
+### Evaluation And Traces
+
+![Evaluation and traces](docs/screenshots/eval-traces.png)
 
 ## Roadmap
 
