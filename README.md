@@ -1,4 +1,4 @@
-# EvalFlow _(evalflow)_
+# EvalFlow
 
 Local AI agent orchestration and evaluation platform.
 
