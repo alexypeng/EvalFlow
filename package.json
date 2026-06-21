@@ -2,7 +2,7 @@
     "name": "evalflow",
     "version": "0.1.0",
     "private": true,
-    "description": "",
+    "description": "Local AI agent orchestration and evaluation platform.",
     "main": "index.js",
     "scripts": {
         "dev:api": "pnpm --filter server dev:api",
