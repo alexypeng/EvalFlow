@@ -11,13 +11,14 @@ This is not a generic chatbot. The first workflow, `retention_risk_analysis`, si
 - [Background](#background)
 - [Install](#install)
 - [Usage](#usage)
+- [Environment Variables](#environment-variables)
 - [Architecture](#architecture)
+- [Workflow](#workflow)
 - [Data Model](#data-model)
 - [Reliability and Observability](#reliability-and-observability)
 - [API](#api)
 - [Screenshots](#screenshots)
 - [Roadmap](#roadmap)
-- [Resume Bullets](#resume-bullets)
 - [Maintainers](#maintainers)
 - [Contributing](#contributing)
 - [License](#license)
@@ -145,6 +146,25 @@ Example structured result:
 
 Unknown users use fallback mock analytics data, so entering a value like `user_5` still exercises the full pipeline.
 
+## Environment Variables
+
+`.env.example` contains the local development variables:
+
+```text
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/evalflow
+DOCKER_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/evalflow
+GEMINI_API_KEY=
+LLM_PROVIDER=mock
+PORT=3000
+```
+
+`LLM_PROVIDER=mock` is the default so the project can run locally without an API key. Use `LLM_PROVIDER=gemini` and set `GEMINI_API_KEY` to call Gemini instead of the mock provider.
+
+`DATABASE_URL` differs depending on where the process runs:
+
+- Inside Docker Compose, services use `postgres` as the database host.
+- Outside Docker, local processes use `localhost` as the database host.
+
 ## Architecture
 
 ```text
@@ -161,6 +181,44 @@ React dashboard
 ```
 
 The API does not execute LLM work inline. It creates durable jobs in PostgreSQL. The separate worker process polls for queued jobs, claims one safely, executes the workflow, and writes results back to the database.
+
+## Workflow
+
+The first supported workflow is `retention_risk_analysis`.
+
+Input:
+
+```json
+{
+  "type": "retention_risk_analysis",
+  "input": {
+    "userId": "user_123"
+  }
+}
+```
+
+The worker executes these steps:
+
+1. Claim the oldest queued job.
+2. Mark it `running` and increment attempts.
+3. Call mock analytics tools for events, feature usage, subscription history, and retention summary.
+4. Build an analytics snapshot and prompt.
+5. Call the configured LLM provider.
+6. Parse and validate structured JSON with Zod.
+7. Score the output with the eval rubric.
+8. Save result, traces, token usage, latency, eval details, and status.
+9. Retry failed jobs until `maxAttempts`, then mark them `failed`.
+
+Expected LLM result shape:
+
+```json
+{
+  "summary": "string",
+  "retentionRisk": "low | medium | high",
+  "evidence": ["string"],
+  "recommendedActions": ["string"]
+}
+```
 
 ## Data Model
 
