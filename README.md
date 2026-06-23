@@ -4,7 +4,7 @@ Local AI agent orchestration and evaluation platform.
 
 EvalFlow is a local-only AI platform infrastructure project. It demonstrates how an LLM workflow can be wrapped in backend systems for asynchronous execution, durable job state, tool invocation, structured output validation, eval scoring, retry behavior, traces, token usage, latency tracking, and dashboard observability.
 
-This is not a generic chatbot. The first workflow, `retention_risk_analysis`, simulates an analytics agent that gathers product usage data, calls an LLM provider, validates the response, evaluates output quality, and stores the full execution record in PostgreSQL.
+The first workflow, `retention_risk_analysis`, simulates an analytics agent that gathers product usage data, calls an LLM provider, validates the response, evaluates output quality, and stores the full execution record in PostgreSQL.
 
 ## Table of Contents
 
