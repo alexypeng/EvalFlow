@@ -14,16 +14,16 @@ _Last updated: 2026-09-27_
 
 | | |
 |---|---|
-| **Current milestone** | M0 Foundations, branch `m0-foundations` (not pushed) |
-| **Waiting on you** | Run `docker compose up --build` and complete a job from the dashboard · push and open PR · confirm CI is green |
-| **Unverified** | Full Compose stack and image builds · DB tests not yet confirmed passing (test DB container is up) · CI has never run on GitHub |
-| **Next up** | M1: decide the open questions under M1, then schema design |
+| **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
+| **Done** | M0 Foundations, merged in PR #1 |
+| **Waiting on you** | Make the three M1 decisions (ground truth, run completion, regression definition), then design the schema |
+| **Next up** | Claude writes the migration and seed dataset once the schema shape is settled |
 
 ---
 
-## M0 Foundations
+## M0 Foundations ✅
 
-Branch `m0-foundations`. Done when CI is green on a PR with the job-queue and `parseLlmJson` tests implemented.
+Merged in PR #1 (2026-09-27). Done when CI is green on a PR with the job-queue and `parseLlmJson` tests implemented.
 
 Test priority: write tests that protect code the next milestones change, and skip ones M1 would throw away. The queue tests are the safety net for the M3 lease/backoff rewrite and the first real proof the DB test setup works. The `scoreRetentionAnalysis` tests wait for M1, because ground-truth labels will likely replace the threshold rules they'd test.
 
@@ -35,11 +35,11 @@ Test priority: write tests that protect code the next milestones change, and ski
 - [x] `GEMINI_MODEL` env var, default `gemini-3.8-flash` (Claude)
 - [x] **ME** `test/db/jobs.test.ts`: all 7 tests for `claimNextJob` and `failOrRetryJob`, including the concurrent-claim test
 - [x] **ME** `test/unit/evaluator.test.ts`: the 6 `parseLlmJson` tests (leading prose before a fence locked in as a known limitation; fix in M1)
-- [ ] **ME** (optional) The substring evidence test ("4" matches "14 days"). That check likely survives M1, so it's fine to write now.
-- [ ] **You** Run `docker compose up --build`, submit a job from the dashboard, confirm it completes
+- [x] **You** Run `docker compose up --build`, submit a job from the dashboard, confirm it completes
 - [x] **You** Install Docker Desktop (WSL 2) and pnpm
-- [ ] **You** Run DB tests locally: `docker compose --profile test up -d postgres-test` then `pnpm test`
-- [ ] **You** Review the branch, push, open PR, confirm CI is green
+- [x] **You** Run DB tests locally: `docker compose --profile test up -d postgres-test` then `pnpm test`
+- [x] **You** Review the branch, push, open PR, confirm CI is green
+- Moved to M1: the optional substring evidence test
 
 ## M1 Eval datasets & runs
 
@@ -57,7 +57,8 @@ Tasks:
 - [ ] **ME** Per-run aggregates: pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total cost
 - [ ] **ME** `GET /runs/:a/compare/:b`: per-case diff and the list of regressions
 - [ ] **ME** Evaluator scores against the case's expected label (depends on the ground-truth decision)
-- [ ] **ME** `scoreRetentionAnalysis` tests, deferred from M0 (11 stubs in `evaluator.test.ts`). Write them against the new scoring; rewrite or delete the threshold stubs if the rules moved into dataset labels.
+- [ ] **ME** `scoreRetentionAnalysis` tests, deferred from M0 (11 stubs in `evaluator.test.ts`). Write them against the new scoring; rewrite or delete the threshold stubs if the rules moved into dataset labels. Includes the substring evidence test ("4" matches "14 days").
+- [ ] **ME** Decide on `parseLlmJson` and prose before a fence (locked in as a known limitation in M0); fix it if real Gemini output hits it
 - [ ] **Claude** Versioned prompt files (`prompts/retention/v1.md`, `v2.md`); runs record which version they used
 - [ ] **Claude** Configurable mock failure modes (invalid JSON, wrong label, missing evidence, added latency), seeded by case ID so runs are reproducible
 - [ ] **Claude** Dashboard: runs list and compare view
@@ -183,3 +184,4 @@ Done when: the README has real numbers and an explanation of what limited throug
 - **2026-09-27 (later):** You wrote all 7 `jobs.test.ts` tests, including the 50-claims/20-jobs concurrency test. Tried the lock-removal experiment: removing the lock did not reliably make the concurrency test fail (race is timing-dependent). You re-committed the branch as your own commits.
 - **2026-09-27 (later):** You wrote the 6 `parseLlmJson` tests. Decided to lock in "prose before a fence does not parse" as a known limitation and revisit in M1 with real Gemini output.
 - **2026-09-27 (later):** First `docker compose up --build` failed. Two causes: no `.dockerignore`, so local Windows `node_modules` overwrote the image's; and `prisma generate` needs `DATABASE_URL` at build time. Added `.dockerignore` and a build-only placeholder URL in `server/Dockerfile`; both images build.
+- **2026-09-27 (later):** M0 merged (PR #1): Compose stack runs, CI green. Starting M1 on `m1-datasets`.
