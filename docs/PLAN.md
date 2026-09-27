@@ -16,7 +16,7 @@ _Last updated: 2026-09-27_
 |---|---|
 | **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
 | **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | Make the three M1 decisions (ground truth, run completion, regression definition), then design the schema |
+| **Waiting on you** | Design the M1 schema (`Dataset`, `DatasetCase`, `Run`, job links); the three M1 decisions are made |
 | **Next up** | Claude writes the migration and seed dataset once the schema shape is settled |
 
 ---
@@ -45,10 +45,10 @@ Test priority: write tests that protect code the next milestones change, and ski
 
 Turns "run one job" into "run a dataset and compare results", the core of an eval platform. Also fixes the known issue that mock runs always score 100.
 
-**Decide before starting:**
-- **Ground truth:** should each `DatasetCase` store an `expectedRisk` label that the evaluator checks against? Recommended. Today the evaluator recomputes the same rule the mock uses, which is why the score is always 100. Ground-truth labels fix that at the root.
-- **Run completion:** how does a run become `completed`? Options: the worker checks after finishing each job, or status is derived on read from the job counts. Deriving on read is simpler and can't drift.
-- **Regression definition:** a case regresses if it goes pass → fail, or if its score drops by more than a threshold? What counts as "pass"?
+**Decided (2026-09-27, see decisions log):**
+- **Ground truth:** each `DatasetCase` stores an `expectedRisk` label; the evaluator compares the LLM's label against it instead of recomputing the rule.
+- **Run completion:** derived on read from the run's job counts (finished when no job is `queued` or `running`). No stored run status.
+- **Regression definition:** pass → fail (score crosses a pass threshold, e.g. 80) is a regression and will fail the M2 gate; a score drop that still passes is a warning, reported but not blocking. Exact threshold to settle during schema/compare design.
 
 Tasks:
 - [ ] **ME** Schema design: `Dataset`, `DatasetCase` (input, expected output, tags), `Run` (dataset, prompt version, provider, model, status), `Job.runId` + `Job.caseId`. Claude writes the migration once you've settled the shape.
@@ -175,6 +175,9 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-09-27 | Migrations run in a one-shot `migrate` service, gated on a Postgres healthcheck | api and worker both migrating at startup could race. |
 | 2026-09-27 | M0 ships with queue + `parseLlmJson` tests; `scoreRetentionAnalysis` tests move to M1 | M1 likely replaces the scoring rules with ground-truth labels, so testing them now is throwaway work. Queue tests guard the M3 rewrite. |
 | 2026-09-27 | Default Gemini model pinned to `gemini-3.8-flash`, not the `-latest` alias | Eval baselines must map to a known model; an alias can change silently. |
+| 2026-09-27 | Evaluator checks against a ground-truth `expectedRisk` stored on each dataset case | The evaluator and mock shared one rule, so mock runs always scored 100. Labels make the score meaningful and match how real eval datasets work. |
+| 2026-09-27 | Run completion is derived on read from job counts, not stored | Nothing to keep in sync; avoids a race when two workers finish a run's last jobs at once. Caveat until M3: a crashed worker's job stays `running`, so its run never finishes. |
+| 2026-09-27 | Regression = pass → fail (blocks M2 gate); score drop that still passes = warning | Pass/fail is clear-cut enough to block a PR on; warnings still surface quieter declines without blocking small changes. |
 
 ## Session log
 
@@ -185,3 +188,4 @@ Done when: the README has real numbers and an explanation of what limited throug
 - **2026-09-27 (later):** You wrote the 6 `parseLlmJson` tests. Decided to lock in "prose before a fence does not parse" as a known limitation and revisit in M1 with real Gemini output.
 - **2026-09-27 (later):** First `docker compose up --build` failed. Two causes: no `.dockerignore`, so local Windows `node_modules` overwrote the image's; and `prisma generate` needs `DATABASE_URL` at build time. Added `.dockerignore` and a build-only placeholder URL in `server/Dockerfile`; both images build.
 - **2026-09-27 (later):** M0 merged (PR #1): Compose stack runs, CI green. Starting M1 on `m1-datasets`.
+- **2026-09-27 (later):** Made the three M1 decisions: ground-truth `expectedRisk` labels, run completion derived on read, pass→fail regressions with score-drop warnings.
