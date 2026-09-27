@@ -15,7 +15,7 @@ _Last updated: 2026-09-27_
 | | |
 |---|---|
 | **Current milestone** | M0 Foundations, branch `m0-foundations` (not pushed) |
-| **Waiting on you** | `jobs.test.ts`: 2 of 7 written (uncommitted), next is "ignores jobs that are not queued" · 6 `parseLlmJson` tests · run `docker compose up --build` · review the branch |
+| **Waiting on you** | Run `pnpm typecheck` + `pnpm --filter server test:db` and commit `jobs.test.ts` (7/7 written) · 6 `parseLlmJson` tests · run `docker compose up --build` · push and open PR |
 | **Unverified** | Full Compose stack and image builds · DB tests not yet confirmed passing (test DB container is up) · CI has never run on GitHub |
 | **Next up** | M1: decide the open questions under M1, then schema design |
 
@@ -33,7 +33,7 @@ Test priority: write tests that protect code the next milestones change, and ski
 - [x] Replace `setInterval` with bounded per-slot poll loop, `WORKER_CONCURRENCY` (Claude)
 - [x] One-shot `migrate` compose service; api/worker wait for it (Claude)
 - [x] `GEMINI_MODEL` env var, default `gemini-3.8-flash` (Claude)
-- [ ] **ME** `test/db/jobs.test.ts`: all 7 tests for `claimNextJob` and `failOrRetryJob`, including the concurrent-claim test. Do these first. (2/7: "claims the oldest queued job", "returns null when nothing is queued")
+- [ ] **ME** `test/db/jobs.test.ts`: all 7 tests for `claimNextJob` and `failOrRetryJob`, including the concurrent-claim test. Do these first. (7/7 written; passing not yet confirmed)
 - [ ] **ME** `test/unit/evaluator.test.ts`: the 6 `parseLlmJson` tests
 - [ ] **ME** (optional) The substring evidence test ("4" matches "14 days"). That check likely survives M1, so it's fine to write now.
 - [ ] **You** Run `docker compose up --build`, submit a job from the dashboard, confirm it completes
@@ -180,3 +180,4 @@ Done when: the README has real numbers and an explanation of what limited throug
 - **2026-09-27:** Started M0 on `m0-foundations`. Added roadmap, Vitest (unit + db projects), CI workflow, bounded poll loop, migrate service, `GEMINI_MODEL`. Created 25 TODO test stubs for you. Typecheck, unit project and server build pass locally; Docker and DB tests unverified (no Docker on this machine). Added this plan.
 - **2026-09-27 (later):** Re-prioritized M0 tests: queue + `parseLlmJson` now, `scoreRetentionAnalysis` deferred to M1. Marked the deferred block in `evaluator.test.ts`.
 - **2026-09-27 (later):** Docker Desktop and pnpm installed; `postgres-test` container running. You wrote the first 2 `jobs.test.ts` tests with a `seedJob` helper. Added test commands and layout to `AGENTS.md`.
+- **2026-09-27 (later):** You wrote all 7 `jobs.test.ts` tests, including the 50-claims/20-jobs concurrency test. Tried the lock-removal experiment: removing the lock did not reliably make the concurrency test fail (race is timing-dependent). You re-committed the branch as your own commits.
