@@ -13,7 +13,9 @@ COPY server ./server
 
 WORKDIR /app/server
 
-RUN pnpm exec prisma generate
+# prisma.config.ts requires DATABASE_URL, but generate never connects to the
+# database. The real URL is provided at runtime (see docker-compose.yml).
+RUN DATABASE_URL=postgresql://build:build@localhost:5432/build pnpm exec prisma generate
 RUN pnpm build
 
 EXPOSE 3000

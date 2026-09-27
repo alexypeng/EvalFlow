@@ -1,0 +1,16 @@
+# Dependencies and build output are produced inside the image. Local copies
+# (especially pnpm's Windows node_modules links) would overwrite them and break
+# the build.
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+
+# Never bake local secrets into images.
+**/.env
+**/.env.*
+!**/.env.example
+
+.git
+.github
+.vscode
+docs
