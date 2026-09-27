@@ -49,10 +49,12 @@ Turns "run one job" into "run a dataset and compare results", the core of an eva
 - **Ground truth:** each `DatasetCase` stores an `expectedRisk` label; the evaluator compares the LLM's label against it instead of recomputing the rule.
 - **Run completion:** derived on read from the run's job counts (finished when no job is `queued` or `running`). No stored run status.
 - **Regression definition:** pass → fail (score crosses a pass threshold, e.g. 80) is a regression and will fail the M2 gate; a score drop that still passes is a warning, reported but not blocking. Exact threshold to settle during schema/compare design.
+- **Case data:** each `DatasetCase` stores its own analytics snapshot next to `expectedRisk`. The tool functions and traces stay the same; for run jobs they return the case's snapshot, and dashboard jobs fall back to the hard-coded users in `analyticsTools.ts`.
 
 Tasks:
 - [ ] **ME** Schema design: `Dataset`, `DatasetCase` (input, expected output, tags), `Run` (dataset, prompt version, provider, model, status), `Job.runId` + `Job.caseId`. Claude writes the migration once you've settled the shape.
-- [ ] **Claude** Seed dataset file (`datasets/retention-v1.json`, ~20 cases including edge cases) and a loader script
+- [ ] **Claude** Seed dataset file (`datasets/retention-v1.json`, ~20 cases including edge cases, each with its analytics snapshot and `expectedRisk`) and a loader script
+- [ ] **Claude** Dataset-backed tools: when a job carries a case snapshot, the analytics tools return it (same functions, same traces); otherwise fall back to the hard-coded users
 - [ ] **ME** `POST /runs`: create the run and one job per case in a single transaction
 - [ ] **ME** Per-run aggregates: pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total cost
 - [ ] **ME** `GET /runs/:a/compare/:b`: per-case diff and the list of regressions
@@ -177,6 +179,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-09-27 | Default Gemini model pinned to `gemini-3.8-flash`, not the `-latest` alias | Eval baselines must map to a known model; an alias can change silently. |
 | 2026-09-27 | Evaluator checks against a ground-truth `expectedRisk` stored on each dataset case | The evaluator and mock shared one rule, so mock runs always scored 100. Labels make the score meaningful and match how real eval datasets work. |
 | 2026-09-27 | Run completion is derived on read from job counts, not stored | Nothing to keep in sync; avoids a race when two workers finish a run's last jobs at once. Caveat until M3: a crashed worker's job stays `running`, so its run never finishes. |
+| 2026-09-27 | Each dataset case stores its own analytics snapshot; tools return it for run jobs | A dataset is a fixed, self-contained fixture: data and expected answer side by side, runs stay reproducible, new cases are data not code. Tools and traces are unchanged, so the agent pipeline still exercises tool calls. |
 | 2026-09-27 | Regression = pass → fail (blocks M2 gate); score drop that still passes = warning | Pass/fail is clear-cut enough to block a PR on; warnings still surface quieter declines without blocking small changes. |
 
 ## Session log
@@ -189,3 +192,4 @@ Done when: the README has real numbers and an explanation of what limited throug
 - **2026-09-27 (later):** First `docker compose up --build` failed. Two causes: no `.dockerignore`, so local Windows `node_modules` overwrote the image's; and `prisma generate` needs `DATABASE_URL` at build time. Added `.dockerignore` and a build-only placeholder URL in `server/Dockerfile`; both images build.
 - **2026-09-27 (later):** M0 merged (PR #1): Compose stack runs, CI green. Starting M1 on `m1-datasets`.
 - **2026-09-27 (later):** Made the three M1 decisions: ground-truth `expectedRisk` labels, run completion derived on read, pass→fail regressions with score-drop warnings.
+- **2026-09-27 (later):** Decided dataset cases carry their own analytics snapshot (option b), with tools returning it for run jobs.
