@@ -9,6 +9,11 @@ export type LlmResponse = {
     estimatedCost: number;
 };
 
+// Pinned to a specific version rather than the gemini-flash-latest alias, so a
+// run's results are tied to a known model. Model IDs:
+// https://ai.google.dev/gemini-api/docs/models
+export const geminiModel = process.env.GEMINI_MODEL ?? "gemini-3.8-flash";
+
 export function buildRetentionPrompt(
     userId: string,
     snapshot: AnalyticsSnapshot,
@@ -55,7 +60,7 @@ export async function callLlm(
     if (provider === "gemini" && process.env.GEMINI_API_KEY) {
         const client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = client.getGenerativeModel({
-            model: "gemini-1.5-flash",
+            model: geminiModel,
         });
 
         const result = await model.generateContent(prompt);

@@ -154,11 +154,18 @@ Unknown users use fallback mock analytics data, so entering a value like `user_5
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/evalflow
 DOCKER_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/evalflow
 GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.8-flash
 LLM_PROVIDER=mock
 PORT=3000
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5433/evalflow_test
+WORKER_CONCURRENCY=1
 ```
 
-`LLM_PROVIDER=mock` is the default so the project can run locally without an API key. Use `LLM_PROVIDER=gemini` and set `GEMINI_API_KEY` to call Gemini instead of the mock provider.
+`LLM_PROVIDER=mock` is the default so the project can run locally without an API key. Use `LLM_PROVIDER=gemini` and set `GEMINI_API_KEY` to call Gemini instead of the mock provider. `GEMINI_MODEL` selects the model (see [Gemini models](https://ai.google.dev/gemini-api/docs/models)).
+
+`WORKER_CONCURRENCY` is the number of jobs one worker process runs at once.
+
+`TEST_DATABASE_URL` is the database used by `pnpm test`. Start it locally with `docker compose --profile test up -d postgres-test`. The name must end in `_test`, since tests truncate tables.
 
 `DATABASE_URL` differs depending on where the process runs:
 

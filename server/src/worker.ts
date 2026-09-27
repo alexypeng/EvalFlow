@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { setTimeout as sleep } from "node:timers/promises";
 import {
     getFeatureUsage,
     getRetentionSummary,
@@ -17,11 +18,20 @@ import {
     validateRetentionOutput,
     scoreRetentionAnalysis,
 } from "./evaluator.js";
-import { buildRetentionPrompt, callLlm } from "./llm.js";
+import { buildRetentionPrompt, callLlm, geminiModel } from "./llm.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
+const concurrency = Number(process.env.WORKER_CONCURRENCY ?? 1);
 
-console.log(`Worker polling every ${pollIntervalMs}ms`);
+if (!Number.isInteger(concurrency) || concurrency < 1) {
+    throw new Error(
+        `WORKER_CONCURRENCY must be a positive integer (got "${process.env.WORKER_CONCURRENCY}")`,
+    );
+}
+
+console.log(
+    `Worker running ${concurrency} slot(s), polling every ${pollIntervalMs}ms when idle`,
+);
 
 async function timed<T>(fn: () => Promise<T>) {
     const startedAt = Date.now();
@@ -98,6 +108,7 @@ async function processJob(job: {
         stepName: "llm_call",
         input: {
             provider: process.env.LLM_PROVIDER ?? "mock",
+            model: process.env.LLM_PROVIDER === "gemini" ? geminiModel : null,
             prompt,
         },
         output: {
@@ -156,10 +167,11 @@ async function processJob(job: {
     console.log(`Completed job ${job.id}`);
 }
 
-async function poll() {
+// Claims and processes at most one job. Returns false if the queue was empty.
+async function runOnce() {
     const job = await claimNextJob();
 
-    if (!job) return;
+    if (!job) return false;
 
     console.log(`Claimed job ${job.id}`);
 
@@ -177,12 +189,33 @@ async function poll() {
 
         console.error(`Job ${job.id} failed`, error);
     }
+
+    return true;
 }
 
-setInterval(() => {
-    poll().catch((error) => {
-        console.error("Worker poll failed", error);
-    });
-}, pollIntervalMs);
+// Previously this used setInterval(poll, pollIntervalMs). setInterval fires on
+// a fixed clock and doesn't wait for the previous poll to finish, so if a job
+// took longer than the interval a new poll started anyway and claimed another
+// job. Concurrency was therefore accidental: it grew with job latency, with
+// no upper bound. Now each slot is a sequential loop: it only claims its next
+// job after the current one finishes, and only sleeps when the queue is
+// empty. Total in-flight jobs per process is exactly WORKER_CONCURRENCY.
+async function workerLoop(slot: number) {
+    while (true) {
+        try {
+            const claimed = await runOnce();
 
-await poll();
+            if (!claimed) {
+                await sleep(pollIntervalMs);
+            }
+        } catch (error) {
+            // e.g. the database is unreachable. Back off instead of spinning.
+            console.error(`Worker slot ${slot} poll failed`, error);
+            await sleep(pollIntervalMs);
+        }
+    }
+}
+
+await Promise.all(
+    Array.from({ length: concurrency }, (_, slot) => workerLoop(slot)),
+);

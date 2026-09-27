@@ -9,6 +9,40 @@ services:
             - "5432:5432"
         volumes:
             - evalflow_postgres:/var/lib/postgresql/data
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U postgres -d evalflow"]
+            interval: 2s
+            timeout: 5s
+            retries: 15
+
+    # Throwaway database for `pnpm --filter server test`. Only started with
+    # `docker compose --profile test up -d postgres-test`. tmpfs = no state
+    # survives a restart, which is what we want for tests.
+    postgres-test:
+        image: postgres:16
+        profiles: ["test"]
+        environment:
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: postgres
+            POSTGRES_DB: evalflow_test
+        ports:
+            - "5433:5432"
+        tmpfs:
+            - /var/lib/postgresql/data
+
+    # One-shot: applies migrations, then exits. api and worker wait for it to
+    # exit 0, so migrations run exactly once instead of racing at startup.
+    migrate:
+        build:
+            context: .
+            dockerfile: server/Dockerfile
+        environment:
+            DATABASE_URL: postgresql://postgres:postgres@postgres:5432/evalflow
+        depends_on:
+            postgres:
+                condition: service_healthy
+        command: ["pnpm", "exec", "prisma", "migrate", "deploy"]
+        restart: "no"
 
     api:
         build:
@@ -22,9 +56,10 @@ services:
         ports:
             - "3000:3000"
         depends_on:
-            - postgres
-        command:
-            ["sh", "-c", "pnpm exec prisma migrate deploy && pnpm start:api"]
+            migrate:
+                condition: service_completed_successfully
+        command: ["pnpm", "start:api"]
+
     worker:
         build:
             context: .
@@ -32,11 +67,13 @@ services:
         environment:
             DATABASE_URL: postgresql://postgres:postgres@postgres:5432/evalflow
             GEMINI_API_KEY:
+            GEMINI_MODEL: gemini-3.8-flash
             LLM_PROVIDER: mock
+            WORKER_CONCURRENCY: 1
         depends_on:
-            - postgres
-        command:
-            ["sh", "-c", "pnpm exec prisma migrate deploy && pnpm start:worker"]
+            migrate:
+                condition: service_completed_successfully
+        command: ["pnpm", "start:worker"]
 
     frontend:
         build:
