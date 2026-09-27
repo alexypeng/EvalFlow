@@ -15,7 +15,7 @@ _Last updated: 2026-09-27_
 | | |
 |---|---|
 | **Current milestone** | M0 Foundations, branch `m0-foundations` (not pushed) |
-| **Waiting on you** | Run `pnpm typecheck` + `pnpm --filter server test:db` and commit `jobs.test.ts` (7/7 written) · 6 `parseLlmJson` tests · run `docker compose up --build` · push and open PR |
+| **Waiting on you** | Run `docker compose up --build` and complete a job from the dashboard · push and open PR · confirm CI is green |
 | **Unverified** | Full Compose stack and image builds · DB tests not yet confirmed passing (test DB container is up) · CI has never run on GitHub |
 | **Next up** | M1: decide the open questions under M1, then schema design |
 
@@ -33,8 +33,8 @@ Test priority: write tests that protect code the next milestones change, and ski
 - [x] Replace `setInterval` with bounded per-slot poll loop, `WORKER_CONCURRENCY` (Claude)
 - [x] One-shot `migrate` compose service; api/worker wait for it (Claude)
 - [x] `GEMINI_MODEL` env var, default `gemini-3.8-flash` (Claude)
-- [ ] **ME** `test/db/jobs.test.ts`: all 7 tests for `claimNextJob` and `failOrRetryJob`, including the concurrent-claim test. Do these first. (7/7 written; passing not yet confirmed)
-- [ ] **ME** `test/unit/evaluator.test.ts`: the 6 `parseLlmJson` tests
+- [x] **ME** `test/db/jobs.test.ts`: all 7 tests for `claimNextJob` and `failOrRetryJob`, including the concurrent-claim test
+- [x] **ME** `test/unit/evaluator.test.ts`: the 6 `parseLlmJson` tests (leading prose before a fence locked in as a known limitation; fix in M1)
 - [ ] **ME** (optional) The substring evidence test ("4" matches "14 days"). That check likely survives M1, so it's fine to write now.
 - [ ] **You** Run `docker compose up --build`, submit a job from the dashboard, confirm it completes
 - [x] **You** Install Docker Desktop (WSL 2) and pnpm
@@ -181,3 +181,4 @@ Done when: the README has real numbers and an explanation of what limited throug
 - **2026-09-27 (later):** Re-prioritized M0 tests: queue + `parseLlmJson` now, `scoreRetentionAnalysis` deferred to M1. Marked the deferred block in `evaluator.test.ts`.
 - **2026-09-27 (later):** Docker Desktop and pnpm installed; `postgres-test` container running. You wrote the first 2 `jobs.test.ts` tests with a `seedJob` helper. Added test commands and layout to `AGENTS.md`.
 - **2026-09-27 (later):** You wrote all 7 `jobs.test.ts` tests, including the 50-claims/20-jobs concurrency test. Tried the lock-removal experiment: removing the lock did not reliably make the concurrency test fail (race is timing-dependent). You re-committed the branch as your own commits.
+- **2026-09-27 (later):** You wrote the 6 `parseLlmJson` tests. Decided to lock in "prose before a fence does not parse" as a known limitation and revisit in M1 with real Gemini output.

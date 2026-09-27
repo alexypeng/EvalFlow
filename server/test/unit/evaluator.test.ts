@@ -1,4 +1,5 @@
-import { describe, it } from "vitest";
+import { describe, it, expect } from "vitest";
+import { parseLlmJson } from "../../src/evaluator.js";
 
 // TODO(ME): implement these. Pure functions, no DB needed.
 // Import from "../../src/evaluator.js".
@@ -10,27 +11,47 @@ import { describe, it } from "vitest";
 
 describe("parseLlmJson", () => {
     // Input: '{"a":1}'. Expect { validJson: true, parsed: { a: 1 } }.
-    it.todo("parses plain JSON");
+    it("parses plain JSON", async () => {
+        const parsed = parseLlmJson('{"a":1}');
+
+        expect(parsed).toEqual({ validJson: true, parsed: { a: 1 } });
+    });
 
     // Input wrapped in ```json ... ``` (with newlines, like Gemini returns).
     // Expect the fences stripped and validJson: true.
-    it.todo("strips ```json fences");
+    it("strips ```json fences", async () => {
+        const parsed = parseLlmJson('```json\n{"a":1}\n```');
+
+        expect(parsed).toEqual({ validJson: true, parsed: { a: 1 } });
+    });
 
     // Same, but a bare ``` fence with no language tag.
-    it.todo("strips bare ``` fences");
+    it("strips bare ``` fences", async () => {
+        const parsed = parseLlmJson('```{"a":1}```');
+        expect(parsed).toEqual({ validJson: true, parsed: { a: 1 } });
+    });
 
     // Leading/trailing whitespace around a fenced block should still parse
     // (the function calls .trim() first).
-    it.todo("tolerates surrounding whitespace");
+    it("tolerates surrounding whitespace", async () => {
+        const parsed = parseLlmJson('    \n```{"a":1}```\n    ');
+        expect(parsed).toEqual({ validJson: true, parsed: { a: 1 } });
+    });
 
     // Input: 'not json' or '{"a":'. Expect { validJson: false, parsed: null }
     // and that it does NOT throw.
-    it.todo("returns validJson=false for invalid JSON instead of throwing");
+    it("returns validJson=false for invalid JSON instead of throwing", async () => {
+        const parsed = parseLlmJson('{"a":');
+        expect(parsed).toEqual({ validJson: false, parsed: null });
+    });
 
     // Worth pinning down current behavior: prose before the fence, e.g.
     // 'Here you go:\n```json\n{...}\n```'. Today this fails to parse.
     // Decide whether that's a bug you want to fix or behavior to lock in.
-    it.todo("handles prose before a fenced block");
+    it("does not parse JSON after leading prose (known limitation)", async () => {
+        const parsed = parseLlmJson('Here you go:\n```json\n{"a":1}\n```');
+        expect(parsed).toEqual({ validJson: false, parsed: null });
+    });
 });
 
 // DEFERRED TO M1 (see docs/PLAN.md), except the substring test below, which is
