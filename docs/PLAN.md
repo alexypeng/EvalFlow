@@ -200,4 +200,13 @@ Done when: the README has real numbers and an explanation of what limited throug
 - **2026-09-28:** You designed the M1 schema. Claude generated the migration (against the throwaway test DB) and regenerated the client; typecheck passes.
 - **2026-09-28:** Claude added the retention-v1 dataset (20 cases), the dataset loader, and dataset-backed tools, with 6 new tests (19 passing). Until the evaluator scores against `expectedRisk` (ME task), mock runs will still score 100.
 - **2026-09-28 (later):** Ran `pnpm install` (server dev deps like vitest were missing on this Mac); typecheck and unit tests then passed. Claude added versioned prompts (`server/prompts/retention/v1.md` = the old inline prompt, `v2.md` = weighs subscription/events and context, aimed at the `judgment_*` cases), `input.promptVersion`, `resolveLlm()`, and the provider/model fix, plus `test/unit/llm.test.ts` (8 tests). **Unverified:** the shell stopped accepting commands partway through, so typecheck and tests were not run after these edits.
+- **2026-09-28 (later):** You approved the 4 `judgment_*` labels and chose to copy `expectedRisk` into `job.input`. Claude scaffolded `POST /runs`:
+  - `RiskLevelSchema` and optional `expectedRisk` in `JobInputSchema`
+  - a `CreateRunSchema` stub
+  - `server/src/runs.ts` with the `CreateRunResult` contract and a `createRun` TODO(ME)
+  - the route in `api.ts` (400 bad body or unknown prompt, 404 unknown dataset, 201 created)
+  - `promptVersionExists()` in `llm.ts`
+  - 7 `it.todo` stubs in `test/db/runs.test.ts`
+
+  Unverified (shell down).
 - **2026-09-28 (later):** Removed unnecessary code comments repo-wide (Prisma/Vite boilerplate, stale test instructions above implemented tests, comments restating code or duplicating the decisions log). Kept only the comments that stop someone from breaking something, plus the TODO(ME) guidance on the open `scoreRetentionAnalysis` stubs. `frontend/src/api.ts` `parseResponseError` rewritten without the empty catch. Also unverified (shell down).

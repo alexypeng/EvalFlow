@@ -52,6 +52,15 @@ async function loadPromptTemplate(version: string) {
     return template.trim();
 }
 
+export async function promptVersionExists(version: string) {
+    try {
+        await loadPromptTemplate(version);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 export async function buildRetentionPrompt(
     userId: string,
     snapshot: AnalyticsSnapshot,

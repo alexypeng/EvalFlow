@@ -52,17 +52,28 @@ export const AnalyticsSnapshotSchema = z.object({
 
 export type AnalyticsSnapshot = z.infer<typeof AnalyticsSnapshotSchema>;
 
-export const PromptVersionSchema = z
-    .string()
-    .regex(/^v\d+$/, 'Prompt version must look like "v1"');
+export const PromptVersionSchema = z.string().regex(/^v\d+$/, 'Prompt version must look like "v1"');
+
+export const RiskLevelSchema = z.enum(["low", "medium", "high"]);
 
 export const JobInputSchema = z.object({
     userId: z.string().min(1),
     snapshot: AnalyticsSnapshotSchema.optional(),
     promptVersion: PromptVersionSchema.optional(),
+    expectedRisk: RiskLevelSchema.optional(),
 });
 
 export type JobInput = z.infer<typeof JobInputSchema>;
+
+// TODO(ME): the POST /runs body. Suggested fields: datasetName, datasetVersion
+// (positive int) and promptVersion (PromptVersionSchema, default "v1").
+export const CreateRunSchema = z.object({
+    datasetName: z.string().min(1),
+    datasetVersion: z.number().int().min(1),
+    promptVersion: PromptVersionSchema.default("v1"),
+});
+
+export type CreateRunInput = z.infer<typeof CreateRunSchema>;
 
 export const DatasetFileSchema = z
     .object({
@@ -74,18 +85,14 @@ export const DatasetFileSchema = z
                     name: z.string().min(1),
                     // Not stored in the database.
                     note: z.string().optional(),
-                    expectedRisk: z.enum(["low", "medium", "high"]),
+                    expectedRisk: RiskLevelSchema,
                     snapshot: AnalyticsSnapshotSchema,
                 }),
             )
             .min(1),
     })
-    .refine(
-        (file) =>
-            new Set(file.cases.map((c) => c.name)).size === file.cases.length,
-        {
-            message: "Case names must be unique within a dataset",
-        },
-    );
+    .refine((file) => new Set(file.cases.map((c) => c.name)).size === file.cases.length, {
+        message: "Case names must be unique within a dataset",
+    });
 
 export type DatasetFile = z.infer<typeof DatasetFileSchema>;

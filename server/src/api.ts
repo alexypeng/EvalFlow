@@ -9,7 +9,8 @@ import {
     listJobs,
     retryJob,
 } from "./jobs.js";
-import { CreateJobSchema } from "./types.js";
+import { createRun } from "./runs.js";
+import { CreateJobSchema, CreateRunSchema } from "./types.js";
 
 const app = Fastify({
     logger: true,
@@ -74,6 +75,32 @@ app.post<{ Params: { id: string } }>(
         return result.job;
     },
 );
+
+app.post("/runs", async (request, reply) => {
+    const parsed = CreateRunSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+        return reply.code(400).send({
+            error: parsed.error.flatten(),
+        });
+    }
+
+    const result = await createRun(parsed.data);
+
+    if (!result.ok && result.reason === "dataset_not_found") {
+        return reply.code(404).send({
+            error: "Dataset not found",
+        });
+    }
+
+    if (!result.ok && result.reason === "unknown_prompt_version") {
+        return reply.code(400).send({
+            error: "Unknown prompt version",
+        });
+    }
+
+    return reply.code(201).send(result);
+});
 
 app.get("/metrics", async () => {
     return getMetrics();
