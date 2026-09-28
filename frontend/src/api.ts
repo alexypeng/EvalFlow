@@ -61,18 +61,13 @@ export type Metrics = {
 };
 
 async function parseResponseError(response: Response, fallback: string) {
-    try {
-        const body = (await response.json()) as { error?: unknown; message?: unknown };
-        const detail = body.message ?? body.error;
+    const body = (await response.json().catch(() => null)) as {
+        error?: unknown;
+        message?: unknown;
+    } | null;
+    const detail = body?.message ?? body?.error;
 
-        if (typeof detail === "string") {
-            return `${fallback}: ${detail}`;
-        }
-    } catch {
-        // Fall back to the generic message below.
-    }
-
-    return fallback;
+    return typeof detail === "string" ? `${fallback}: ${detail}` : fallback;
 }
 
 export async function listJobs(): Promise<Job[]> {

@@ -103,8 +103,6 @@ function fallbackSnapshot(userId: string): AnalyticsSnapshot {
     };
 }
 
-// Jobs from a dataset run pass their case's snapshot, so the tools return the
-// case's data. Dashboard jobs pass none and get the built-in mock users.
 function getSnapshot(userId: string, caseSnapshot?: AnalyticsSnapshot) {
     return caseSnapshot ?? users[userId] ?? fallbackSnapshot(userId);
 }

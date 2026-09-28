@@ -1,63 +1,44 @@
 import { describe, it, expect } from "vitest";
 import { parseLlmJson } from "../../src/evaluator.js";
 
-// TODO(ME): implement these. Pure functions, no DB needed.
-// Import from "../../src/evaluator.js".
-//
-// Tip: write a small `makeSnapshot(overrides)` helper that returns an
-// AnalyticsSnapshot with a neutral retentionSummary (e.g. nps 9, 0 tickets,
-// activeDaysLast30 === activeDaysPrevious30) so each test only sets the one
-// field it cares about.
-
 describe("parseLlmJson", () => {
-    // Input: '{"a":1}'. Expect { validJson: true, parsed: { a: 1 } }.
     it("parses plain JSON", async () => {
         const parsed = parseLlmJson('{"a":1}');
 
         expect(parsed).toEqual({ validJson: true, parsed: { a: 1 } });
     });
 
-    // Input wrapped in ```json ... ``` (with newlines, like Gemini returns).
-    // Expect the fences stripped and validJson: true.
     it("strips ```json fences", async () => {
         const parsed = parseLlmJson('```json\n{"a":1}\n```');
 
         expect(parsed).toEqual({ validJson: true, parsed: { a: 1 } });
     });
 
-    // Same, but a bare ``` fence with no language tag.
     it("strips bare ``` fences", async () => {
         const parsed = parseLlmJson('```{"a":1}```');
         expect(parsed).toEqual({ validJson: true, parsed: { a: 1 } });
     });
 
-    // Leading/trailing whitespace around a fenced block should still parse
-    // (the function calls .trim() first).
     it("tolerates surrounding whitespace", async () => {
         const parsed = parseLlmJson('    \n```{"a":1}```\n    ');
         expect(parsed).toEqual({ validJson: true, parsed: { a: 1 } });
     });
 
-    // Input: 'not json' or '{"a":'. Expect { validJson: false, parsed: null }
-    // and that it does NOT throw.
     it("returns validJson=false for invalid JSON instead of throwing", async () => {
         const parsed = parseLlmJson('{"a":');
         expect(parsed).toEqual({ validJson: false, parsed: null });
     });
 
-    // Worth pinning down current behavior: prose before the fence, e.g.
-    // 'Here you go:\n```json\n{...}\n```'. Today this fails to parse.
-    // Decide whether that's a bug you want to fix or behavior to lock in.
     it("does not parse JSON after leading prose (known limitation)", async () => {
         const parsed = parseLlmJson('Here you go:\n```json\n{"a":1}\n```');
         expect(parsed).toEqual({ validJson: false, parsed: null });
     });
 });
 
-// DEFERRED TO M1 (see docs/PLAN.md), except the substring test below, which is
-// optional now. M1 will likely score against ground-truth labels on each
-// dataset case, which replaces the threshold rules tested here. Write these
-// against the new scoring instead.
+// TODO(ME), M1: write these against the ground-truth scoring; rewrite or
+// delete the threshold stubs once the rules move into dataset labels.
+// Tip: a `makeSnapshot(overrides)` helper with a neutral retentionSummary
+// (nps 9, 0 tickets, equal active days) lets each test set one field.
 describe("scoreRetentionAnalysis", () => {
     // Score is 5 checks x 20 points. Build an output that passes every check
     // and assert taskCompletionScore === 100 and all booleans true.

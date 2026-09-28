@@ -16,10 +16,9 @@ export async function readDatasetFile(path: string): Promise<DatasetFile> {
     return parsed.data;
 }
 
-// Datasets are immutable: runs are compared case by case, so editing a
-// dataset in place would silently change what old runs mean. Loading a
-// name+version that already exists is a no-op if its cases are identical,
-// and an error if they differ (bump the version instead).
+// Datasets are immutable: editing one in place would change what old runs
+// mean. Reloading an existing name+version is a no-op if unchanged, an error
+// otherwise.
 export async function loadDataset(file: DatasetFile) {
     const existing = await prisma.dataset.findUnique({
         where: { name_version: { name: file.name, version: file.version } },
@@ -36,7 +35,6 @@ export async function loadDataset(file: DatasetFile) {
         };
     }
 
-    // Nested create runs in one transaction: all cases load, or none do.
     const created = await prisma.dataset.create({
         data: {
             name: file.name,

@@ -1,6 +1,5 @@
 import { execSync } from "node:child_process";
 
-// Runs once before the db project: bring the test database schema up to date.
 export default function setup() {
     execSync("prisma migrate deploy", {
         stdio: "inherit",

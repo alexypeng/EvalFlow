@@ -1,9 +1,6 @@
 import "dotenv/config";
 import { defineConfig } from "vitest/config";
 
-// DB tests run against a dedicated database, never the dev one.
-// Locally: `docker compose --profile test up -d postgres-test` (port 5433).
-// CI: a Postgres service container sets TEST_DATABASE_URL.
 const testDatabaseUrl =
     process.env.TEST_DATABASE_URL ??
     "postgresql://postgres:postgres@localhost:5433/evalflow_test";

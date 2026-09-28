@@ -2,7 +2,6 @@ import "dotenv/config";
 import { loadDataset, readDatasetFile } from "./datasets.js";
 import { prisma } from "./db.js";
 
-// Usage: pnpm --filter server dataset:load datasets/retention-v1.json
 const path = process.argv[2];
 
 if (!path) {

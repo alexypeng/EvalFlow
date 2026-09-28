@@ -4,19 +4,6 @@ import { prisma } from "../../src/db.js";
 import { claimNextJob, failOrRetryJob } from "../../src/jobs.js";
 import { Prisma } from "../../src/generated/prisma/client.js";
 
-// TODO(ME): implement these. They run against the real test Postgres
-// (see vitest.config.ts), because the interesting behavior lives in SQL
-// (FOR UPDATE SKIP LOCKED), which a mock can't reproduce.
-//
-// Setup:
-//   - import { resetDatabase } from "./helpers.js" and call it in beforeEach
-//   - import { prisma } from "../../src/db.js" to seed/inspect rows
-//   - import { claimNextJob, createJob, failOrRetryJob } from "../../src/jobs.js"
-//
-// createdAt defaults to now(), so jobs created back-to-back can share a
-// timestamp. When order matters, seed with prisma.job.create and set
-// createdAt explicitly.
-
 beforeEach(resetDatabase);
 
 function seedJob(overrides: Partial<Prisma.JobCreateInput> = {}) {
@@ -34,9 +21,6 @@ function secondsAgo(seconds: number) {
 }
 
 describe("claimNextJob", () => {
-    // Seed 3 queued jobs with increasing createdAt. Claim once; expect the
-    // oldest. Also assert the returned row has status "running",
-    // attempts incremented by 1, and startedAt set.
     it("claims the oldest queued job", async () => {
         const job1 = await seedJob({ createdAt: secondsAgo(3) });
         await seedJob({ createdAt: secondsAgo(2) });
@@ -50,7 +34,6 @@ describe("claimNextJob", () => {
         expect(claimed!.startedAt).toBeInstanceOf(Date);
     });
 
-    // Seed jobs in running/completed/failed states only. Expect null.
     it("returns null when nothing is queued", async () => {
         await seedJob({ status: "running" });
         await seedJob({ status: "completed" });
@@ -59,8 +42,6 @@ describe("claimNextJob", () => {
         expect(claimed).toBeNull();
     });
 
-    // Only status 'queued' is eligible. A running job that's older than a
-    // queued one must be skipped.
     it("ignores jobs that are not queued", async () => {
         await seedJob({ status: "running", createdAt: secondsAgo(3) });
         const job = await seedJob({ createdAt: secondsAgo(1) });
@@ -69,16 +50,6 @@ describe("claimNextJob", () => {
         expect(claimed!.id).toBe(job.id);
     });
 
-    // The core concurrency guarantee. Seed N queued jobs (say 20), then fire
-    // many claims at once: await Promise.all(Array.from({length: 50}, claimNextJob)).
-    // Expect: exactly N non-null results, all ids distinct, and every job in
-    // the DB is now 'running' with attempts === 1.
-    //
-    // Note: Promise.all only gives real concurrency if the pg pool has more
-    // than one connection (it does by default). Be ready to explain why
-    // SKIP LOCKED makes this safe, and what would break without it
-    // (hint: remove SKIP LOCKED and think about what the second transaction
-    // sees after the first commits).
     it("never returns the same job to two concurrent claims", async () => {
         for (let i = 0; i < 20; i++) {
             await seedJob();
@@ -102,8 +73,6 @@ describe("claimNextJob", () => {
 });
 
 describe("failOrRetryJob", () => {
-    // Job with attempts=1, maxAttempts=3. Call failOrRetryJob. Expect status
-    // back to 'queued', error saved, completedAt null.
     it("requeues when attempts < maxAttempts", async () => {
         const job = await seedJob({ status: "running", attempts: 1, maxAttempts: 3 });
 
@@ -120,9 +89,6 @@ describe("failOrRetryJob", () => {
         expect(retry.attempts).toBe(1);
     });
 
-    // Drive a job through the full loop: claim -> failOrRetry, repeated.
-    // With maxAttempts=3, after the 3rd claim+fail it should be 'failed'
-    // with completedAt set, and a 4th claimNextJob should return null.
     it("marks the job failed once attempts reach maxAttempts", async () => {
         await seedJob({ maxAttempts: 3 });
         for (let i = 0; i < 3; i++) {
@@ -146,7 +112,6 @@ describe("failOrRetryJob", () => {
         expect(claimed).toBeNull();
     });
 
-    // The error message from the latest attempt is what's stored.
     it("records the most recent error message", async () => {
         await seedJob();
 
