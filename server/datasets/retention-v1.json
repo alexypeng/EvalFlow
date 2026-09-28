@@ -1,0 +1,1016 @@
+{
+    "name": "retention",
+    "version": 1,
+    "cases": [
+        {
+            "name": "clear_high_all_signals",
+            "note": "Every signal is bad: active days fell by 17, 3 support tickets, NPS 2.",
+            "expectedRisk": "high",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "support_contact",
+                        "daysAgo": 4
+                    },
+                    {
+                        "event": "support_contact",
+                        "daysAgo": 11
+                    },
+                    {
+                        "event": "login",
+                        "daysAgo": 12
+                    },
+                    {
+                        "event": "support_contact",
+                        "daysAgo": 19
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 3,
+                        "previous30Days": 22
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 1,
+                        "previous30Days": 6
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 1,
+                        "previous30Days": 8
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_clear_high_all_signals",
+                    "activeDaysLast30": 3,
+                    "activeDaysPrevious30": 20,
+                    "supportTicketsLast30": 3,
+                    "npsScore": 2
+                }
+            }
+        },
+        {
+            "name": "high_low_nps_only",
+            "note": "Stable usage and no tickets, but NPS 3 is a strong detractor score.",
+            "expectedRisk": "high",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 2
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 3
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 17,
+                        "previous30Days": 17
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 5,
+                        "previous30Days": 5
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 6,
+                        "previous30Days": 6
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_high_low_nps_only",
+                    "activeDaysLast30": 15,
+                    "activeDaysPrevious30": 15,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 3
+                }
+            }
+        },
+        {
+            "name": "high_support_tickets_only",
+            "note": "Usage and NPS look fine, but 2 support tickets in 30 days signals friction.",
+            "expectedRisk": "high",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 2
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 3
+                    },
+                    {
+                        "event": "support_contact",
+                        "daysAgo": 4
+                    },
+                    {
+                        "event": "support_contact",
+                        "daysAgo": 11
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 18,
+                        "previous30Days": 18
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 5,
+                        "previous30Days": 5
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 6,
+                        "previous30Days": 6
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_high_support_tickets_only",
+                    "activeDaysLast30": 16,
+                    "activeDaysPrevious30": 16,
+                    "supportTicketsLast30": 2,
+                    "npsScore": 8
+                }
+            }
+        },
+        {
+            "name": "high_activity_drop_only",
+            "note": "Active days fell by 12 (18 to 6); NPS and tickets are fine.",
+            "expectedRisk": "high",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 5
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 7,
+                        "previous30Days": 20
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 2,
+                        "previous30Days": 5
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 2,
+                        "previous30Days": 7
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_high_activity_drop_only",
+                    "activeDaysLast30": 6,
+                    "activeDaysPrevious30": 18,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 8
+                }
+            }
+        },
+        {
+            "name": "boundary_nps_4",
+            "note": "NPS 4 is the highest score still treated as high risk.",
+            "expectedRisk": "high",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 2
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 3
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 15,
+                        "previous30Days": 15
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 4,
+                        "previous30Days": 4
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 6,
+                        "previous30Days": 6
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_boundary_nps_4",
+                    "activeDaysLast30": 14,
+                    "activeDaysPrevious30": 14,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 4
+                }
+            }
+        },
+        {
+            "name": "boundary_nps_5",
+            "note": "NPS 5: just above the high-risk band.",
+            "expectedRisk": "medium",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 2
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 3
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 15,
+                        "previous30Days": 15
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 4,
+                        "previous30Days": 4
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 6,
+                        "previous30Days": 6
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_boundary_nps_5",
+                    "activeDaysLast30": 14,
+                    "activeDaysPrevious30": 14,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 5
+                }
+            }
+        },
+        {
+            "name": "boundary_nps_6",
+            "note": "NPS 6: top of the medium band.",
+            "expectedRisk": "medium",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 2
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 3
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 15,
+                        "previous30Days": 15
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 4,
+                        "previous30Days": 4
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 6,
+                        "previous30Days": 6
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_boundary_nps_6",
+                    "activeDaysLast30": 14,
+                    "activeDaysPrevious30": 14,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 6
+                }
+            }
+        },
+        {
+            "name": "boundary_nps_7",
+            "note": "NPS 7 with stable usage and no tickets: no risk signal.",
+            "expectedRisk": "low",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 2
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 3
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 15,
+                        "previous30Days": 15
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 4,
+                        "previous30Days": 4
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 6,
+                        "previous30Days": 6
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_boundary_nps_7",
+                    "activeDaysLast30": 14,
+                    "activeDaysPrevious30": 14,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 7
+                }
+            }
+        },
+        {
+            "name": "boundary_drop_10",
+            "note": "Active days fell by exactly 10, the high-risk threshold.",
+            "expectedRisk": "high",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 5
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 9,
+                        "previous30Days": 20
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 2,
+                        "previous30Days": 5
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 3,
+                        "previous30Days": 7
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_boundary_drop_10",
+                    "activeDaysLast30": 8,
+                    "activeDaysPrevious30": 18,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 8
+                }
+            }
+        },
+        {
+            "name": "boundary_drop_9",
+            "note": "Active days fell by 9: one short of high risk.",
+            "expectedRisk": "medium",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 5
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 10,
+                        "previous30Days": 20
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 3,
+                        "previous30Days": 5
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 4,
+                        "previous30Days": 7
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_boundary_drop_9",
+                    "activeDaysLast30": 9,
+                    "activeDaysPrevious30": 18,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 8
+                }
+            }
+        },
+        {
+            "name": "boundary_drop_5",
+            "note": "Active days fell by exactly 5, the medium threshold.",
+            "expectedRisk": "medium",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 2
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 3
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 14,
+                        "previous30Days": 20
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 4,
+                        "previous30Days": 5
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 5,
+                        "previous30Days": 7
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_boundary_drop_5",
+                    "activeDaysLast30": 13,
+                    "activeDaysPrevious30": 18,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 8
+                }
+            }
+        },
+        {
+            "name": "boundary_drop_4",
+            "note": "Active days fell by 4: below the medium threshold.",
+            "expectedRisk": "low",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 2
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 3
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 15,
+                        "previous30Days": 20
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 4,
+                        "previous30Days": 5
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 6,
+                        "previous30Days": 7
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_boundary_drop_4",
+                    "activeDaysLast30": 14,
+                    "activeDaysPrevious30": 18,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 8
+                }
+            }
+        },
+        {
+            "name": "boundary_one_ticket",
+            "note": "A single support ticket alone is not a risk signal (threshold is 2).",
+            "expectedRisk": "low",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 2
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 3
+                    },
+                    {
+                        "event": "support_contact",
+                        "daysAgo": 4
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 17,
+                        "previous30Days": 17
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 5,
+                        "previous30Days": 5
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 6,
+                        "previous30Days": 6
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_boundary_one_ticket",
+                    "activeDaysLast30": 15,
+                    "activeDaysPrevious30": 15,
+                    "supportTicketsLast30": 1,
+                    "npsScore": 8
+                }
+            }
+        },
+        {
+            "name": "healthy_power_user",
+            "note": "Heavy, growing usage and NPS 10.",
+            "expectedRisk": "low",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 0
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 1
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 30,
+                        "previous30Days": 28
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 8,
+                        "previous30Days": 8
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 11,
+                        "previous30Days": 10
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_healthy_power_user",
+                    "activeDaysLast30": 27,
+                    "activeDaysPrevious30": 25,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 10
+                }
+            }
+        },
+        {
+            "name": "medium_mixed_signals",
+            "note": "Moderate drop (6 days), NPS 6, one ticket: several medium signals, nothing high.",
+            "expectedRisk": "medium",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 2
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 3
+                    },
+                    {
+                        "event": "support_contact",
+                        "daysAgo": 4
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 12,
+                        "previous30Days": 19
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 3,
+                        "previous30Days": 5
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 4,
+                        "previous30Days": 7
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_medium_mixed_signals",
+                    "activeDaysLast30": 11,
+                    "activeDaysPrevious30": 17,
+                    "supportTicketsLast30": 1,
+                    "npsScore": 6
+                }
+            }
+        },
+        {
+            "name": "activity_up_but_detractor",
+            "note": "Usage more than doubled, but NPS 4 says the user is unhappy.",
+            "expectedRisk": "high",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 0
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 1
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 22,
+                        "previous30Days": 10
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 6,
+                        "previous30Days": 3
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 8,
+                        "previous30Days": 4
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_activity_up_but_detractor",
+                    "activeDaysLast30": 20,
+                    "activeDaysPrevious30": 9,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 4
+                }
+            }
+        },
+        {
+            "name": "judgment_cancellation_scheduled",
+            "note": "JUDGMENT: the threshold rule says low (it ignores subscription data), but the user has already scheduled a cancellation.",
+            "expectedRisk": "high",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 2
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 3
+                    },
+                    {
+                        "event": "cancel_subscription_clicked",
+                        "daysAgo": 8
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 17,
+                        "previous30Days": 17
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 5,
+                        "previous30Days": 5
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 6,
+                        "previous30Days": 6
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2025-10-01"
+                    },
+                    {
+                        "plan": "pro",
+                        "status": "cancel_scheduled",
+                        "changedAt": "2026-09-20",
+                        "note": "cancels at end of billing period"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_judgment_cancellation_scheduled",
+                    "activeDaysLast30": 15,
+                    "activeDaysPrevious30": 15,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 7
+                }
+            }
+        },
+        {
+            "name": "judgment_gone_quiet",
+            "note": "JUDGMENT: the rule says low because the drop is only 3 days, but activity went to zero; the user has stopped using the product.",
+            "expectedRisk": "high",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 38
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 0,
+                        "previous30Days": 3
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 0,
+                        "previous30Days": 1
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 0,
+                        "previous30Days": 1
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-03-01"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_judgment_gone_quiet",
+                    "activeDaysLast30": 0,
+                    "activeDaysPrevious30": 3,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 7
+                }
+            }
+        },
+        {
+            "name": "judgment_plan_downgrade",
+            "note": "JUDGMENT: the rule says low (drop of 2), but a downgrade from pro to starter is an early churn signal.",
+            "expectedRisk": "medium",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 2
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 3
+                    },
+                    {
+                        "event": "plan_downgraded",
+                        "daysAgo": 23
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 13,
+                        "previous30Days": 15
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 4,
+                        "previous30Days": 4
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 5,
+                        "previous30Days": 6
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2025-11-02"
+                    },
+                    {
+                        "plan": "starter",
+                        "status": "active",
+                        "changedAt": "2026-09-05",
+                        "note": "downgraded from pro"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_judgment_plan_downgrade",
+                    "activeDaysLast30": 12,
+                    "activeDaysPrevious30": 14,
+                    "supportTicketsLast30": 0,
+                    "npsScore": 7
+                }
+            }
+        },
+        {
+            "name": "judgment_onboarding_tickets",
+            "note": "JUDGMENT: the rule says high (2 tickets), but this is a new user whose tickets are setup questions and whose usage is growing.",
+            "expectedRisk": "low",
+            "snapshot": {
+                "events": [
+                    {
+                        "event": "login",
+                        "daysAgo": 2
+                    },
+                    {
+                        "event": "view_dashboard",
+                        "daysAgo": 3
+                    },
+                    {
+                        "event": "support_contact",
+                        "daysAgo": 4
+                    },
+                    {
+                        "event": "support_contact",
+                        "daysAgo": 11
+                    },
+                    {
+                        "event": "invite_teammate",
+                        "daysAgo": 20
+                    },
+                    {
+                        "event": "signup",
+                        "daysAgo": 28
+                    }
+                ],
+                "featureUsage": [
+                    {
+                        "feature": "dashboards",
+                        "usesLast30Days": 13,
+                        "previous30Days": 0
+                    },
+                    {
+                        "feature": "alerts",
+                        "usesLast30Days": 4,
+                        "previous30Days": 0
+                    },
+                    {
+                        "feature": "exports",
+                        "usesLast30Days": 5,
+                        "previous30Days": 0
+                    }
+                ],
+                "subscriptionHistory": [
+                    {
+                        "plan": "trial",
+                        "status": "active",
+                        "changedAt": "2026-08-31"
+                    },
+                    {
+                        "plan": "pro",
+                        "status": "active",
+                        "changedAt": "2026-09-14",
+                        "note": "converted from trial"
+                    }
+                ],
+                "retentionSummary": {
+                    "userId": "case_judgment_onboarding_tickets",
+                    "activeDaysLast30": 12,
+                    "activeDaysPrevious30": 0,
+                    "supportTicketsLast30": 2,
+                    "npsScore": 7
+                }
+            }
+        }
+    ]
+}

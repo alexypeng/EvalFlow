@@ -10,6 +10,7 @@
         "build": "tsc",
         "start:api": "node dist/api.js",
         "start:worker": "node dist/worker.js",
+        "dataset:load": "tsx src/loadDataset.ts",
         "typecheck": "tsc --noEmit -p tsconfig.test.json",
         "test": "vitest run",
         "test:unit": "vitest run --project unit",

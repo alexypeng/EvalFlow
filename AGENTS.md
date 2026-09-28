@@ -49,6 +49,7 @@ pnpm dev:api                  # API with hot reload
 pnpm dev:worker               # worker with hot reload
 pnpm dev:frontend             # dashboard dev server
 pnpm build                    # build server + frontend
+pnpm --filter server dataset:load datasets/retention-v1.json   # load a dataset (idempotent)
 
 cd server && pnpm exec prisma migrate dev --name <name>   # create a migration
 cd server && pnpm exec prisma generate                    # regenerate client
