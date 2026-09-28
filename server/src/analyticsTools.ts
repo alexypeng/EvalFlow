@@ -1,27 +1,6 @@
-export type AnalyticsSnapshot = {
-    events: Array<{
-        event: string;
-        daysAgo: number;
-    }>;
-    featureUsage: Array<{
-        feature: string;
-        usesLast30Days: number;
-        previous30Days: number;
-    }>;
-    subscriptionHistory: Array<{
-        plan: string;
-        status: string;
-        changedAt: string;
-        note?: string;
-    }>;
-    retentionSummary: {
-        userId: string;
-        activeDaysLast30: number;
-        activeDaysPrevious30: number;
-        supportTicketsLast30: number;
-        npsScore: number;
-    };
-};
+import type { AnalyticsSnapshot } from "./types.js";
+
+export type { AnalyticsSnapshot };
 
 const users: Record<string, AnalyticsSnapshot> = {
     user_123: {
@@ -124,22 +103,36 @@ function fallbackSnapshot(userId: string): AnalyticsSnapshot {
     };
 }
 
-function getSnapshot(userId: string) {
-    return users[userId] ?? fallbackSnapshot(userId);
+// Jobs from a dataset run pass their case's snapshot, so the tools return the
+// case's data. Dashboard jobs pass none and get the built-in mock users.
+function getSnapshot(userId: string, caseSnapshot?: AnalyticsSnapshot) {
+    return caseSnapshot ?? users[userId] ?? fallbackSnapshot(userId);
 }
 
-export async function getUserEvents(userId: string) {
-    return getSnapshot(userId).events;
+export async function getUserEvents(
+    userId: string,
+    caseSnapshot?: AnalyticsSnapshot,
+) {
+    return getSnapshot(userId, caseSnapshot).events;
 }
 
-export async function getFeatureUsage(userId: string) {
-    return getSnapshot(userId).featureUsage;
+export async function getFeatureUsage(
+    userId: string,
+    caseSnapshot?: AnalyticsSnapshot,
+) {
+    return getSnapshot(userId, caseSnapshot).featureUsage;
 }
 
-export async function getSubscriptionHistory(userId: string) {
-    return getSnapshot(userId).subscriptionHistory;
+export async function getSubscriptionHistory(
+    userId: string,
+    caseSnapshot?: AnalyticsSnapshot,
+) {
+    return getSnapshot(userId, caseSnapshot).subscriptionHistory;
 }
 
-export async function getRetentionSummary(userId: string) {
-    return getSnapshot(userId).retentionSummary;
+export async function getRetentionSummary(
+    userId: string,
+    caseSnapshot?: AnalyticsSnapshot,
+) {
+    return getSnapshot(userId, caseSnapshot).retentionSummary;
 }

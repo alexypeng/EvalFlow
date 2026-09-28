@@ -19,6 +19,7 @@ import {
     scoreRetentionAnalysis,
 } from "./evaluator.js";
 import { buildRetentionPrompt, callLlm, geminiModel } from "./llm.js";
+import { JobInputSchema } from "./types.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
 const concurrency = Number(process.env.WORKER_CONCURRENCY ?? 1);
@@ -51,43 +52,50 @@ async function processJob(job: {
 }) {
     const startedAt = Date.now();
 
-    const input = job.input as { userId: string };
-    const userId = input.userId;
+    const { userId, snapshot: caseSnapshot } = JobInputSchema.parse(job.input);
+    const toolInput = {
+        userId,
+        source: caseSnapshot ? "dataset_case" : "built_in_mock",
+    };
 
-    const events = await timed(() => getUserEvents(userId));
+    const events = await timed(() => getUserEvents(userId, caseSnapshot));
     await addTrace({
         jobId: job.id,
         stepName: "getUserEvents",
-        input: { userId },
+        input: toolInput,
         output: events.output,
         latencyMs: events.latencyMs,
     });
 
-    const featureUsage = await timed(() => getFeatureUsage(userId));
+    const featureUsage = await timed(() =>
+        getFeatureUsage(userId, caseSnapshot),
+    );
     await addTrace({
         jobId: job.id,
         stepName: "getFeatureUsage",
-        input: { userId },
+        input: toolInput,
         output: featureUsage.output,
         latencyMs: featureUsage.latencyMs,
     });
 
     const subscriptionHistory = await timed(() =>
-        getSubscriptionHistory(userId),
+        getSubscriptionHistory(userId, caseSnapshot),
     );
     await addTrace({
         jobId: job.id,
         stepName: "getSubscriptionHistory",
-        input: { userId },
+        input: toolInput,
         output: subscriptionHistory.output,
         latencyMs: subscriptionHistory.latencyMs,
     });
 
-    const retentionSummary = await timed(() => getRetentionSummary(userId));
+    const retentionSummary = await timed(() =>
+        getRetentionSummary(userId, caseSnapshot),
+    );
     await addTrace({
         jobId: job.id,
         stepName: "getRetentionSummary",
-        input: { userId },
+        input: toolInput,
         output: retentionSummary.output,
         latencyMs: retentionSummary.latencyMs,
     });
