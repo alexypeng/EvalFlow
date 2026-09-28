@@ -57,7 +57,7 @@ Tasks:
 - [x] **Claude** Seed dataset `server/datasets/retention-v1.json` (20 cases: 16 follow the threshold rule incl. boundaries, 4 `judgment_*` cases where the rule is wrong) and loader `pnpm --filter server dataset:load <file>` (Zod-validated; immutable: same version reloads are no-ops, changed content errors)
 - [ ] **ME** Review the 4 `judgment_*` labels; they are the cases the mock (rule-based) should get wrong
 - [x] **Claude** Dataset-backed tools: `job.input.snapshot` (validated by `JobInputSchema`) is returned by the same tool functions; traces record `source: dataset_case | built_in_mock`
-- [ ] **ME** `POST /runs`: create the run and one job per case in a single transaction
+- [ ] **ME** `POST /runs`: create the run and one job per case in a single transaction. Each job's `input` carries the case's `userId` and `snapshot`. Open question: how does the evaluator get a job's `expectedRisk`: look up the case via `job.caseId`, or copy the label into `job.input` at run creation?
 - [ ] **ME** Per-run aggregates: pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total cost
 - [ ] **ME** `GET /runs/:a/compare/:b`: per-case diff and the list of regressions
 - [ ] **ME** Evaluator scores against the case's expected label (depends on the ground-truth decision)
