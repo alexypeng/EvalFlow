@@ -19,6 +19,12 @@ enum JobStatus {
   failed
 }
 
+enum RiskLevel {
+  low
+  medium
+  high
+}
+
 model Job {
   id               String    @id @default(uuid()) @db.Uuid
   type             String
@@ -37,11 +43,17 @@ model Job {
   totalTokens      Int?      @map("total_tokens")
   estimatedCost    Decimal?  @map("estimated_cost") @db.Decimal(12, 6)
   evalScore        Int?      @map("eval_score")
+  runId            String?   @map("run_id") @db.Uuid
+  caseId           String?   @map("case_id") @db.Uuid
 
   traces Trace[]
   evals  Eval[]
 
+  run         Run?         @relation(fields: [runId], references: [id], onDelete: Cascade)
+  datasetCase DatasetCase? @relation(fields: [caseId], references: [id])
+
   @@index([status, createdAt])
+  @@index([runId])
   @@map("jobs")
 }
 
@@ -76,4 +88,48 @@ model Eval {
 
   @@index([jobId])
   @@map("evals")
+}
+
+model Dataset {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  version   Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  datasetCases DatasetCase[]
+  runs         Run[]
+
+  @@unique([name, version])
+  @@map("datasets")
+}
+
+model DatasetCase {
+  id           String    @id @default(uuid()) @db.Uuid
+  datasetId    String    @map("dataset_id") @db.Uuid
+  name         String
+  snapshot     Json
+  expectedRisk RiskLevel @map("expected_risk")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  dataset Dataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  jobs    Job[]
+
+  @@unique([datasetId, name])
+  @@index([datasetId])
+  @@map("dataset_cases")
+}
+
+model Run {
+  id            String   @id @default(uuid()) @db.Uuid
+  datasetId     String   @map("dataset_id") @db.Uuid
+  promptVersion String   @map("prompt_version")
+  provider      String
+  model         String
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  dataset Dataset @relation(fields: [datasetId], references: [id])
+  jobs    Job[]
+
+  @@index([datasetId])
+  @@map("runs")
 }

@@ -53,7 +53,10 @@ export const AnyNull = runtime.AnyNull
 export const ModelName = {
   Job: 'Job',
   Trace: 'Trace',
-  Eval: 'Eval'
+  Eval: 'Eval',
+  Dataset: 'Dataset',
+  DatasetCase: 'DatasetCase',
+  Run: 'Run'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -89,7 +92,9 @@ export const JobScalarFieldEnum = {
   completionTokens: 'completionTokens',
   totalTokens: 'totalTokens',
   estimatedCost: 'estimatedCost',
-  evalScore: 'evalScore'
+  evalScore: 'evalScore',
+  runId: 'runId',
+  caseId: 'caseId'
 } as const
 
 export type JobScalarFieldEnum = (typeof JobScalarFieldEnum)[keyof typeof JobScalarFieldEnum]
@@ -122,6 +127,40 @@ export const EvalScalarFieldEnum = {
 } as const
 
 export type EvalScalarFieldEnum = (typeof EvalScalarFieldEnum)[keyof typeof EvalScalarFieldEnum]
+
+
+export const DatasetScalarFieldEnum = {
+  id: 'id',
+  name: 'name',
+  version: 'version',
+  createdAt: 'createdAt'
+} as const
+
+export type DatasetScalarFieldEnum = (typeof DatasetScalarFieldEnum)[keyof typeof DatasetScalarFieldEnum]
+
+
+export const DatasetCaseScalarFieldEnum = {
+  id: 'id',
+  datasetId: 'datasetId',
+  name: 'name',
+  snapshot: 'snapshot',
+  expectedRisk: 'expectedRisk',
+  createdAt: 'createdAt'
+} as const
+
+export type DatasetCaseScalarFieldEnum = (typeof DatasetCaseScalarFieldEnum)[keyof typeof DatasetCaseScalarFieldEnum]
+
+
+export const RunScalarFieldEnum = {
+  id: 'id',
+  datasetId: 'datasetId',
+  promptVersion: 'promptVersion',
+  provider: 'provider',
+  model: 'model',
+  createdAt: 'createdAt'
+} as const
+
+export type RunScalarFieldEnum = (typeof RunScalarFieldEnum)[keyof typeof RunScalarFieldEnum]
 
 
 export const SortOrder = {

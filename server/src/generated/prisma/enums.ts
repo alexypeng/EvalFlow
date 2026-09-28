@@ -17,3 +17,12 @@ export const JobStatus = {
 } as const
 
 export type JobStatus = (typeof JobStatus)[keyof typeof JobStatus]
+
+
+export const RiskLevel = {
+  low: 'low',
+  medium: 'medium',
+  high: 'high'
+} as const
+
+export type RiskLevel = (typeof RiskLevel)[keyof typeof RiskLevel]

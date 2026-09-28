@@ -11,4 +11,7 @@
 export type * from './models/Job.js'
 export type * from './models/Trace.js'
 export type * from './models/Eval.js'
+export type * from './models/Dataset.js'
+export type * from './models/DatasetCase.js'
+export type * from './models/Run.js'
 export type * from './commonInputTypes.js'

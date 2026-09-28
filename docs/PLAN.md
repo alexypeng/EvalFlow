@@ -16,8 +16,8 @@ _Last updated: 2026-09-27_
 |---|---|
 | **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
 | **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | Design the M1 schema (`Dataset`, `DatasetCase`, `Run`, job links); the three M1 decisions are made |
-| **Next up** | Claude writes the migration and seed dataset once the schema shape is settled |
+| **Waiting on you** | Review and commit the schema + migration |
+| **Next up** | Claude: seed dataset file + loader, dataset-backed tools |
 
 ---
 
@@ -52,7 +52,8 @@ Turns "run one job" into "run a dataset and compare results", the core of an eva
 - **Case data:** each `DatasetCase` stores its own analytics snapshot next to `expectedRisk`. The tool functions and traces stay the same; for run jobs they return the case's snapshot, and dashboard jobs fall back to the hard-coded users in `analyticsTools.ts`.
 
 Tasks:
-- [ ] **ME** Schema design: `Dataset`, `DatasetCase` (input, expected output, tags), `Run` (dataset, prompt version, provider, model, status), `Job.runId` + `Job.caseId`. Claude writes the migration once you've settled the shape.
+- [x] **ME** Schema design: `RiskLevel` enum, `Dataset` (name + version unique), `DatasetCase` (snapshot, `expectedRisk`), `Run` (prompt version, provider, model; no status), optional `Job.runId` / `Job.caseId`
+- [x] **Claude** Migration `20260928052727_add_datasets_and_runs` and regenerated Prisma client
 - [ ] **Claude** Seed dataset file (`datasets/retention-v1.json`, ~20 cases including edge cases, each with its analytics snapshot and `expectedRisk`) and a loader script
 - [ ] **Claude** Dataset-backed tools: when a job carries a case snapshot, the analytics tools return it (same functions, same traces); otherwise fall back to the hard-coded users
 - [ ] **ME** `POST /runs`: create the run and one job per case in a single transaction
@@ -193,3 +194,4 @@ Done when: the README has real numbers and an explanation of what limited throug
 - **2026-09-27 (later):** M0 merged (PR #1): Compose stack runs, CI green. Starting M1 on `m1-datasets`.
 - **2026-09-27 (later):** Made the three M1 decisions: ground-truth `expectedRisk` labels, run completion derived on read, pass→fail regressions with score-drop warnings.
 - **2026-09-27 (later):** Decided dataset cases carry their own analytics snapshot (option b), with tools returning it for run jobs.
+- **2026-09-28:** You designed the M1 schema. Claude generated the migration (against the throwaway test DB) and regenerated the client; typecheck passes.
