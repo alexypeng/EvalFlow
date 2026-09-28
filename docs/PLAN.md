@@ -16,7 +16,7 @@ _Last updated: 2026-09-28_
 |---|---|
 | **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
 | **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | Run `pnpm typecheck && pnpm --filter server test:unit` (unverified, see session log), review and commit the prompt-versions change · next ME task: `POST /runs` |
+| **Waiting on you** | Start Docker Desktop so the DB tests can be verified · then `createRun` in `server/src/runs.ts` + the 7 stubs in `test/db/runs.test.ts` |
 | **Next up** | You: `POST /runs` (create a run + one job per case in one transaction) |
 
 ---
@@ -210,3 +210,4 @@ Done when: the README has real numbers and an explanation of what limited throug
 
   Unverified (shell down).
 - **2026-09-28 (later):** Removed unnecessary code comments repo-wide (Prisma/Vite boilerplate, stale test instructions above implemented tests, comments restating code or duplicating the decisions log). Kept only the comments that stop someone from breaking something, plus the TODO(ME) guidance on the open `scoreRetentionAnalysis` stubs. `frontend/src/api.ts` `parseResponseError` rewritten without the empty catch. Also unverified (shell down).
+- **2026-09-28 (later, Windows PC):** Verified the Mac sessions' unverified work here: `pnpm typecheck` (server + frontend) and all 16 unit tests pass. The comment cleanup touched only comments in config files. DB tests not run: Docker Desktop wasn't running.
