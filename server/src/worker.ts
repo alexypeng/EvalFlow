@@ -18,7 +18,11 @@ import {
     validateRetentionOutput,
     scoreRetentionAnalysis,
 } from "./evaluator.js";
-import { buildRetentionPrompt, callLlm, geminiModel } from "./llm.js";
+import {
+    buildRetentionPrompt,
+    callLlm,
+    defaultPromptVersion,
+} from "./llm.js";
 import { JobInputSchema } from "./types.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
@@ -52,7 +56,11 @@ async function processJob(job: {
 }) {
     const startedAt = Date.now();
 
-    const { userId, snapshot: caseSnapshot } = JobInputSchema.parse(job.input);
+    const {
+        userId,
+        snapshot: caseSnapshot,
+        promptVersion = defaultPromptVersion,
+    } = JobInputSchema.parse(job.input);
     const toolInput = {
         userId,
         source: caseSnapshot ? "dataset_case" : "built_in_mock",
@@ -107,7 +115,7 @@ async function processJob(job: {
         retentionSummary: retentionSummary.output,
     };
 
-    const prompt = buildRetentionPrompt(userId, snapshot);
+    const prompt = await buildRetentionPrompt(userId, snapshot, promptVersion);
 
     const llmCall = await timed(() => callLlm(prompt, snapshot));
 
@@ -115,8 +123,9 @@ async function processJob(job: {
         jobId: job.id,
         stepName: "llm_call",
         input: {
-            provider: process.env.LLM_PROVIDER ?? "mock",
-            model: process.env.LLM_PROVIDER === "gemini" ? geminiModel : null,
+            provider: llmCall.output.provider,
+            model: llmCall.output.model,
+            promptVersion,
             prompt,
         },
         output: {
@@ -175,7 +184,6 @@ async function processJob(job: {
     console.log(`Completed job ${job.id}`);
 }
 
-// Claims and processes at most one job. Returns false if the queue was empty.
 async function runOnce() {
     const job = await claimNextJob();
 
@@ -201,13 +209,6 @@ async function runOnce() {
     return true;
 }
 
-// Previously this used setInterval(poll, pollIntervalMs). setInterval fires on
-// a fixed clock and doesn't wait for the previous poll to finish, so if a job
-// took longer than the interval a new poll started anyway and claimed another
-// job. Concurrency was therefore accidental: it grew with job latency, with
-// no upper bound. Now each slot is a sequential loop: it only claims its next
-// job after the current one finishes, and only sleeps when the queue is
-// empty. Total in-flight jobs per process is exactly WORKER_CONCURRENCY.
 async function workerLoop(slot: number) {
     while (true) {
         try {
@@ -217,7 +218,7 @@ async function workerLoop(slot: number) {
                 await sleep(pollIntervalMs);
             }
         } catch (error) {
-            // e.g. the database is unreachable. Back off instead of spinning.
+            // Back off instead of spinning, e.g. while the database is down.
             console.error(`Worker slot ${slot} poll failed`, error);
             await sleep(pollIntervalMs);
         }

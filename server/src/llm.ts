@@ -1,5 +1,9 @@
+import { readFile } from "node:fs/promises";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { AnalyticsSnapshot } from "./analyticsTools.js";
+import { PromptVersionSchema } from "./types.js";
+
+export type LlmProvider = "mock" | "gemini";
 
 export type LlmResponse = {
     text: string;
@@ -7,24 +11,57 @@ export type LlmResponse = {
     completionTokens: number;
     totalTokens: number;
     estimatedCost: number;
+    provider: LlmProvider;
+    model: string;
 };
 
-// Pinned to a specific version rather than the gemini-flash-latest alias, so a
-// run's results are tied to a known model. Model IDs:
-// https://ai.google.dev/gemini-api/docs/models
 export const geminiModel = process.env.GEMINI_MODEL ?? "gemini-3.8-flash";
 
-export function buildRetentionPrompt(
+export const mockModel = "mock-rule-based";
+
+export const defaultPromptVersion = "v1";
+
+export function resolveLlm(): { provider: LlmProvider; model: string } {
+    if (process.env.LLM_PROVIDER === "gemini" && process.env.GEMINI_API_KEY) {
+        return { provider: "gemini", model: geminiModel };
+    }
+
+    return { provider: "mock", model: mockModel };
+}
+
+const promptDir = new URL("../prompts/retention/", import.meta.url);
+const promptTemplates = new Map<string, string>();
+
+async function loadPromptTemplate(version: string) {
+    const cached = promptTemplates.get(version);
+
+    if (cached !== undefined) return cached;
+
+    PromptVersionSchema.parse(version);
+
+    let template: string;
+
+    try {
+        template = await readFile(new URL(`${version}.md`, promptDir), "utf8");
+    } catch {
+        throw new Error(`Unknown prompt version "${version}"`);
+    }
+
+    promptTemplates.set(version, template.trim());
+
+    return template.trim();
+}
+
+export async function buildRetentionPrompt(
     userId: string,
     snapshot: AnalyticsSnapshot,
+    promptVersion: string = defaultPromptVersion,
 ) {
-    return [
-        "You are an analytics agent performing retention risk analysis.",
-        "Return only valid JSON matching this schema:",
-        '{"summary":"string","retentionRisk":"low|medium|high","evidence": ["string"],"recommendedActions":["string"]}',
-        `User ID: ${userId}`,
-        `Analytics data: ${JSON.stringify(snapshot)}`,
-    ].join("\n");
+    const template = await loadPromptTemplate(promptVersion);
+
+    return template
+        .replaceAll("{{userId}}", () => userId)
+        .replaceAll("{{snapshot}}", () => JSON.stringify(snapshot));
 }
 
 function estimateTokens(text: string) {
@@ -55,12 +92,12 @@ export async function callLlm(
     prompt: string,
     snapshot: AnalyticsSnapshot,
 ): Promise<LlmResponse> {
-    const provider = process.env.LLM_PROVIDER ?? "mock";
+    const { provider, model: modelName } = resolveLlm();
 
-    if (provider === "gemini" && process.env.GEMINI_API_KEY) {
-        const client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    if (provider === "gemini") {
+        const client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
         const model = client.getGenerativeModel({
-            model: geminiModel,
+            model: modelName,
         });
 
         const result = await model.generateContent(prompt);
@@ -75,6 +112,8 @@ export async function callLlm(
             completionTokens,
             totalTokens: promptTokens + completionTokens,
             estimatedCost: 0,
+            provider,
+            model: modelName,
         };
     }
 
@@ -116,5 +155,7 @@ export async function callLlm(
         completionTokens,
         totalTokens: promptTokens + completionTokens,
         estimatedCost: 0,
+        provider,
+        model: modelName,
     };
 }

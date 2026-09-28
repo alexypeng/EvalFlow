@@ -10,13 +10,13 @@ The working plan and status tracker. [`ROADMAP.md`](ROADMAP.md) is the one-parag
 
 ## Status snapshot
 
-_Last updated: 2026-09-27_
+_Last updated: 2026-09-28_
 
 | | |
 |---|---|
 | **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
 | **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | Review the 4 `judgment_*` labels in `server/datasets/retention-v1.json`, then commit · next ME task: `POST /runs` |
+| **Waiting on you** | Run `pnpm typecheck && pnpm --filter server test:unit` (unverified, see session log), review and commit the prompt-versions change · review the 4 `judgment_*` labels · next ME task: `POST /runs` |
 | **Next up** | You: `POST /runs` (create a run + one job per case in one transaction) |
 
 ---
@@ -63,12 +63,12 @@ Tasks:
 - [ ] **ME** Evaluator scores against the case's expected label (depends on the ground-truth decision)
 - [ ] **ME** `scoreRetentionAnalysis` tests, deferred from M0 (11 stubs in `evaluator.test.ts`). Write them against the new scoring; rewrite or delete the threshold stubs if the rules moved into dataset labels. Includes the substring evidence test ("4" matches "14 days").
 - [ ] **ME** Decide on `parseLlmJson` and prose before a fence (locked in as a known limitation in M0); fix it if real Gemini output hits it
-- [ ] **Claude** Versioned prompt files (`prompts/retention/v1.md`, `v2.md`); runs record which version they used
+- [x] **Claude** Versioned prompt files (`server/prompts/retention/v1.md`, `v2.md`); jobs carry `input.promptVersion` (default `v1`) and the `llm_call` trace records it. `POST /runs` should validate the version with `PromptVersionSchema`, store it on the run, and copy it into each job's `input`.
 - [ ] **Claude** Configurable mock failure modes (invalid JSON, wrong label, missing evidence, added latency), seeded by case ID so runs are reproducible
 - [ ] **Claude** Dashboard: runs list and compare view
 - [ ] **ME** Tests for aggregates and compare
 - [ ] **Claude** Migrate `@google/generative-ai` (end of life since Nov 2025) to `@google/genai`
-- [ ] **Claude** Fix the trace mislabel: `LLM_PROVIDER=gemini` without an API key falls back to the mock but the trace says gemini. `callLlm` should report which provider and model actually ran.
+- [x] **Claude** Fix the trace mislabel: `callLlm` now returns the `provider` and `model` that actually ran, and the trace uses them. `resolveLlm()` gives the same answer up front, for `POST /runs` to fill `Run.provider` / `Run.model`.
 
 Done when: running the same dataset with prompt v1 and v2 shows per-case regressions in the compare view, and mock runs no longer score a flat 100.
 
@@ -165,7 +165,6 @@ Done when: the README has real numbers and an explanation of what limited throug
 - **Known (M3):** a worker crash leaves jobs stuck in `running` forever.
 - `scoreRetentionAnalysis` evidence check is a substring match: NPS `4` "matches" "14 days". Covered by a TODO test; fix or lock in.
 - `parseLlmJson` fails if the model writes prose before the fenced block. Covered by a TODO test.
-- Trace mislabels the provider when Gemini falls back to the mock (scheduled in M1).
 - `@google/generative-ai` is end of life (scheduled in M1).
 - api, worker and migrate each build the same server image in compose; could share one image tag.
 - High `WORKER_CONCURRENCY` will hit the Postgres connection pool limit (measure in M6).
@@ -183,6 +182,8 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-09-27 | Run completion is derived on read from job counts, not stored | Nothing to keep in sync; avoids a race when two workers finish a run's last jobs at once. Caveat until M3: a crashed worker's job stays `running`, so its run never finishes. |
 | 2026-09-27 | Each dataset case stores its own analytics snapshot; tools return it for run jobs | A dataset is a fixed, self-contained fixture: data and expected answer side by side, runs stay reproducible, new cases are data not code. Tools and traces are unchanged, so the agent pipeline still exercises tool calls. |
 | 2026-09-27 | Regression = pass → fail (blocks M2 gate); score drop that still passes = warning | Pass/fail is clear-cut enough to block a PR on; warnings still surface quieter declines without blocking small changes. |
+| 2026-09-28 | Prompt version travels in `job.input.promptVersion`, like the snapshot; validated as `v<N>` | The worker needs no extra lookup and dashboard jobs keep working (default `v1`). The pattern stops the version from being used as a file path. Same shape as the open `expectedRisk` question, so pick one approach for both. |
+| 2026-09-28 | Traces and runs record the provider/model that actually ran (`resolveLlm()`), not `LLM_PROVIDER` | Gemini without a key falls back to the mock; recording the env var would label mock results as gemini and poison run comparisons. |
 
 ## Session log
 
@@ -197,3 +198,5 @@ Done when: the README has real numbers and an explanation of what limited throug
 - **2026-09-27 (later):** Decided dataset cases carry their own analytics snapshot (option b), with tools returning it for run jobs.
 - **2026-09-28:** You designed the M1 schema. Claude generated the migration (against the throwaway test DB) and regenerated the client; typecheck passes.
 - **2026-09-28:** Claude added the retention-v1 dataset (20 cases), the dataset loader, and dataset-backed tools, with 6 new tests (19 passing). Until the evaluator scores against `expectedRisk` (ME task), mock runs will still score 100.
+- **2026-09-28 (later):** Ran `pnpm install` (server dev deps like vitest were missing on this Mac); typecheck and unit tests then passed. Claude added versioned prompts (`server/prompts/retention/v1.md` = the old inline prompt, `v2.md` = weighs subscription/events and context, aimed at the `judgment_*` cases), `input.promptVersion`, `resolveLlm()`, and the provider/model fix, plus `test/unit/llm.test.ts` (8 tests). **Unverified:** the shell stopped accepting commands partway through, so typecheck and tests were not run after these edits.
+- **2026-09-28 (later):** Removed unnecessary code comments repo-wide (Prisma/Vite boilerplate, stale test instructions above implemented tests, comments restating code or duplicating the decisions log). Kept only the comments that stop someone from breaking something, plus the TODO(ME) guidance on the open `scoreRetentionAnalysis` stubs. `frontend/src/api.ts` `parseResponseError` rewritten without the empty catch. Also unverified (shell down).

@@ -28,7 +28,9 @@ server/            TypeScript backend (pnpm workspace package "server")
   src/llm.ts         Prompt building + LLM providers (mock | gemini)
   src/evaluator.ts   JSON parsing, Zod validation, eval scoring
   src/analyticsTools.ts  Mock analytics "tools" the agent calls
-  prisma/            Schema + migrations (Job, Trace, Eval)
+  prompts/retention/ Versioned prompt templates (v1.md, v2.md); {{userId}} and {{snapshot}} placeholders
+  datasets/          Dataset fixture files for dataset:load
+  prisma/            Schema + migrations (Job, Trace, Eval, Dataset, DatasetCase, Run)
   src/generated/     Prisma client output. Generated, never edit by hand
   test/unit/         Pure unit tests (no DB)
   test/db/           Tests against a real Postgres (evalflow_test)

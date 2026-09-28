@@ -52,11 +52,14 @@ export const AnalyticsSnapshotSchema = z.object({
 
 export type AnalyticsSnapshot = z.infer<typeof AnalyticsSnapshotSchema>;
 
-// What the worker reads from job.input. Jobs created by a run carry their
-// dataset case's snapshot; dashboard jobs only have a userId.
+export const PromptVersionSchema = z
+    .string()
+    .regex(/^v\d+$/, 'Prompt version must look like "v1"');
+
 export const JobInputSchema = z.object({
     userId: z.string().min(1),
     snapshot: AnalyticsSnapshotSchema.optional(),
+    promptVersion: PromptVersionSchema.optional(),
 });
 
 export type JobInput = z.infer<typeof JobInputSchema>;
@@ -69,7 +72,7 @@ export const DatasetFileSchema = z
             .array(
                 z.object({
                     name: z.string().min(1),
-                    // Why the case has its label. For reviewers; not stored.
+                    // Not stored in the database.
                     note: z.string().optional(),
                     expectedRisk: z.enum(["low", "medium", "high"]),
                     snapshot: AnalyticsSnapshotSchema,
