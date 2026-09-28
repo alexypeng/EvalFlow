@@ -6,14 +6,16 @@ Guidance for AI coding agents (Claude Code, Codex, Cursor, etc.) working in this
 
 EvalFlow is a local LLM job orchestration and evaluation platform: an API accepts jobs, a worker claims them from a Postgres-backed queue, runs an agent pipeline (tool calls → LLM call → schema validation → eval scoring), and records traces, token usage, cost and latency for a dashboard.
 
-It is a portfolio project aimed at infra / ML infra roles. The roadmap and current milestone live in `docs/ROADMAP.md`. Read it at the start of every session.
+It is a portfolio project aimed at infra / ML infra roles. At the start of every session, read `docs/ROADMAP.md` (milestones M0–M6) and `docs/PLAN.md` (task breakdown, owners, current status, decisions log).
 
 ## How we work (pairing mode)
 
 - The owner writes the core logic so they can explain it in interviews. Agents scaffold, fix plumbing, write config / CI / infra, and review.
 - Tasks marked **ME** are for the owner. Leave TODO stubs (or `it.todo(...)` for tests) with comments on what to implement and which edge cases matter. Do not implement them.
 - When a change is non-obvious (concurrency, SQL, retries, leases, rate limiting), explain the reasoning in your summary, not just what changed.
-- One branch per milestone (e.g. `m1-datasets`). Small, focused commits. Do not push or open PRs until the owner has reviewed.
+- One branch per milestone (e.g. `m1-datasets`).
+- **Never commit, push or open PRs.** The owner makes every commit. Leave changes uncommitted, list the files you changed, and suggest commit commands and messages. Don't run history-changing git commands (commit, amend, reset, rebase) unless the owner asks for that specific action.
+- **Keep `docs/PLAN.md` current.** At the end of each work session, update the status snapshot, task checkboxes, decisions log (with the reasoning) and add a session log entry. Leave it uncommitted with the rest of the changes.
 - If a task is ambiguous or would change the architecture, ask before building.
 
 ## Layout
