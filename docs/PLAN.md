@@ -16,7 +16,7 @@ _Last updated: 2026-09-28_
 |---|---|
 | **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
 | **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | Run `pnpm typecheck && pnpm --filter server test:unit` (unverified, see session log), review and commit the prompt-versions change · review the 4 `judgment_*` labels · next ME task: `POST /runs` |
+| **Waiting on you** | Run `pnpm typecheck && pnpm --filter server test:unit` (unverified, see session log), review and commit the prompt-versions change · next ME task: `POST /runs` |
 | **Next up** | You: `POST /runs` (create a run + one job per case in one transaction) |
 
 ---
@@ -55,9 +55,9 @@ Tasks:
 - [x] **ME** Schema design: `RiskLevel` enum, `Dataset` (name + version unique), `DatasetCase` (snapshot, `expectedRisk`), `Run` (prompt version, provider, model; no status), optional `Job.runId` / `Job.caseId`
 - [x] **Claude** Migration `20260928052727_add_datasets_and_runs` and regenerated Prisma client
 - [x] **Claude** Seed dataset `server/datasets/retention-v1.json` (20 cases: 16 follow the threshold rule incl. boundaries, 4 `judgment_*` cases where the rule is wrong) and loader `pnpm --filter server dataset:load <file>` (Zod-validated; immutable: same version reloads are no-ops, changed content errors)
-- [ ] **ME** Review the 4 `judgment_*` labels; they are the cases the mock (rule-based) should get wrong
+- [x] **ME** Review the 4 `judgment_*` labels; they are the cases the mock (rule-based) should get wrong. Approved as-is 2026-09-28.
 - [x] **Claude** Dataset-backed tools: `job.input.snapshot` (validated by `JobInputSchema`) is returned by the same tool functions; traces record `source: dataset_case | built_in_mock`
-- [ ] **ME** `POST /runs`: create the run and one job per case in a single transaction. Each job's `input` carries the case's `userId` and `snapshot`. Open question: how does the evaluator get a job's `expectedRisk`: look up the case via `job.caseId`, or copy the label into `job.input` at run creation?
+- [ ] **ME** `POST /runs`: create the run and one job per case in a single transaction. Each job's `input` carries the case's `userId`, `snapshot`, `promptVersion` and `expectedRisk` (decided 2026-09-28: copy, don't look up). Add a test that the built prompt never contains the label.
 - [ ] **ME** Per-run aggregates: pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total cost
 - [ ] **ME** `GET /runs/:a/compare/:b`: per-case diff and the list of regressions
 - [ ] **ME** Evaluator scores against the case's expected label (depends on the ground-truth decision)
@@ -183,6 +183,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-09-27 | Each dataset case stores its own analytics snapshot; tools return it for run jobs | A dataset is a fixed, self-contained fixture: data and expected answer side by side, runs stay reproducible, new cases are data not code. Tools and traces are unchanged, so the agent pipeline still exercises tool calls. |
 | 2026-09-27 | Regression = pass → fail (blocks M2 gate); score drop that still passes = warning | Pass/fail is clear-cut enough to block a PR on; warnings still surface quieter declines without blocking small changes. |
 | 2026-09-28 | Prompt version travels in `job.input.promptVersion`, like the snapshot; validated as `v<N>` | The worker needs no extra lookup and dashboard jobs keep working (default `v1`). The pattern stops the version from being used as a file path. Same shape as the open `expectedRisk` question, so pick one approach for both. |
+| 2026-09-28 | `POST /runs` copies each case's `expectedRisk` into `job.input` (optional in `JobInputSchema`); the evaluator reads it from there and falls back to the threshold rule for dashboard jobs | Same pattern as `snapshot` and `promptVersion`: jobs are self-contained and the worker never queries dataset tables. Datasets are immutable, so the copy can't go stale. The label never reaches the prompt (`buildRetentionPrompt` only takes userId + snapshot); a test should lock that in. Lookup via `caseId` would only win if labels could change after a run or job inputs were exposed somewhere the answer mustn't be seen. |
 | 2026-09-28 | Traces and runs record the provider/model that actually ran (`resolveLlm()`), not `LLM_PROVIDER` | Gemini without a key falls back to the mock; recording the env var would label mock results as gemini and poison run comparisons. |
 
 ## Session log
