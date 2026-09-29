@@ -16,7 +16,7 @@ _Last updated: 2026-09-28_
 |---|---|
 | **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
 | **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | `test/db/runs.test.ts`: 3 of 7 written; next `dataset_not_found` and `unknown_prompt_version` tests |
+| **Waiting on you** | Next ME task: the evaluator scores against each job's `expectedRisk` (fixes mock runs always scoring 100) |
 | **Next up** | You: `POST /runs` (create a run + one job per case in one transaction) |
 
 ---
@@ -57,7 +57,7 @@ Tasks:
 - [x] **Claude** Seed dataset `server/datasets/retention-v1.json` (20 cases: 16 follow the threshold rule incl. boundaries, 4 `judgment_*` cases where the rule is wrong) and loader `pnpm --filter server dataset:load <file>` (Zod-validated; immutable: same version reloads are no-ops, changed content errors)
 - [x] **ME** Review the 4 `judgment_*` labels; they are the cases the mock (rule-based) should get wrong. Approved as-is 2026-09-28.
 - [x] **Claude** Dataset-backed tools: `job.input.snapshot` (validated by `JobInputSchema`) is returned by the same tool functions; traces record `source: dataset_case | built_in_mock`
-- [ ] **ME** `POST /runs`: create the run and one job per case in a single transaction. Each job's `input` carries the case's `userId`, `snapshot`, `promptVersion` and `expectedRisk` (decided 2026-09-28: copy, don't look up). Add a test that the built prompt never contains the label.
+- [x] **ME** `POST /runs`: create the run and one job per case in a single transaction. Each job's `input` carries the case's `userId`, `snapshot`, `promptVersion` and `expectedRisk` (decided 2026-09-28: copy, don't look up). Add a test that the built prompt never contains the label.
 - [ ] **ME** Per-run aggregates: pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total cost
 - [ ] **ME** `GET /runs/:a/compare/:b`: per-case diff and the list of regressions
 - [ ] **ME** Evaluator scores against the case's expected label (depends on the ground-truth decision)
@@ -213,3 +213,4 @@ Done when: the README has real numbers and an explanation of what limited throug
 - **2026-09-28 (later, Windows PC):** Verified the Mac sessions' unverified work here: `pnpm typecheck` (server + frontend) and all 16 unit tests pass. The comment cleanup touched only comments in config files. DB tests not run: Docker Desktop wasn't running.
 - **2026-09-28 (later, Windows PC):** DB tests verified too: `pnpm test` gives 27 passed, 19 todo (12 deferred scoring stubs + 7 `runs.test.ts` stubs). All Mac-session work is now verified.
 - **2026-09-29:** You implemented `createRun` (dataset lookup, prompt check, `resolveLlm`, run + jobs in one `$transaction`) and 3 of its tests. Claude pinned `LLM_PROVIDER=mock` in `vitest.config.ts` so a developer's `.env` can't switch tests to Gemini; verified by running the suite with Gemini env set (30 passed).
+- **2026-09-29 (later):** You finished all 7 `runs.test.ts` tests, including transaction rollback (break-it check done: `tx` → `prisma` makes it fail) and the answer-key-never-in-prompt test. `POST /runs` is done.

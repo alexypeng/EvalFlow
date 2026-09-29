@@ -4,6 +4,8 @@ import { loadDataset, readDatasetFile } from "../../src/datasets.js";
 import { prisma } from "../../src/db.js";
 import { createRun } from "../../src/runs.js";
 import { resetDatabase } from "./helpers.js";
+import { JobInputSchema } from "../../src/types.js";
+import { buildRetentionPrompt } from "../../src/llm.js";
 
 const retentionV1 = fileURLToPath(new URL("../../datasets/retention-v1.json", import.meta.url));
 
@@ -134,5 +136,22 @@ describe("createRun", () => {
 });
 
 describe("buildRetentionPrompt", () => {
-    it.todo("never includes the case's expectedRisk in the prompt");
+    it("never includes the case's expectedRisk in the prompt", async () => {
+        await loadDataset(await readDatasetFile(retentionV1));
+
+        const result = await createRun({
+            datasetName: "retention",
+            datasetVersion: 1,
+            promptVersion: "v1",
+        });
+
+        if (!result.ok) throw new Error("expected createRun to succeed");
+
+        const job = await prisma.job.findFirst({ where: { runId: result.run.id } });
+        const parsed = JobInputSchema.parse(job!.input);
+
+        const prompt = await buildRetentionPrompt(parsed.userId, parsed.snapshot!, parsed.promptVersion);
+
+        expect(prompt).not.toContain("expectedRisk");
+    });
 });
