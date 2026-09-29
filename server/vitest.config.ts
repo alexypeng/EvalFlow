@@ -13,6 +13,10 @@ if (!dbName.endsWith("_test")) {
     );
 }
 
+// Tests must not pick up a real LLM from a developer's .env: results would
+// depend on the machine, and runs would record "gemini" instead of "mock".
+const testLlmEnv = { LLM_PROVIDER: "mock", GEMINI_API_KEY: "" };
+
 export default defineConfig({
     test: {
         projects: [
@@ -20,6 +24,7 @@ export default defineConfig({
                 test: {
                     name: "unit",
                     include: ["test/unit/**/*.test.ts"],
+                    env: testLlmEnv,
                 },
             },
             {
@@ -27,7 +32,7 @@ export default defineConfig({
                     name: "db",
                     include: ["test/db/**/*.test.ts"],
                     // db.ts reads DATABASE_URL at import time, so point it at the test DB.
-                    env: { DATABASE_URL: testDatabaseUrl },
+                    env: { ...testLlmEnv, DATABASE_URL: testDatabaseUrl },
                     globalSetup: ["test/db/globalSetup.ts"],
                     setupFiles: ["test/db/setup.ts"],
                     // Files share one database; run them one at a time.
