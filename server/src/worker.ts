@@ -1,42 +1,19 @@
 import "dotenv/config";
 import { setTimeout as sleep } from "node:timers/promises";
-import {
-    getFeatureUsage,
-    getRetentionSummary,
-    getSubscriptionHistory,
-    getUserEvents,
-} from "./analyticsTools.js";
-import {
-    addTrace,
-    claimNextJob,
-    completeJob,
-    failOrRetryJob,
-    createEval,
-} from "./jobs.js";
-import {
-    parseLlmJson,
-    validateRetentionOutput,
-    scoreRetentionAnalysis,
-} from "./evaluator.js";
-import {
-    buildRetentionPrompt,
-    callLlm,
-    defaultPromptVersion,
-} from "./llm.js";
+import { getFeatureUsage, getRetentionSummary, getSubscriptionHistory, getUserEvents } from "./analyticsTools.js";
+import { addTrace, claimNextJob, completeJob, failOrRetryJob, createEval } from "./jobs.js";
+import { parseLlmJson, validateRetentionOutput, scoreRetentionAnalysis } from "./evaluator.js";
+import { buildRetentionPrompt, callLlm, defaultPromptVersion } from "./llm.js";
 import { JobInputSchema } from "./types.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
 const concurrency = Number(process.env.WORKER_CONCURRENCY ?? 1);
 
 if (!Number.isInteger(concurrency) || concurrency < 1) {
-    throw new Error(
-        `WORKER_CONCURRENCY must be a positive integer (got "${process.env.WORKER_CONCURRENCY}")`,
-    );
+    throw new Error(`WORKER_CONCURRENCY must be a positive integer (got "${process.env.WORKER_CONCURRENCY}")`);
 }
 
-console.log(
-    `Worker running ${concurrency} slot(s), polling every ${pollIntervalMs}ms when idle`,
-);
+console.log(`Worker running ${concurrency} slot(s), polling every ${pollIntervalMs}ms when idle`);
 
 async function timed<T>(fn: () => Promise<T>) {
     const startedAt = Date.now();
@@ -48,18 +25,14 @@ async function timed<T>(fn: () => Promise<T>) {
     };
 }
 
-async function processJob(job: {
-    id: string;
-    input: unknown;
-    attempts: number;
-    maxAttempts: number;
-}) {
+async function processJob(job: { id: string; input: unknown; attempts: number; maxAttempts: number }) {
     const startedAt = Date.now();
 
     const {
         userId,
         snapshot: caseSnapshot,
         promptVersion = defaultPromptVersion,
+        expectedRisk,
     } = JobInputSchema.parse(job.input);
     const toolInput = {
         userId,
@@ -75,9 +48,7 @@ async function processJob(job: {
         latencyMs: events.latencyMs,
     });
 
-    const featureUsage = await timed(() =>
-        getFeatureUsage(userId, caseSnapshot),
-    );
+    const featureUsage = await timed(() => getFeatureUsage(userId, caseSnapshot));
     await addTrace({
         jobId: job.id,
         stepName: "getFeatureUsage",
@@ -86,9 +57,7 @@ async function processJob(job: {
         latencyMs: featureUsage.latencyMs,
     });
 
-    const subscriptionHistory = await timed(() =>
-        getSubscriptionHistory(userId, caseSnapshot),
-    );
+    const subscriptionHistory = await timed(() => getSubscriptionHistory(userId, caseSnapshot));
     await addTrace({
         jobId: job.id,
         stepName: "getSubscriptionHistory",
@@ -97,9 +66,7 @@ async function processJob(job: {
         latencyMs: subscriptionHistory.latencyMs,
     });
 
-    const retentionSummary = await timed(() =>
-        getRetentionSummary(userId, caseSnapshot),
-    );
+    const retentionSummary = await timed(() => getRetentionSummary(userId, caseSnapshot));
     await addTrace({
         jobId: job.id,
         stepName: "getRetentionSummary",
@@ -147,9 +114,7 @@ async function processJob(job: {
     const validation = validateRetentionOutput(parsed.parsed);
 
     if (!validation.success) {
-        throw new Error(
-            `LLM output failed schema validation: ${validation.error.message}`,
-        );
+        throw new Error(`LLM output failed schema validation: ${validation.error.message}`);
     }
 
     const evalResult = scoreRetentionAnalysis({
@@ -157,6 +122,7 @@ async function processJob(job: {
         snapshot,
         validJson: parsed.validJson,
         hasRequiredFields: validation.success,
+        expectedRisk,
     });
 
     await createEval({
@@ -225,6 +191,4 @@ async function workerLoop(slot: number) {
     }
 }
 
-await Promise.all(
-    Array.from({ length: concurrency }, (_, slot) => workerLoop(slot)),
-);
+await Promise.all(Array.from({ length: concurrency }, (_, slot) => workerLoop(slot)));

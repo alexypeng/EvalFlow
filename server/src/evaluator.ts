@@ -31,14 +31,14 @@ export function scoreRetentionAnalysis(params: {
     snapshot: AnalyticsSnapshot;
     validJson: boolean;
     hasRequiredFields: boolean;
+    expectedRisk?: "low" | "medium" | "high";
 }) {
     const evidenceIncluded = params.output.evidence.length > 0;
 
     const evidenceText = params.output.evidence.join(" ").toLowerCase();
 
     const summary = params.snapshot.retentionSummary;
-    const activityDrop =
-        summary.activeDaysPrevious30 - summary.activeDaysLast30;
+    const activityDrop = summary.activeDaysPrevious30 - summary.activeDaysLast30;
 
     const evidenceSupported =
         evidenceText.includes(String(summary.activeDaysLast30)) ||
@@ -46,14 +46,14 @@ export function scoreRetentionAnalysis(params: {
         evidenceText.includes(String(summary.supportTicketsLast30)) ||
         evidenceText.includes(String(summary.npsScore));
 
-    const expectedRisk =
-        summary.npsScore <= 4 ||
-        summary.supportTicketsLast30 >= 2 ||
-        activityDrop >= 10
+    const ruleRisk =
+        summary.npsScore <= 4 || summary.supportTicketsLast30 >= 2 || activityDrop >= 10
             ? "high"
             : summary.npsScore <= 6 || activityDrop >= 5
               ? "medium"
               : "low";
+
+    const expectedRisk = params.expectedRisk ?? ruleRisk;
 
     const reasonableRiskLabel = params.output.retentionRisk === expectedRisk;
 
@@ -64,14 +64,15 @@ export function scoreRetentionAnalysis(params: {
         (evidenceSupported ? 20 : 0) +
         (reasonableRiskLabel ? 20 : 0);
 
+    const expectedSource = params.expectedRisk ? "dataset label" : "rule-based expectation";
+
     const notes = [
         evidenceSupported
             ? "Evidence references mock analytics data."
             : "Evidence does not clearly reference mock analytics data.",
         reasonableRiskLabel
-            ? `Risk label matches rule-based expectation: ${expectedRisk}.`
-            : `Risk label ${params.output.retentionRisk} differs from rule-
-              based expectation: ${expectedRisk}.`,
+            ? `Risk label matches ${expectedSource}: ${expectedRisk}.`
+            : `Risk label ${params.output.retentionRisk} differs from ${expectedSource}: ${expectedRisk}.`,
     ].join(" ");
 
     return {
