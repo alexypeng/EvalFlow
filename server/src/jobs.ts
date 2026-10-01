@@ -1,11 +1,7 @@
 import { Prisma } from "./generated/prisma/client.js";
 import { prisma } from "./db.js";
 
-export async function createJob(
-    type: string,
-    input: Prisma.InputJsonValue,
-    maxAttempts = 3,
-) {
+export async function createJob(type: string, input: Prisma.InputJsonValue, maxAttempts = 3) {
     return prisma.job.create({
         data: {
             type,
@@ -34,25 +30,24 @@ export async function getJobById(id: string) {
 }
 
 export async function getMetrics() {
-    const [totalJobs, completedJobs, failedJobs, aggregates] =
-        await Promise.all([
-            prisma.job.count(),
-            prisma.job.count({
-                where: { status: "completed" },
-            }),
-            prisma.job.count({
-                where: { status: "failed" },
-            }),
-            prisma.job.aggregate({
-                _avg: {
-                    latencyMs: true,
-                    evalScore: true,
-                },
-                _sum: {
-                    totalTokens: true,
-                },
-            }),
-        ]);
+    const [totalJobs, completedJobs, failedJobs, aggregates] = await Promise.all([
+        prisma.job.count(),
+        prisma.job.count({
+            where: { status: "completed" },
+        }),
+        prisma.job.count({
+            where: { status: "failed" },
+        }),
+        prisma.job.aggregate({
+            _avg: {
+                latencyMs: true,
+                evalScore: true,
+            },
+            _sum: {
+                totalTokens: true,
+            },
+        }),
+    ]);
 
     return {
         totalJobs,
@@ -152,12 +147,7 @@ export async function completeJob(params: {
     });
 }
 
-export async function failOrRetryJob(params: {
-    id: string;
-    attempts: number;
-    maxAttempts: number;
-    error: string;
-}) {
+export async function failOrRetryJob(params: { id: string; attempts: number; maxAttempts: number; error: string }) {
     const shouldRetry = params.attempts < params.maxAttempts;
 
     return prisma.job.update({

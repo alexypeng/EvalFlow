@@ -2,13 +2,7 @@ import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { checkDatabaseConnection } from "./db.js";
-import {
-    createJob,
-    getJobDetails,
-    getMetrics,
-    listJobs,
-    retryJob,
-} from "./jobs.js";
+import { createJob, getJobDetails, getMetrics, listJobs, retryJob } from "./jobs.js";
 import { createRun } from "./runs.js";
 import { CreateJobSchema, CreateRunSchema } from "./types.js";
 
@@ -29,11 +23,7 @@ app.post("/jobs", async (request, reply) => {
         });
     }
 
-    const job = await createJob(
-        parsed.data.type,
-        parsed.data.input,
-        parsed.data.maxAttempts ?? 3,
-    );
+    const job = await createJob(parsed.data.type, parsed.data.input, parsed.data.maxAttempts ?? 3);
 
     return reply.code(201).send(job);
 });
@@ -54,27 +44,24 @@ app.get<{ Params: { id: string } }>("/jobs/:id", async (request, reply) => {
     return details;
 });
 
-app.post<{ Params: { id: string } }>(
-    "/jobs/:id/retry",
-    async (request, reply) => {
-        const result = await retryJob(request.params.id);
+app.post<{ Params: { id: string } }>("/jobs/:id/retry", async (request, reply) => {
+    const result = await retryJob(request.params.id);
 
-        if (!result.ok && result.reason === "not_found") {
-            return reply.code(404).send({
-                error: "Job not found",
-            });
-        }
+    if (!result.ok && result.reason === "not_found") {
+        return reply.code(404).send({
+            error: "Job not found",
+        });
+    }
 
-        if (!result.ok && result.reason === "not_failed") {
-            return reply.code(409).send({
-                error: "Only failed jobs can be retried",
-                status: result.job.status,
-            });
-        }
+    if (!result.ok && result.reason === "not_failed") {
+        return reply.code(409).send({
+            error: "Only failed jobs can be retried",
+            status: result.job.status,
+        });
+    }
 
-        return result.job;
-    },
-);
+    return result.job;
+});
 
 app.post("/runs", async (request, reply) => {
     const parsed = CreateRunSchema.safeParse(request.body);

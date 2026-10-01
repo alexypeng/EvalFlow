@@ -30,8 +30,7 @@ function App() {
 
     async function refreshDashboard() {
         try {
-            const { jobs: nextJobs, metrics: nextMetrics } =
-                await fetchDashboard();
+            const { jobs: nextJobs, metrics: nextMetrics } = await fetchDashboard();
 
             setJobs(nextJobs);
             setMetrics(nextMetrics);
@@ -44,8 +43,7 @@ function App() {
     useEffect(() => {
         async function loadDashboard() {
             try {
-                const { jobs: nextJobs, metrics: nextMetrics } =
-                    await fetchDashboard();
+                const { jobs: nextJobs, metrics: nextMetrics } = await fetchDashboard();
 
                 setJobs(nextJobs);
                 setMetrics(nextMetrics);
@@ -124,9 +122,7 @@ function App() {
     }
 
     const selectedJob =
-        jobDetails?.job.id === selectedJobId
-            ? jobDetails.job
-            : (jobs.find((job) => job.id === selectedJobId) ?? null);
+        jobDetails?.job.id === selectedJobId ? jobDetails.job : (jobs.find((job) => job.id === selectedJobId) ?? null);
     const hasSelectedRun = selectedJobId !== null;
 
     return (
@@ -144,9 +140,7 @@ function App() {
 
             <div
                 className={`mx-auto transition-all duration-500 ${
-                    hasSelectedRun
-                        ? "max-w-6xl"
-                        : "flex min-h-[calc(100vh-2.5rem)] max-w-3xl items-center"
+                    hasSelectedRun ? "max-w-6xl" : "flex min-h-[calc(100vh-2.5rem)] max-w-3xl items-center"
                 }`}
             >
                 <div className="relative w-full">
@@ -160,24 +154,18 @@ function App() {
                         </p>
                         <h1
                             className={`mt-2 font-semibold text-white transition-all duration-500 ${
-                                hasSelectedRun
-                                    ? "text-3xl"
-                                    : "text-5xl sm:text-6xl"
+                                hasSelectedRun ? "text-3xl" : "text-5xl sm:text-6xl"
                             }`}
                         >
                             EvalFlow
                         </h1>
                         <p
                             className={`mx-auto mt-3 text-sm leading-6 text-slate-300 ${
-                                hasSelectedRun
-                                    ? "max-w-2xl sm:mx-0"
-                                    : "max-w-xl"
+                                hasSelectedRun ? "max-w-2xl sm:mx-0" : "max-w-xl"
                             }`}
                         >
-                            Run retention risk analysis through a local AI agent
-                            pipeline with async jobs, tool calls, structured
-                            validation, eval scoring, traces, latency, and
-                            token tracking.
+                            Run retention risk analysis through a local AI agent pipeline with async jobs, tool calls,
+                            structured validation, eval scoring, traces, latency, and token tracking.
                         </p>
                     </header>
 
@@ -197,11 +185,7 @@ function App() {
 
                     {hasSelectedRun ? (
                         <section className="mt-5 grid gap-4" aria-label="Run">
-                            <JobDetailPanel
-                                details={jobDetails}
-                                fallbackJob={selectedJob}
-                                onRetry={handleRetry}
-                            />
+                            <JobDetailPanel details={jobDetails} fallbackJob={selectedJob} onRetry={handleRetry} />
                         </section>
                     ) : null}
                 </div>
@@ -224,9 +208,7 @@ function TopDropdowns(props: {
         <div className="fixed right-4 top-4 z-50 flex max-w-[calc(100vw-2rem)] items-start justify-end gap-2 sm:right-6">
             <div
                 className={`overflow-hidden rounded-xl border border-slate-700 bg-slate-900/95 shadow-2xl shadow-slate-950/50 transition-all duration-200 ease-out ${
-                    props.showHistory
-                        ? "w-[22rem] max-w-[calc(100vw-2rem)]"
-                        : "w-[6.25rem]"
+                    props.showHistory ? "w-[22rem] max-w-[calc(100vw-2rem)]" : "w-[6.25rem]"
                 }`}
             >
                 <button
@@ -241,16 +223,10 @@ function TopDropdowns(props: {
 
                 <div
                     className={`grid transition-all duration-200 ease-out ${
-                        props.showHistory
-                            ? "grid-rows-[1fr] opacity-100"
-                            : "grid-rows-[0fr] opacity-0"
+                        props.showHistory ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
                     }`}
                 >
-                    <div
-                        className={`min-h-0 overflow-hidden ${
-                            props.showHistory ? "px-3 pb-3" : "px-0 pb-0"
-                        }`}
-                    >
+                    <div className={`min-h-0 overflow-hidden ${props.showHistory ? "px-3 pb-3" : "px-0 pb-0"}`}>
                         <JobList
                             jobs={props.jobs}
                             selectedJobId={props.selectedJobId}
@@ -277,9 +253,7 @@ function TopDropdowns(props: {
 
                 <div
                     className={`grid transition-all duration-200 ease-out ${
-                        props.showMetrics
-                            ? "grid-rows-[1fr] opacity-100"
-                            : "grid-rows-[0fr] opacity-0"
+                        props.showMetrics ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
                     }`}
                 >
                     <section
@@ -288,25 +262,12 @@ function TopDropdowns(props: {
                         }`}
                         aria-label="Metrics"
                     >
-                    <Metric label="Total jobs" value={props.metrics?.totalJobs} />
-                    <Metric
-                        label="Completed"
-                        value={props.metrics?.completedJobs}
-                    />
-                    <Metric label="Failed" value={props.metrics?.failedJobs} />
-                    <Metric
-                        label="Avg latency"
-                        value={props.metrics?.averageLatencyMs}
-                        suffix=" ms"
-                    />
-                    <Metric
-                        label="Avg eval"
-                        value={props.metrics?.averageEvalScore}
-                    />
-                    <Metric
-                        label="Total tokens"
-                        value={props.metrics?.totalTokens}
-                    />
+                        <Metric label="Total jobs" value={props.metrics?.totalJobs} />
+                        <Metric label="Completed" value={props.metrics?.completedJobs} />
+                        <Metric label="Failed" value={props.metrics?.failedJobs} />
+                        <Metric label="Avg latency" value={props.metrics?.averageLatencyMs} suffix=" ms" />
+                        <Metric label="Avg eval" value={props.metrics?.averageEvalScore} />
+                        <Metric label="Total tokens" value={props.metrics?.totalTokens} />
                     </section>
                 </div>
             </div>
@@ -320,9 +281,7 @@ function DropdownArrow(props: { open: boolean }) {
             aria-hidden="true"
             size={14}
             strokeWidth={2.25}
-            className={`text-slate-400 transition-transform duration-200 ${
-                props.open ? "rotate-180" : ""
-            }`}
+            className={`text-slate-400 transition-transform duration-200 ${props.open ? "rotate-180" : ""}`}
         />
     );
 }
@@ -341,11 +300,7 @@ function SubmitJobForm(props: {
             }`}
         >
             <form
-                className={`flex gap-2 ${
-                    props.compact
-                        ? "flex-col sm:flex-row"
-                        : "flex-col sm:flex-row"
-                }`}
+                className={`flex gap-2 ${props.compact ? "flex-col sm:flex-row" : "flex-col sm:flex-row"}`}
                 onSubmit={props.onSubmit}
             >
                 <label className="sr-only" htmlFor="user-id">
@@ -356,9 +311,7 @@ function SubmitJobForm(props: {
                         id="user-id"
                         className="h-12 w-full bg-transparent text-base text-white outline-none placeholder:text-slate-500"
                         value={props.userId}
-                        onChange={(event) =>
-                            props.onUserIdChange(event.target.value)
-                        }
+                        onChange={(event) => props.onUserIdChange(event.target.value)}
                         placeholder="Enter user ID, e.g. user_123"
                     />
                 </div>
@@ -375,19 +328,13 @@ function SubmitJobForm(props: {
     );
 }
 
-function JobList(props: {
-    jobs: Job[];
-    selectedJobId: string | null;
-    onSelectJob: (id: string) => void;
-}) {
+function JobList(props: { jobs: Job[]; selectedJobId: string | null; onSelectJob: (id: string) => void }) {
     return (
         <article className="rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                     <h2 className="text-base font-semibold text-white">Jobs</h2>
-                    <p className="mt-1 text-xs text-slate-400">
-                        Latest runs from Postgres
-                    </p>
+                    <p className="mt-1 text-xs text-slate-400">Latest runs from Postgres</p>
                 </div>
                 <span className="rounded-full bg-slate-800 px-2 py-1 text-xs font-medium text-slate-300">
                     {props.jobs.length} total
@@ -414,12 +361,8 @@ function JobList(props: {
                     >
                         <div className="flex items-start justify-between gap-3">
                             <div>
-                                <p className="text-sm font-semibold text-white">
-                                    {job.type}
-                                </p>
-                                <p className="mt-1 font-mono text-xs text-slate-400">
-                                    {job.id.slice(0, 8)}
-                                </p>
+                                <p className="text-sm font-semibold text-white">{job.type}</p>
+                                <p className="mt-1 font-mono text-xs text-slate-400">{job.id.slice(0, 8)}</p>
                             </div>
                             <StatusBadge status={job.status} />
                         </div>
@@ -436,23 +379,16 @@ function JobList(props: {
     );
 }
 
-function JobDetailPanel(props: {
-    details: JobDetails | null;
-    fallbackJob: Job | null;
-    onRetry: () => void;
-}) {
+function JobDetailPanel(props: { details: JobDetails | null; fallbackJob: Job | null; onRetry: () => void }) {
     const job = props.details?.job ?? props.fallbackJob;
 
     return (
         <article className="min-h-[720px] rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-sm">
             <div className="mb-5 flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                    <h2 className="text-base font-semibold text-white">
-                        Run Details
-                    </h2>
+                    <h2 className="text-base font-semibold text-white">Run Details</h2>
                     <p className="mt-1 text-sm text-slate-400">
-                        Structured output, traces, evals, latency, tokens, and
-                        errors for the selected job.
+                        Structured output, traces, evals, latency, tokens, and errors for the selected job.
                     </p>
                 </div>
                 {job?.status === "failed" ? (
@@ -469,12 +405,9 @@ function JobDetailPanel(props: {
             {!job ? (
                 <div className="flex min-h-96 items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-950 p-8 text-center">
                     <div>
-                        <h3 className="text-sm font-semibold text-white">
-                            No run selected
-                        </h3>
+                        <h3 className="text-sm font-semibold text-white">No run selected</h3>
                         <p className="mt-2 max-w-sm text-sm leading-6 text-slate-400">
-                            Submit a job or select an existing run to inspect
-                            the agent workflow.
+                            Submit a job or select an existing run to inspect the agent workflow.
                         </p>
                     </div>
                 </div>
@@ -482,26 +415,11 @@ function JobDetailPanel(props: {
                 <div className="grid gap-6">
                     <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
                         <Detail label="Status" value={job.status} />
-                        <Detail
-                            label="Attempts"
-                            value={`${job.attempts}/${job.maxAttempts}`}
-                        />
-                        <Detail
-                            label="Latency"
-                            value={formatMetric(job.latencyMs, " ms")}
-                        />
-                        <Detail
-                            label="Prompt"
-                            value={formatMetric(job.promptTokens)}
-                        />
-                        <Detail
-                            label="Completion"
-                            value={formatMetric(job.completionTokens)}
-                        />
-                        <Detail
-                            label="Eval"
-                            value={formatMetric(job.evalScore)}
-                        />
+                        <Detail label="Attempts" value={`${job.attempts}/${job.maxAttempts}`} />
+                        <Detail label="Latency" value={formatMetric(job.latencyMs, " ms")} />
+                        <Detail label="Prompt" value={formatMetric(job.promptTokens)} />
+                        <Detail label="Completion" value={formatMetric(job.completionTokens)} />
+                        <Detail label="Eval" value={formatMetric(job.evalScore)} />
                     </section>
 
                     {job.error ? (
@@ -534,20 +452,14 @@ function JobDetailPanel(props: {
                         <SectionLabel>Traces</SectionLabel>
                         <div className="mt-2 grid gap-2">
                             {props.details?.traces.map((trace, index) => (
-                                <details
-                                    key={trace.id}
-                                    className="rounded-lg border border-slate-800 bg-slate-950 p-3"
-                                >
+                                <details key={trace.id} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                                     <summary className="cursor-pointer text-sm font-semibold text-slate-200">
                                         <span className="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-slate-900 text-xs text-slate-400 ring-1 ring-slate-700">
                                             {index + 1}
                                         </span>
                                         {trace.stepName}
                                         <span className="ml-2 text-xs font-normal text-slate-400">
-                                            {formatMetric(
-                                                trace.latencyMs,
-                                                " ms",
-                                            )}
+                                            {formatMetric(trace.latencyMs, " ms")}
                                         </span>
                                     </summary>
                                     <JsonDisclosure
@@ -567,16 +479,10 @@ function JobDetailPanel(props: {
     );
 }
 
-function Metric(props: {
-    label: string;
-    value: number | null | undefined;
-    suffix?: string;
-}) {
+function Metric(props: { label: string; value: number | null | undefined; suffix?: string }) {
     return (
         <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 shadow-sm">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                {props.label}
-            </span>
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">{props.label}</span>
             <strong className="mt-2 block text-2xl font-semibold text-white">
                 {formatMetric(props.value, props.suffix)}
             </strong>
@@ -601,15 +507,11 @@ function RetentionSummary(props: { value: unknown }) {
                     {props.value.retentionRisk} retention risk
                 </span>
             </div>
-            <p className="mt-3 text-sm leading-6 text-slate-300">
-                {props.value.summary}
-            </p>
+            <p className="mt-3 text-sm leading-6 text-slate-300">{props.value.summary}</p>
 
             <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                        Evidence
-                    </h4>
+                    <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">Evidence</h4>
                     <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-slate-300">
                         {props.value.evidence.map((item) => (
                             <li key={item}>{item}</li>
@@ -618,9 +520,7 @@ function RetentionSummary(props: { value: unknown }) {
                 </div>
 
                 <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                        Recommended actions
-                    </h4>
+                    <h4 className="text-xs font-bold uppercase tracking-wide text-slate-400">Recommended actions</h4>
                     <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-slate-300">
                         {props.value.recommendedActions.map((item) => (
                             <li key={item}>{item}</li>
@@ -644,32 +544,22 @@ function EvalSummary(props: { value: NonNullable<JobDetails["eval"]> }) {
     return (
         <div className="mt-2 rounded-xl border border-slate-800 bg-slate-950 p-4">
             <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-semibold text-white">
-                    Score: {props.value.taskCompletionScore}/100
-                </span>
-                <span className="text-xs text-slate-400">
-                    {new Date(props.value.createdAt).toLocaleString()}
-                </span>
+                <span className="text-sm font-semibold text-white">Score: {props.value.taskCompletionScore}/100</span>
+                <span className="text-xs text-slate-400">{new Date(props.value.createdAt).toLocaleString()}</span>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
                 {checks.map(([label, passed]) => (
                     <span
                         key={label}
                         className={`rounded-full px-2 py-1 text-xs font-semibold ${
-                            passed
-                                ? "bg-emerald-50 text-emerald-700"
-                                : "bg-rose-50 text-rose-700"
+                            passed ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
                         }`}
                     >
                         {passed ? "Pass" : "Fail"}: {label}
                     </span>
                 ))}
             </div>
-            {props.value.notes ? (
-                <p className="mt-3 text-sm leading-6 text-slate-300">
-                    {props.value.notes}
-                </p>
-            ) : null}
+            {props.value.notes ? <p className="mt-3 text-sm leading-6 text-slate-300">{props.value.notes}</p> : null}
         </div>
     );
 }
@@ -677,22 +567,14 @@ function EvalSummary(props: { value: NonNullable<JobDetails["eval"]> }) {
 function Detail(props: { label: string; value: string }) {
     return (
         <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                {props.label}
-            </span>
-            <p className="mt-1 text-sm font-semibold text-white">
-                {props.value}
-            </p>
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">{props.label}</span>
+            <p className="mt-1 text-sm font-semibold text-white">{props.value}</p>
         </div>
     );
 }
 
 function SectionLabel(props: { children: string }) {
-    return (
-        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-            {props.children}
-        </h3>
-    );
+    return <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400">{props.children}</h3>;
 }
 
 function StatusBadge(props: { status: Job["status"] }) {
@@ -703,13 +585,7 @@ function StatusBadge(props: { status: Job["status"] }) {
         failed: "bg-rose-50 text-rose-700",
     };
 
-    return (
-        <span
-            className={`rounded-full px-2 py-1 text-xs font-bold ${classes[props.status]}`}
-        >
-            {props.status}
-        </span>
-    );
+    return <span className={`rounded-full px-2 py-1 text-xs font-bold ${classes[props.status]}`}>{props.status}</span>;
 }
 
 function RiskBadge(props: { risk: RetentionResult["retentionRisk"] }) {
@@ -719,13 +595,7 @@ function RiskBadge(props: { risk: RetentionResult["retentionRisk"] }) {
         high: "bg-rose-50 text-rose-700",
     };
 
-    return (
-        <span
-            className={`rounded-full px-2 py-1 text-xs font-bold ${classes[props.risk]}`}
-        >
-            {props.risk}
-        </span>
-    );
+    return <span className={`rounded-full px-2 py-1 text-xs font-bold ${classes[props.risk]}`}>{props.risk}</span>;
 }
 
 function JsonBlock(props: { value: unknown }) {
@@ -739,9 +609,7 @@ function JsonBlock(props: { value: unknown }) {
 function JsonDisclosure(props: { label: string; value: unknown }) {
     return (
         <details className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
-            <summary className="cursor-pointer text-sm font-semibold text-slate-200">
-                {props.label}
-            </summary>
+            <summary className="cursor-pointer text-sm font-semibold text-slate-200">{props.label}</summary>
             <JsonBlock value={props.value} />
         </details>
     );

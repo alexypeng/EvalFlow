@@ -8,9 +8,7 @@ export async function readDatasetFile(path: string): Promise<DatasetFile> {
     const parsed = DatasetFileSchema.safeParse(raw);
 
     if (!parsed.success) {
-        throw new Error(
-            `Invalid dataset file ${path}:\n${z.prettifyError(parsed.error)}`,
-        );
+        throw new Error(`Invalid dataset file ${path}:\n${z.prettifyError(parsed.error)}`);
     }
 
     return parsed.data;
@@ -56,10 +54,7 @@ export async function loadDataset(file: DatasetFile) {
     };
 }
 
-function assertSameCases(
-    file: DatasetFile,
-    stored: Array<{ name: string; expectedRisk: string; snapshot: unknown }>,
-) {
+function assertSameCases(file: DatasetFile, stored: Array<{ name: string; expectedRisk: string; snapshot: unknown }>) {
     const label = `${file.name} v${file.version}`;
     const storedByName = new Map(stored.map((c) => [c.name, c]));
 
@@ -74,8 +69,7 @@ function assertSameCases(
         const same =
             storedCase !== undefined &&
             storedCase.expectedRisk === fileCase.expectedRisk &&
-            canonicalJson(storedCase.snapshot) ===
-                canonicalJson(fileCase.snapshot);
+            canonicalJson(storedCase.snapshot) === canonicalJson(fileCase.snapshot);
 
         if (!same) {
             throw new Error(
@@ -99,10 +93,7 @@ function sortKeys(value: unknown): unknown {
         return Object.fromEntries(
             Object.keys(value)
                 .sort()
-                .map((key) => [
-                    key,
-                    sortKeys((value as Record<string, unknown>)[key]),
-                ]),
+                .map((key) => [key, sortKeys((value as Record<string, unknown>)[key])]),
         );
     }
 

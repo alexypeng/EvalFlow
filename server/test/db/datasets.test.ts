@@ -5,9 +5,7 @@ import { prisma } from "../../src/db.js";
 import { DatasetFileSchema } from "../../src/types.js";
 import { resetDatabase } from "./helpers.js";
 
-const retentionV1 = fileURLToPath(
-    new URL("../../datasets/retention-v1.json", import.meta.url),
-);
+const retentionV1 = fileURLToPath(new URL("../../datasets/retention-v1.json", import.meta.url));
 
 beforeEach(resetDatabase);
 
@@ -43,8 +41,7 @@ describe("loadDataset", () => {
         await loadDataset(file);
 
         const edited = structuredClone(file);
-        edited.cases[0].expectedRisk =
-            edited.cases[0].expectedRisk === "low" ? "high" : "low";
+        edited.cases[0].expectedRisk = edited.cases[0].expectedRisk === "low" ? "high" : "low";
 
         await expect(loadDataset(edited)).rejects.toThrow(/bump the version/);
     });

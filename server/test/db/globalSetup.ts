@@ -6,8 +6,7 @@ export default function setup() {
         env: {
             ...process.env,
             DATABASE_URL:
-                process.env.TEST_DATABASE_URL ??
-                "postgresql://postgres:postgres@localhost:5433/evalflow_test",
+                process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5433/evalflow_test",
         },
     });
 }

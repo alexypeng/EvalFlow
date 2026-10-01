@@ -68,9 +68,7 @@ export async function buildRetentionPrompt(
 ) {
     const template = await loadPromptTemplate(promptVersion);
 
-    return template
-        .replaceAll("{{userId}}", () => userId)
-        .replaceAll("{{snapshot}}", () => JSON.stringify(snapshot));
+    return template.replaceAll("{{userId}}", () => userId).replaceAll("{{snapshot}}", () => JSON.stringify(snapshot));
 }
 
 function estimateTokens(text: string) {
@@ -79,14 +77,9 @@ function estimateTokens(text: string) {
 
 function getRiskLabel(snapshot: AnalyticsSnapshot) {
     const summary = snapshot.retentionSummary;
-    const activityDrop =
-        summary.activeDaysPrevious30 - summary.activeDaysLast30;
+    const activityDrop = summary.activeDaysPrevious30 - summary.activeDaysLast30;
 
-    if (
-        summary.npsScore <= 4 ||
-        summary.supportTicketsLast30 >= 2 ||
-        activityDrop >= 10
-    ) {
+    if (summary.npsScore <= 4 || summary.supportTicketsLast30 >= 2 || activityDrop >= 10) {
         return "high";
     }
 
@@ -97,10 +90,7 @@ function getRiskLabel(snapshot: AnalyticsSnapshot) {
     return "low";
 }
 
-export async function callLlm(
-    prompt: string,
-    snapshot: AnalyticsSnapshot,
-): Promise<LlmResponse> {
+export async function callLlm(prompt: string, snapshot: AnalyticsSnapshot): Promise<LlmResponse> {
     const { provider, model: modelName } = resolveLlm();
 
     if (provider === "gemini") {
@@ -140,19 +130,10 @@ export async function callLlm(
         ],
         recommendedActions:
             risk === "high"
-                ? [
-                      "Schedule customer success outreach.",
-                      "Offer a workflow review focused on underused features.",
-                  ]
+                ? ["Schedule customer success outreach.", "Offer a workflow review focused on underused features."]
                 : risk === "medium"
-                  ? [
-                        "Send targeted enablement content.",
-                        "Monitor usage trend over the next week.",
-                    ]
-                  : [
-                        "Continue normal lifecycle messaging.",
-                        "Invite the user to try advanced features.",
-                    ],
+                  ? ["Send targeted enablement content.", "Monitor usage trend over the next week."]
+                  : ["Continue normal lifecycle messaging.", "Invite the user to try advanced features."],
     });
 
     const promptTokens = estimateTokens(prompt);

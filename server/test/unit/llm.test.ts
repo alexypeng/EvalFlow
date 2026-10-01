@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-    buildRetentionPrompt,
-    callLlm,
-    mockModel,
-    resolveLlm,
-} from "../../src/llm.js";
+import { buildRetentionPrompt, callLlm, mockModel, resolveLlm } from "../../src/llm.js";
 import type { AnalyticsSnapshot } from "../../src/types.js";
 
 const snapshot: AnalyticsSnapshot = {
@@ -49,12 +44,8 @@ describe("buildRetentionPrompt", () => {
     });
 
     it("rejects unknown and path-like versions", async () => {
-        await expect(
-            buildRetentionPrompt("case_user", snapshot, "v999"),
-        ).rejects.toThrow(/Unknown prompt version/);
-        await expect(
-            buildRetentionPrompt("case_user", snapshot, "../v1"),
-        ).rejects.toThrow();
+        await expect(buildRetentionPrompt("case_user", snapshot, "v999")).rejects.toThrow(/Unknown prompt version/);
+        await expect(buildRetentionPrompt("case_user", snapshot, "../v1")).rejects.toThrow();
     });
 
     it("inserts data containing $ patterns literally", async () => {

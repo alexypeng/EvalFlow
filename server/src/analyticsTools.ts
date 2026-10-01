@@ -43,9 +43,7 @@ const users: Record<string, AnalyticsSnapshot> = {
             { feature: "alerts", usesLast30Days: 2, previous30Days: 5 },
             { feature: "exports", usesLast30Days: 4, previous30Days: 8 },
         ],
-        subscriptionHistory: [
-            { plan: "pro", status: "active", changedAt: "2026-03-18" },
-        ],
+        subscriptionHistory: [{ plan: "pro", status: "active", changedAt: "2026-03-18" }],
         retentionSummary: {
             userId: "user_medium",
             activeDaysLast30: 10,
@@ -66,9 +64,7 @@ const users: Record<string, AnalyticsSnapshot> = {
             { feature: "alerts", usesLast30Days: 8, previous30Days: 7 },
             { feature: "exports", usesLast30Days: 12, previous30Days: 9 },
         ],
-        subscriptionHistory: [
-            { plan: "enterprise", status: "active", changedAt: "2026-01-12" },
-        ],
+        subscriptionHistory: [{ plan: "enterprise", status: "active", changedAt: "2026-01-12" }],
         retentionSummary: {
             userId: "user_healthy",
             activeDaysLast30: 22,
@@ -90,9 +86,7 @@ function fallbackSnapshot(userId: string): AnalyticsSnapshot {
             { feature: "alerts", usesLast30Days: 1, previous30Days: 3 },
             { feature: "exports", usesLast30Days: 2, previous30Days: 5 },
         ],
-        subscriptionHistory: [
-            { plan: "starter", status: "active", changedAt: "2026-02-09" },
-        ],
+        subscriptionHistory: [{ plan: "starter", status: "active", changedAt: "2026-02-09" }],
         retentionSummary: {
             userId,
             activeDaysLast30: 5,
@@ -107,30 +101,18 @@ function getSnapshot(userId: string, caseSnapshot?: AnalyticsSnapshot) {
     return caseSnapshot ?? users[userId] ?? fallbackSnapshot(userId);
 }
 
-export async function getUserEvents(
-    userId: string,
-    caseSnapshot?: AnalyticsSnapshot,
-) {
+export async function getUserEvents(userId: string, caseSnapshot?: AnalyticsSnapshot) {
     return getSnapshot(userId, caseSnapshot).events;
 }
 
-export async function getFeatureUsage(
-    userId: string,
-    caseSnapshot?: AnalyticsSnapshot,
-) {
+export async function getFeatureUsage(userId: string, caseSnapshot?: AnalyticsSnapshot) {
     return getSnapshot(userId, caseSnapshot).featureUsage;
 }
 
-export async function getSubscriptionHistory(
-    userId: string,
-    caseSnapshot?: AnalyticsSnapshot,
-) {
+export async function getSubscriptionHistory(userId: string, caseSnapshot?: AnalyticsSnapshot) {
     return getSnapshot(userId, caseSnapshot).subscriptionHistory;
 }
 
-export async function getRetentionSummary(
-    userId: string,
-    caseSnapshot?: AnalyticsSnapshot,
-) {
+export async function getRetentionSummary(userId: string, caseSnapshot?: AnalyticsSnapshot) {
     return getSnapshot(userId, caseSnapshot).retentionSummary;
 }

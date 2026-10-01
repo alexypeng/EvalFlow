@@ -72,7 +72,7 @@ DB tests use `TEST_DATABASE_URL` (default `postgresql://postgres:postgres@localh
 
 ## Conventions
 
-- TypeScript, ES modules, 4-space indentation. Match the existing style.
+- TypeScript, ES modules, 4-space indentation, 120-column lines (Prettier: `--tab-width 4 --print-width 120`). Match the existing style.
 - Validate all external input (API bodies, LLM output) with Zod.
 - Schema changes always go through a Prisma migration. Never hand-edit the database or `src/generated/`.
 - Queue operations must stay safe with multiple concurrent workers. Any change to job claiming, retries or status transitions needs a test for the concurrent case.

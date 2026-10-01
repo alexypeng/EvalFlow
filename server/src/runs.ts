@@ -5,8 +5,7 @@ import { promptVersionExists, resolveLlm } from "./llm.js";
 import { AnalyticsSnapshotSchema, type CreateRunInput } from "./types.js";
 
 export type CreateRunResult =
-    | { ok: true; run: Run; jobCount: number }
-    | { ok: false; reason: "dataset_not_found" | "unknown_prompt_version" };
+    { ok: true; run: Run; jobCount: number } | { ok: false; reason: "dataset_not_found" | "unknown_prompt_version" };
 
 export async function createRun(input: CreateRunInput): Promise<CreateRunResult> {
     const dataset = await prisma.dataset.findUnique({

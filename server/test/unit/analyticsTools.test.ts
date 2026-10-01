@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-    getRetentionSummary,
-    getUserEvents,
-} from "../../src/analyticsTools.js";
+import { getRetentionSummary, getUserEvents } from "../../src/analyticsTools.js";
 import type { AnalyticsSnapshot } from "../../src/types.js";
 
 const caseSnapshot: AnalyticsSnapshot = {
@@ -20,12 +17,8 @@ const caseSnapshot: AnalyticsSnapshot = {
 
 describe("analytics tools", () => {
     it("return the case snapshot when one is passed", async () => {
-        expect(await getUserEvents("user_123", caseSnapshot)).toEqual(
-            caseSnapshot.events,
-        );
-        expect(await getRetentionSummary("user_123", caseSnapshot)).toEqual(
-            caseSnapshot.retentionSummary,
-        );
+        expect(await getUserEvents("user_123", caseSnapshot)).toEqual(caseSnapshot.events);
+        expect(await getRetentionSummary("user_123", caseSnapshot)).toEqual(caseSnapshot.retentionSummary);
     });
 
     it("fall back to the built-in mock users without a snapshot", async () => {

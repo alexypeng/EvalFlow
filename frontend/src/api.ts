@@ -81,9 +81,7 @@ export async function listJobs(): Promise<Job[]> {
 export async function getJobDetails(id: string): Promise<JobDetails> {
     const response = await fetch(`${API_URL}/jobs/${id}`);
     if (!response.ok) {
-        throw new Error(
-            await parseResponseError(response, "Failed to fetch job details"),
-        );
+        throw new Error(await parseResponseError(response, "Failed to fetch job details"));
     }
     return response.json();
 }
