@@ -16,7 +16,7 @@ _Last updated: 2026-09-28_
 |---|---|
 | **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
 | **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | Next ME task: the evaluator scores against each job's `expectedRisk` (fixes mock runs always scoring 100) |
+| **Waiting on you** | Next ME task: per-run aggregates (pass rate, mean score, p50/p95 latency, cost) |
 | **Next up** | You: `POST /runs` (create a run + one job per case in one transaction) |
 
 ---
@@ -60,8 +60,8 @@ Tasks:
 - [x] **ME** `POST /runs`: create the run and one job per case in a single transaction. Each job's `input` carries the case's `userId`, `snapshot`, `promptVersion` and `expectedRisk` (decided 2026-09-28: copy, don't look up). Add a test that the built prompt never contains the label.
 - [ ] **ME** Per-run aggregates: pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total cost
 - [ ] **ME** `GET /runs/:a/compare/:b`: per-case diff and the list of regressions
-- [ ] **ME** Evaluator scores against the case's expected label (depends on the ground-truth decision)
-- [ ] **ME** `scoreRetentionAnalysis` tests, deferred from M0 (11 stubs in `evaluator.test.ts`). Write them against the new scoring; rewrite or delete the threshold stubs if the rules moved into dataset labels. Includes the substring evidence test ("4" matches "14 days").
+- [x] **ME** Evaluator scores against the case's expected label (depends on the ground-truth decision)
+- [x] **ME** `scoreRetentionAnalysis` tests, deferred from M0 (11 stubs in `evaluator.test.ts`). Write them against the new scoring; rewrite or delete the threshold stubs if the rules moved into dataset labels. Includes the substring evidence test ("4" matches "14 days").
 - [ ] **ME** Decide on `parseLlmJson` and prose before a fence (locked in as a known limitation in M0); fix it if real Gemini output hits it
 - [x] **Claude** Versioned prompt files (`server/prompts/retention/v1.md`, `v2.md`); jobs carry `input.promptVersion` (default `v1`) and the `llm_call` trace records it. `POST /runs` should validate the version with `PromptVersionSchema`, store it on the run, and copy it into each job's `input`.
 - [ ] **Claude** Configurable mock failure modes (invalid JSON, wrong label, missing evidence, added latency), seeded by case ID so runs are reproducible
@@ -163,7 +163,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 - **Known (M1):** mock LLM and evaluator use the same rule, so mock runs always score 100.
 - **Known (M3):** a worker crash leaves jobs stuck in `running` forever.
-- `scoreRetentionAnalysis` evidence check is a substring match: NPS `4` "matches" "14 days". Covered by a TODO test; fix or lock in.
+- `scoreRetentionAnalysis` evidence check is a substring match: NPS `4` "matches" "14 days". Documented by an `it.fails` test; fixing it flips that test.
 - `parseLlmJson` fails if the model writes prose before the fenced block. Covered by a TODO test.
 - `@google/generative-ai` is end of life (scheduled in M1).
 - api, worker and migrate each build the same server image in compose; could share one image tag.
@@ -216,3 +216,4 @@ Done when: the README has real numbers and an explanation of what limited throug
 - **2026-09-29:** You implemented `createRun` (dataset lookup, prompt check, `resolveLlm`, run + jobs in one `$transaction`) and 3 of its tests. Claude pinned `LLM_PROVIDER=mock` in `vitest.config.ts` so a developer's `.env` can't switch tests to Gemini; verified by running the suite with Gemini env set (30 passed).
 - **2026-09-29 (later):** You finished all 7 `runs.test.ts` tests, including transaction rollback (break-it check done: `tx` → `prisma` makes it fail) and the answer-key-never-in-prompt test. `POST /runs` is done.
 - **2026-10-01:** You made the evaluator grade run jobs against `expectedRisk` (rule fallback for dashboard jobs; notes name the source) and the worker pass it through. Claude reformatted the codebase to 120 columns; typecheck, lint and unit tests pass, DB tests not run (Docker off).
+- **2026-10-01 (later):** Claude wrote the 14 `scoreRetentionAnalysis` tests at your request (helpers `makeSnapshot` / `makeOutput` / `score`; answer-key vs rule-fallback grading, score arithmetic, evidence support, threshold boundaries via `it.each`, notes text). Substring weakness documented with `it.fails`. Break-it check: making the evaluator ignore `expectedRisk` fails the 2 answer-key tests. 39 unit tests pass.
