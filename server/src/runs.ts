@@ -4,7 +4,8 @@ import { promptVersionExists, resolveLlm } from "./llm.js";
 import { AnalyticsSnapshotSchema, type CreateRunInput } from "./types.js";
 
 export type CreateRunResult =
-    { ok: true; run: Run; jobCount: number } | { ok: false; reason: "dataset_not_found" | "unknown_prompt_version" };
+    | { ok: true; run: Run; jobCount: number }
+    | { ok: false; reason: "dataset_not_found" | "unknown_prompt_version" };
 
 export async function createRun(input: CreateRunInput): Promise<CreateRunResult> {
     const dataset = await prisma.dataset.findUnique({
@@ -85,5 +86,71 @@ export type RunReport = {
 //   over completed jobs of this run. percentile_cont interpolates, so p95 of 20 values sits
 //   between the 19th and 20th. Returns null over zero rows.
 export async function getRunReport(runId: string): Promise<RunReport | null> {
-    throw new Error("getRunReport is not implemented yet");
+    const run = await prisma.run.findUnique({
+        where: { id: runId },
+        include: { dataset: { select: { name: true, version: true } } },
+    });
+
+    if (!run) {
+        return null;
+    }
+
+    const statusCounts = await prisma.job.groupBy({
+        by: ["status"],
+        where: { runId },
+        _count: true,
+    });
+
+    const jobs = { total: 0, queued: 0, running: 0, completed: 0, failed: 0 };
+
+    for (const entry of statusCounts) {
+        jobs[entry.status] = entry._count;
+        jobs.total += entry._count;
+    }
+
+    const status = jobs.queued + jobs.running === 0 ? "finished" : "in_progress";
+
+    const completedJobs = await prisma.job.findMany({
+        where: { runId, status: "completed" },
+        select: {
+            evals: {
+                orderBy: { createdAt: "desc" },
+                take: 1,
+                select: { reasonableRiskLabel: true },
+            },
+        },
+    });
+
+    const passed = completedJobs.filter((job) => job.evals[0]?.reasonableRiskLabel === true).length;
+    const passRate = jobs.total === 0 ? 0 : passed / jobs.total;
+
+    const totals = await prisma.job.aggregate({
+        where: { runId, status: "completed" },
+        _avg: { evalScore: true },
+        _sum: { totalTokens: true, estimatedCost: true },
+    });
+
+    const meanScore = totals._avg.evalScore;
+    const totalTokens = totals._sum.totalTokens ?? 0;
+    const totalCost = totals._sum.estimatedCost?.toNumber() ?? 0;
+
+    const [latency] = await prisma.$queryRaw<Array<{ p50: number | null; p95: number | null }>>`
+        SELECT
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms) AS p50,
+            percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95
+        FROM jobs
+        WHERE run_id = ${runId}::uuid AND status = 'completed'
+    `;
+
+    return {
+        run,
+        status,
+        jobs,
+        passed,
+        passRate,
+        meanScore,
+        latencyMs: { p50: latency.p50, p95: latency.p95 },
+        totalTokens,
+        totalCost,
+    };
 }
