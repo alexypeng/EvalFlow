@@ -16,7 +16,7 @@ _Last updated: 2026-09-28_
 |---|---|
 | **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
 | **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | Next ME task: per-run aggregates (pass rate, mean score, p50/p95 latency, cost) |
+| **Waiting on you** | `getRunReport` in `server/src/runs.ts` (scaffolded, `TODO(ME)`) + 7 stubs in `test/db/runs.test.ts` |
 | **Next up** | You: `POST /runs` (create a run + one job per case in one transaction) |
 
 ---
@@ -58,7 +58,7 @@ Tasks:
 - [x] **ME** Review the 4 `judgment_*` labels; they are the cases the mock (rule-based) should get wrong. Approved as-is 2026-09-28.
 - [x] **Claude** Dataset-backed tools: `job.input.snapshot` (validated by `JobInputSchema`) is returned by the same tool functions; traces record `source: dataset_case | built_in_mock`
 - [x] **ME** `POST /runs`: create the run and one job per case in a single transaction. Each job's `input` carries the case's `userId`, `snapshot`, `promptVersion` and `expectedRisk` (decided 2026-09-28: copy, don't look up). Add a test that the built prompt never contains the label.
-- [ ] **ME** Per-run aggregates: pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total cost
+- [ ] **ME** Per-run aggregates: pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total cost. Scaffolded: `RunReport` type, `getRunReport` stub, `GET /runs/:id` route, `startRun` / `finishJob` test helpers and 7 stubs.
 - [ ] **ME** `GET /runs/:a/compare/:b`: per-case diff and the list of regressions
 - [x] **ME** Evaluator scores against the case's expected label (depends on the ground-truth decision)
 - [x] **ME** `scoreRetentionAnalysis` tests, deferred from M0 (11 stubs in `evaluator.test.ts`). Write them against the new scoring; rewrite or delete the threshold stubs if the rules moved into dataset labels. Includes the substring evidence test ("4" matches "14 days").
@@ -186,6 +186,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-09-28 | `POST /runs` copies each case's `expectedRisk` into `job.input` (optional in `JobInputSchema`); the evaluator reads it from there and falls back to the threshold rule for dashboard jobs | Same pattern as `snapshot` and `promptVersion`: jobs are self-contained and the worker never queries dataset tables. Datasets are immutable, so the copy can't go stale. The label never reaches the prompt (`buildRetentionPrompt` only takes userId + snapshot); a test should lock that in. Lookup via `caseId` would only win if labels could change after a run or job inputs were exposed somewhere the answer mustn't be seen. |
 | 2026-09-28 | Traces and runs record the provider/model that actually ran (`resolveLlm()`), not `LLM_PROVIDER` | Gemini without a key falls back to the mock; recording the env var would label mock results as gemini and poison run comparisons. |
 | 2026-10-01 | Code is formatted with Prettier at 4-space indent, 120 columns (was 80) | Matches the owner's editor settings, so saving a file no longer reformats untouched lines and bloats diffs. One-off reformat of all hand-written TS/TSX; `src/generated/` excluded. |
+| 2026-10-01 | A case passes when its job completed and its risk label matches the answer key; failed jobs don't pass. Pass rate = passed / all cases | A score threshold (e.g. >= 80) lets a wrong label pass: the mock scores 80 on the 4 judgment cases, so it would show 100% despite 4 wrong answers. The label is the task; format/evidence quality shows in mean score. |
 
 ## Session log
 
@@ -217,3 +218,4 @@ Done when: the README has real numbers and an explanation of what limited throug
 - **2026-09-29 (later):** You finished all 7 `runs.test.ts` tests, including transaction rollback (break-it check done: `tx` → `prisma` makes it fail) and the answer-key-never-in-prompt test. `POST /runs` is done.
 - **2026-10-01:** You made the evaluator grade run jobs against `expectedRisk` (rule fallback for dashboard jobs; notes name the source) and the worker pass it through. Claude reformatted the codebase to 120 columns; typecheck, lint and unit tests pass, DB tests not run (Docker off).
 - **2026-10-01 (later):** Claude wrote the 14 `scoreRetentionAnalysis` tests at your request (helpers `makeSnapshot` / `makeOutput` / `score`; answer-key vs rule-fallback grading, score arithmetic, evidence support, threshold boundaries via `it.each`, notes text). Substring weakness documented with `it.fails`. Break-it check: making the evaluator ignore `expectedRisk` fails the 2 answer-key tests. 39 unit tests pass.
+- **2026-10-01 (later):** Decided the pass rule (correct label). Claude scaffolded the run report card: `RunReport` contract, `getRunReport` TODO(ME), `GET /runs/:id` (404 for unknown or non-UUID ids), test helpers and 7 stubs. Also removed a stray `import { snapshot } from "node:test"` from `runs.ts`. Typecheck and unit tests pass; DB tests not run (Docker off).

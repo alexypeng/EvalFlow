@@ -3,8 +3,9 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { checkDatabaseConnection } from "./db.js";
 import { createJob, getJobDetails, getMetrics, listJobs, retryJob } from "./jobs.js";
-import { createRun } from "./runs.js";
+import { createRun, getRunReport } from "./runs.js";
 import { CreateJobSchema, CreateRunSchema } from "./types.js";
+import { z } from "zod";
 
 const app = Fastify({
     logger: true,
@@ -87,6 +88,19 @@ app.post("/runs", async (request, reply) => {
     }
 
     return reply.code(201).send(result);
+});
+
+app.get<{ Params: { id: string } }>("/runs/:id", async (request, reply) => {
+    // Not a UUID can't be a run; checking here avoids a Postgres cast error (500).
+    const report = z.uuid().safeParse(request.params.id).success ? await getRunReport(request.params.id) : null;
+
+    if (!report) {
+        return reply.code(404).send({
+            error: "Run not found",
+        });
+    }
+
+    return report;
 });
 
 app.get("/metrics", async () => {
