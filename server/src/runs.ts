@@ -275,8 +275,8 @@ function caseOutcome(job: { status: string; evals: Array<{ reasonableRiskLabel: 
 }
 
 function classifyChange(baseline: RunSide, candidate: RunSide): CaseChange {
-    // Checked first: an unfinished case would otherwise look like a fail, and be
-    // reported as a regression.
+    // Checked first: otherwise an unfinished case falls through every rule below
+    // and is reported as "unchanged", hiding that it was never judged.
     if (baseline.outcome === "pending" || candidate.outcome === "pending") {
         return "pending";
     }
