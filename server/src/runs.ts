@@ -176,16 +176,123 @@ export type RunComparison = {
 export type CompareRunsResult =
     { ok: true; comparison: RunComparison } | { ok: false; reason: "run_not_found" | "different_datasets" };
 
-// TODO(ME): compare two runs of the same dataset, case by case.
-// - Load both runs. Either missing -> run_not_found. Different datasetId -> different_datasets
-//   (comparing different questions is meaningless).
-// - For each run, get every job's caseId, status, evalScore and latest eval's reasonableRiskLabel
-//   (same findMany + evals orderBy/take as getRunReport, without the status filter).
-// - Work out each job's CaseOutcome. A failed job is "fail": it produced no usable answer.
-// - Pair the two runs' jobs by caseId (a Map from caseId to job makes this easy) and classify each
-//   pair into a CaseChange. Check "pending" first: an unfinished case can't be judged yet.
-// - Case names come from the dataset's cases (prisma.datasetCase.findMany for the datasetId).
-// - summary: how many cases fall into each CaseChange (start every count at 0).
 export async function compareRuns(baselineId: string, candidateId: string): Promise<CompareRunsResult> {
-    throw new Error("compareRuns is not implemented yet");
+    const [baselineWithDataset, candidate] = await Promise.all([
+        prisma.run.findUnique({ where: { id: baselineId }, include: { dataset: true } }),
+        prisma.run.findUnique({ where: { id: candidateId } }),
+    ]);
+
+    if (!baselineWithDataset || !candidate) {
+        return { ok: false, reason: "run_not_found" };
+    }
+
+    // Different datasets means different questions: there is nothing to pair up.
+    if (baselineWithDataset.datasetId !== candidate.datasetId) {
+        return { ok: false, reason: "different_datasets" };
+    }
+
+    const { dataset, ...baseline } = baselineWithDataset;
+
+    const [cases, baselineSides, candidateSides] = await Promise.all([
+        prisma.datasetCase.findMany({ where: { datasetId: dataset.id }, select: { id: true, name: true } }),
+        sidesByCase(baseline.id),
+        sidesByCase(candidate.id),
+    ]);
+
+    // Sorted in code, not SQL: Postgres collation can order "_" differently from JavaScript.
+    cases.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+
+    const summary: Record<CaseChange, number> = { regression: 0, improvement: 0, warning: 0, unchanged: 0, pending: 0 };
+
+    const rows = cases.map((datasetCase) => {
+        const baselineSide = baselineSides.get(datasetCase.id) ?? noJob;
+        const candidateSide = candidateSides.get(datasetCase.id) ?? noJob;
+        const change = classifyChange(baselineSide, candidateSide);
+
+        summary[change] += 1;
+
+        return {
+            caseId: datasetCase.id,
+            caseName: datasetCase.name,
+            baseline: baselineSide,
+            candidate: candidateSide,
+            change,
+        };
+    });
+
+    return {
+        ok: true,
+        comparison: {
+            baseline,
+            candidate,
+            dataset: { name: dataset.name, version: dataset.version },
+            cases: rows,
+            summary,
+        },
+    };
+}
+
+// createRun makes a job for every case in one transaction, so this shouldn't
+// happen; if it does, the case can't be judged.
+const noJob: RunSide = { outcome: "pending", score: null };
+
+// Every job of one run, keyed by its case, so the other run's jobs can be
+// matched in one lookup instead of a search.
+async function sidesByCase(runId: string) {
+    const jobs = await prisma.job.findMany({
+        where: { runId },
+        select: {
+            caseId: true,
+            status: true,
+            evalScore: true,
+            evals: {
+                orderBy: { createdAt: "desc" },
+                take: 1,
+                select: { reasonableRiskLabel: true },
+            },
+        },
+    });
+
+    const sides = new Map<string, RunSide>();
+
+    for (const job of jobs) {
+        if (job.caseId) {
+            sides.set(job.caseId, { outcome: caseOutcome(job), score: job.evalScore });
+        }
+    }
+
+    return sides;
+}
+
+function caseOutcome(job: { status: string; evals: Array<{ reasonableRiskLabel: boolean }> }): CaseOutcome {
+    if (job.status === "queued" || job.status === "running") {
+        return "pending";
+    }
+
+    // Same rule as the run report: completed with the right label. A failed job
+    // produced no usable answer, so it fails.
+    return job.status === "completed" && job.evals[0]?.reasonableRiskLabel === true ? "pass" : "fail";
+}
+
+function classifyChange(baseline: RunSide, candidate: RunSide): CaseChange {
+    // Checked first: an unfinished case would otherwise look like a fail, and be
+    // reported as a regression.
+    if (baseline.outcome === "pending" || candidate.outcome === "pending") {
+        return "pending";
+    }
+
+    if (baseline.outcome === "pass" && candidate.outcome === "fail") {
+        return "regression";
+    }
+
+    if (baseline.outcome === "fail" && candidate.outcome === "pass") {
+        return "improvement";
+    }
+
+    // Scores move in steps of 20, so any drop means at least one check now fails.
+    if (baseline.outcome === "pass" && candidate.outcome === "pass" && (candidate.score ?? 0) < (baseline.score ?? 0)) {
+        return "warning";
+    }
+
+    return "unchanged";
 }

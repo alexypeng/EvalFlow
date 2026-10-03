@@ -4,7 +4,7 @@ The working plan and status tracker. [`ROADMAP.md`](ROADMAP.md) is the one-parag
 
 **Keeping it current:** Claude updates this file at the end of every work session (status snapshot, checkboxes, session log, decisions). Edit anything you disagree with; your edits win.
 
-**Owners:** **ME** = you write it (core logic you'll explain in interviews; Claude leaves TODO stubs). **Claude** = scaffolding, plumbing, config, CI, infra. **You** = a manual step only you can do (review, push, run Docker). Owners on M1–M6 are proposals; change them freely.
+**How we work (since 2026-10-03):** we plan together; Claude writes the code; Claude then grills you until you can explain it; you commit. **ME** = core logic you must be able to explain in interviews (you decide the design and get quizzed on it). **Claude** = scaffolding, plumbing, config, CI, infra. **You** = a manual step only you can do (review, push, run Docker).
 
 ---
 
@@ -16,8 +16,8 @@ _Last updated: 2026-10-02_
 |---|---|
 | **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
 | **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | `compareRuns` in `server/src/runs.ts` (scaffolded, `TODO(ME)`) + 9 stubs in `test/db/compare.test.ts` |
-| **Next up** | You: `GET /runs/:a/compare/:b` (per-case diff, regressions vs warnings) |
+| **Waiting on you** | Answer the quiz on `compareRuns`, then commit it · then plan the remaining M1 tasks (mock failure modes, dashboard, Gemini SDK) |
+| **Next up** | Mock failure modes, so mock runs differ between prompt versions and compare has something to show |
 
 ---
 
@@ -59,14 +59,14 @@ Tasks:
 - [x] **Claude** Dataset-backed tools: `job.input.snapshot` (validated by `JobInputSchema`) is returned by the same tool functions; traces record `source: dataset_case | built_in_mock`
 - [x] **ME** `POST /runs`: create the run and one job per case in a single transaction. Each job's `input` carries the case's `userId`, `snapshot`, `promptVersion` and `expectedRisk` (decided 2026-09-28: copy, don't look up). Add a test that the built prompt never contains the label.
 - [x] **ME** Per-run aggregates: pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total cost. Scaffolded: `RunReport` type, `getRunReport` stub, `GET /runs/:id` route, `startRun` / `finishJob` test helpers and 7 stubs.
-- [ ] **ME** `GET /runs/:a/compare/:b`: per-case diff and the list of regressions. Scaffolded: `RunComparison` / `CaseOutcome` / `CaseChange` types, `compareRuns` stub, route `GET /runs/:baselineId/compare/:candidateId` (404 unknown, 400 different datasets), 9 stubs.
+- [x] **ME** `GET /runs/:a/compare/:b`: per-case diff and the list of regressions. Scaffolded: `RunComparison` / `CaseOutcome` / `CaseChange` types, `compareRuns` stub, route `GET /runs/:baselineId/compare/:candidateId` (404 unknown, 400 different datasets), 9 stubs.
 - [x] **ME** Evaluator scores against the case's expected label (depends on the ground-truth decision)
 - [x] **ME** `scoreRetentionAnalysis` tests, deferred from M0 (11 stubs in `evaluator.test.ts`). Write them against the new scoring; rewrite or delete the threshold stubs if the rules moved into dataset labels. Includes the substring evidence test ("4" matches "14 days").
 - [ ] **ME** Decide on `parseLlmJson` and prose before a fence (locked in as a known limitation in M0); fix it if real Gemini output hits it
 - [x] **Claude** Versioned prompt files (`server/prompts/retention/v1.md`, `v2.md`); jobs carry `input.promptVersion` (default `v1`) and the `llm_call` trace records it. `POST /runs` should validate the version with `PromptVersionSchema`, store it on the run, and copy it into each job's `input`.
 - [ ] **Claude** Configurable mock failure modes (invalid JSON, wrong label, missing evidence, added latency), seeded by case ID so runs are reproducible
 - [ ] **Claude** Dashboard: runs list and compare view
-- [ ] **ME** Tests for aggregates and compare
+- [x] **ME** Tests for aggregates and compare
 - [ ] **Claude** Migrate `@google/generative-ai` (end of life since Nov 2025) to `@google/genai`
 - [x] **Claude** Fix the trace mislabel: `callLlm` now returns the `provider` and `model` that actually ran, and the trace uses them. `resolveLlm()` gives the same answer up front, for `POST /runs` to fill `Run.provider` / `Run.model`.
 
@@ -187,6 +187,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-09-28 | Traces and runs record the provider/model that actually ran (`resolveLlm()`), not `LLM_PROVIDER` | Gemini without a key falls back to the mock; recording the env var would label mock results as gemini and poison run comparisons. |
 | 2026-10-01 | Code is formatted with Prettier at 4-space indent, 120 columns (was 80) | Matches the owner's editor settings, so saving a file no longer reformats untouched lines and bloats diffs. One-off reformat of all hand-written TS/TSX; `src/generated/` excluded. |
 | 2026-10-01 | A case passes when its job completed and its risk label matches the answer key; failed jobs don't pass. Pass rate = passed / all cases | A score threshold (e.g. >= 80) lets a wrong label pass: the mock scores 80 on the 4 judgment cases, so it would show 100% despite 4 wrong answers. The label is the task; format/evidence quality shows in mean score. |
+| 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
 
@@ -222,3 +223,4 @@ Done when: the README has real numbers and an explanation of what limited throug
 - **2026-10-02:** You implemented `getRunReport` (groupBy status counts, passes from each completed job's latest eval, aggregate mean/totals, `percentile_cont` p50/p95). Typecheck passes; its 7 tests are next.
 - **2026-10-02 (later):** Claude wrote the 8 `getRunReport` tests at your request (unknown run, fresh run, pass rule, mean/totals over completed only, p50/p95 = 1050/1905, finished status, latest eval). Break-it check caught a flawed first version of the latest-eval test (two mirror-image jobs always gave 1 pass), split into two tests that both fail when the oldest eval is read. 65 tests pass.
 - **2026-10-02 (later):** Claude scaffolded compare: the contract (a case is pass / fail / pending; a pair is regression / improvement / warning / unchanged / pending, with pending checked first so unfinished cases are never called regressions), the `compareRuns` TODO(ME), the route, and 9 stubs in a new `test/db/compare.test.ts`. Moved `startRun` / `finishJob` into `test/db/helpers.ts` and added `jobForCase`. Typecheck passes; 65 tests pass.
+- **2026-10-03:** New working agreement (plan together, Claude writes, Claude quizzes you, you commit). Agreed any score drop on a still-passing case is a warning. Claude implemented `compareRuns` (both runs loaded in parallel, each run's jobs in a Map keyed by caseId, pending checked first, sorted by case name in code) and its 9 tests. Break-it checks: dropping the pending-first rule and treating equal scores as warnings each fail 2 tests. 74 tests pass.

@@ -10,8 +10,9 @@ It is a portfolio project aimed at infra / ML infra roles. At the start of every
 
 ## How we work (pairing mode)
 
-- The owner writes the core logic so they can explain it in interviews. Agents scaffold, fix plumbing, write config / CI / infra, and review.
-- Tasks marked **ME** are for the owner. Leave TODO stubs (or `it.todo(...)` for tests) with comments on what to implement and which edge cases matter. Do not implement them.
+- The owner is the engineer in charge: they make the design decisions and oversee the code. Agents write the code, including core logic and tests (changed 2026-10-03; tasks still marked **ME** in `docs/PLAN.md` mean "owner must understand and approve", not "owner types it").
+- **Plan together first.** Before building anything non-trivial, agree the approach with the owner. Present real design choices as questions; don't decide them silently.
+- **Grill the owner after writing.** After each piece of work, explain it, then quiz the owner with a few questions (why it's built this way, what breaks if X changes, edge cases, how they'd explain it in an interview). Wait for their answers, correct misunderstandings, and don't move on to the next piece until they can explain it. Questions should get harder as they improve.
 - When a change is non-obvious (concurrency, SQL, retries, leases, rate limiting), explain the reasoning in your summary, not just what changed.
 - One branch per milestone (e.g. `m1-datasets`).
 - **Never commit, push or open PRs.** The owner makes every commit. Leave changes uncommitted, list the files you changed, and suggest commit commands and messages. Don't run history-changing git commands (commit, amend, reset, rebase) unless the owner asks for that specific action.
