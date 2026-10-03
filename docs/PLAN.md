@@ -10,14 +10,14 @@ The working plan and status tracker. [`ROADMAP.md`](ROADMAP.md) is the one-parag
 
 ## Status snapshot
 
-_Last updated: 2026-09-28_
+_Last updated: 2026-10-02_
 
 | | |
 |---|---|
 | **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
 | **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | `getRunReport` in `server/src/runs.ts` (scaffolded, `TODO(ME)`) + 7 stubs in `test/db/runs.test.ts` |
-| **Next up** | You: `POST /runs` (create a run + one job per case in one transaction) |
+| **Waiting on you** | Compare two runs: `GET /runs/:a/compare/:b` |
+| **Next up** | You: `GET /runs/:a/compare/:b` (per-case diff, regressions vs warnings) |
 
 ---
 
@@ -58,7 +58,7 @@ Tasks:
 - [x] **ME** Review the 4 `judgment_*` labels; they are the cases the mock (rule-based) should get wrong. Approved as-is 2026-09-28.
 - [x] **Claude** Dataset-backed tools: `job.input.snapshot` (validated by `JobInputSchema`) is returned by the same tool functions; traces record `source: dataset_case | built_in_mock`
 - [x] **ME** `POST /runs`: create the run and one job per case in a single transaction. Each job's `input` carries the case's `userId`, `snapshot`, `promptVersion` and `expectedRisk` (decided 2026-09-28: copy, don't look up). Add a test that the built prompt never contains the label.
-- [ ] **ME** Per-run aggregates: pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total cost. Scaffolded: `RunReport` type, `getRunReport` stub, `GET /runs/:id` route, `startRun` / `finishJob` test helpers and 7 stubs.
+- [x] **ME** Per-run aggregates: pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total cost. Scaffolded: `RunReport` type, `getRunReport` stub, `GET /runs/:id` route, `startRun` / `finishJob` test helpers and 7 stubs.
 - [ ] **ME** `GET /runs/:a/compare/:b`: per-case diff and the list of regressions
 - [x] **ME** Evaluator scores against the case's expected label (depends on the ground-truth decision)
 - [x] **ME** `scoreRetentionAnalysis` tests, deferred from M0 (11 stubs in `evaluator.test.ts`). Write them against the new scoring; rewrite or delete the threshold stubs if the rules moved into dataset labels. Includes the substring evidence test ("4" matches "14 days").
@@ -219,3 +219,5 @@ Done when: the README has real numbers and an explanation of what limited throug
 - **2026-10-01:** You made the evaluator grade run jobs against `expectedRisk` (rule fallback for dashboard jobs; notes name the source) and the worker pass it through. Claude reformatted the codebase to 120 columns; typecheck, lint and unit tests pass, DB tests not run (Docker off).
 - **2026-10-01 (later):** Claude wrote the 14 `scoreRetentionAnalysis` tests at your request (helpers `makeSnapshot` / `makeOutput` / `score`; answer-key vs rule-fallback grading, score arithmetic, evidence support, threshold boundaries via `it.each`, notes text). Substring weakness documented with `it.fails`. Break-it check: making the evaluator ignore `expectedRisk` fails the 2 answer-key tests. 39 unit tests pass.
 - **2026-10-01 (later):** Decided the pass rule (correct label). Claude scaffolded the run report card: `RunReport` contract, `getRunReport` TODO(ME), `GET /runs/:id` (404 for unknown or non-UUID ids), test helpers and 7 stubs. Also removed a stray `import { snapshot } from "node:test"` from `runs.ts`. Typecheck and unit tests pass; DB tests not run (Docker off).
+- **2026-10-02:** You implemented `getRunReport` (groupBy status counts, passes from each completed job's latest eval, aggregate mean/totals, `percentile_cont` p50/p95). Typecheck passes; its 7 tests are next.
+- **2026-10-02 (later):** Claude wrote the 8 `getRunReport` tests at your request (unknown run, fresh run, pass rule, mean/totals over completed only, p50/p95 = 1050/1905, finished status, latest eval). Break-it check caught a flawed first version of the latest-eval test (two mirror-image jobs always gave 1 pass), split into two tests that both fail when the oldest eval is read. 65 tests pass.
