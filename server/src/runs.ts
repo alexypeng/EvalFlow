@@ -4,8 +4,7 @@ import { promptVersionExists, resolveLlm } from "./llm.js";
 import { AnalyticsSnapshotSchema, type CreateRunInput } from "./types.js";
 
 export type CreateRunResult =
-    | { ok: true; run: Run; jobCount: number }
-    | { ok: false; reason: "dataset_not_found" | "unknown_prompt_version" };
+    { ok: true; run: Run; jobCount: number } | { ok: false; reason: "dataset_not_found" | "unknown_prompt_version" };
 
 export async function createRun(input: CreateRunInput): Promise<CreateRunResult> {
     const dataset = await prisma.dataset.findUnique({
@@ -153,4 +152,40 @@ export async function getRunReport(runId: string): Promise<RunReport | null> {
         totalTokens,
         totalCost,
     };
+}
+
+// pass: job completed and its latest eval had the right label. fail: completed
+// with the wrong label, or failed. pending: still queued or running.
+export type CaseOutcome = "pass" | "fail" | "pending";
+
+// regression: pass -> fail. improvement: fail -> pass. warning: pass -> pass
+// with a lower score. pending: either side not finished. unchanged: otherwise.
+export type CaseChange = "regression" | "improvement" | "warning" | "unchanged" | "pending";
+
+type RunSide = { outcome: CaseOutcome; score: number | null };
+
+export type RunComparison = {
+    baseline: Run;
+    candidate: Run;
+    dataset: { name: string; version: number };
+    // One row per dataset case, sorted by case name.
+    cases: Array<{ caseId: string; caseName: string; baseline: RunSide; candidate: RunSide; change: CaseChange }>;
+    summary: Record<CaseChange, number>;
+};
+
+export type CompareRunsResult =
+    { ok: true; comparison: RunComparison } | { ok: false; reason: "run_not_found" | "different_datasets" };
+
+// TODO(ME): compare two runs of the same dataset, case by case.
+// - Load both runs. Either missing -> run_not_found. Different datasetId -> different_datasets
+//   (comparing different questions is meaningless).
+// - For each run, get every job's caseId, status, evalScore and latest eval's reasonableRiskLabel
+//   (same findMany + evals orderBy/take as getRunReport, without the status filter).
+// - Work out each job's CaseOutcome. A failed job is "fail": it produced no usable answer.
+// - Pair the two runs' jobs by caseId (a Map from caseId to job makes this easy) and classify each
+//   pair into a CaseChange. Check "pending" first: an unfinished case can't be judged yet.
+// - Case names come from the dataset's cases (prisma.datasetCase.findMany for the datasetId).
+// - summary: how many cases fall into each CaseChange (start every count at 0).
+export async function compareRuns(baselineId: string, candidateId: string): Promise<CompareRunsResult> {
+    throw new Error("compareRuns is not implemented yet");
 }

@@ -1,14 +1,10 @@
-import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 import { loadDataset, readDatasetFile } from "../../src/datasets.js";
 import { prisma } from "../../src/db.js";
-import { completeJob, createEval } from "../../src/jobs.js";
 import { createRun, getRunReport } from "../../src/runs.js";
-import { resetDatabase } from "./helpers.js";
+import { finishJob, resetDatabase, retentionV1, startRun } from "./helpers.js";
 import { JobInputSchema } from "../../src/types.js";
 import { buildRetentionPrompt } from "../../src/llm.js";
-
-const retentionV1 = fileURLToPath(new URL("../../datasets/retention-v1.json", import.meta.url));
 
 beforeEach(resetDatabase);
 
@@ -156,45 +152,6 @@ describe("buildRetentionPrompt", () => {
         expect(prompt).not.toContain("expectedRisk");
     });
 });
-
-// startRun() and finishJob() do the setup for the report tests: finishJob
-// stands in for the worker, so each test decides exactly which jobs completed,
-// with what score, latency and label correctness.
-
-async function startRun() {
-    await loadDataset(await readDatasetFile(retentionV1));
-    const result = await createRun({ datasetName: "retention", datasetVersion: 1, promptVersion: "v1" });
-    if (!result.ok) throw new Error("expected createRun to succeed");
-
-    const jobs = await prisma.job.findMany({ where: { runId: result.run.id }, orderBy: { id: "asc" } });
-    return { run: result.run, jobs };
-}
-
-async function finishJob(
-    jobId: string,
-    outcome: { labelCorrect: boolean; score: number; latencyMs: number; tokens?: number; cost?: number },
-) {
-    await createEval({
-        jobId,
-        validJson: true,
-        hasRequiredFields: true,
-        evidenceIncluded: true,
-        evidenceSupported: true,
-        reasonableRiskLabel: outcome.labelCorrect,
-        taskCompletionScore: outcome.score,
-        notes: "test",
-    });
-    await completeJob({
-        id: jobId,
-        result: {},
-        latencyMs: outcome.latencyMs,
-        promptTokens: 0,
-        completionTokens: outcome.tokens ?? 0,
-        totalTokens: outcome.tokens ?? 0,
-        estimatedCost: outcome.cost ?? 0,
-        evalScore: outcome.score,
-    });
-}
 
 describe("getRunReport", () => {
     it("returns null for an unknown run id", async () => {

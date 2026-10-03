@@ -3,7 +3,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { checkDatabaseConnection } from "./db.js";
 import { createJob, getJobDetails, getMetrics, listJobs, retryJob } from "./jobs.js";
-import { createRun, getRunReport } from "./runs.js";
+import { compareRuns, createRun, getRunReport } from "./runs.js";
 import { CreateJobSchema, CreateRunSchema } from "./types.js";
 import { z } from "zod";
 
@@ -102,6 +102,29 @@ app.get<{ Params: { id: string } }>("/runs/:id", async (request, reply) => {
 
     return report;
 });
+
+app.get<{ Params: { baselineId: string; candidateId: string } }>(
+    "/runs/:baselineId/compare/:candidateId",
+    async (request, reply) => {
+        const { baselineId, candidateId } = request.params;
+        const validIds = z.uuid().safeParse(baselineId).success && z.uuid().safeParse(candidateId).success;
+        const result = validIds ? await compareRuns(baselineId, candidateId) : null;
+
+        if (result?.ok) {
+            return result.comparison;
+        }
+
+        if (result?.reason === "different_datasets") {
+            return reply.code(400).send({
+                error: "Runs are of different datasets and cannot be compared",
+            });
+        }
+
+        return reply.code(404).send({
+            error: "Run not found",
+        });
+    },
+);
 
 app.get("/metrics", async () => {
     return getMetrics();
