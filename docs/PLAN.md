@@ -10,14 +10,14 @@ The working plan and status tracker. [`ROADMAP.md`](ROADMAP.md) is the one-parag
 
 ## Status snapshot
 
-_Last updated: 2026-09-28_
+_Last updated: 2026-10-07_
 
 | | |
 |---|---|
 | **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
 | **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | `getRunReport` in `server/src/runs.ts` (scaffolded, `TODO(ME)`) + 7 stubs in `test/db/runs.test.ts` |
-| **Next up** | You: `POST /runs` (create a run + one job per case in one transaction) |
+| **Waiting on you** | Implemented `getRunReport` needs verification; 7 report tests in `server/test/db/runs.test.ts` remain `it.todo` |
+| **Next up** | You: write the run-report DB tests, then implement per-case run comparison |
 
 ---
 
@@ -58,7 +58,7 @@ Tasks:
 - [x] **ME** Review the 4 `judgment_*` labels; they are the cases the mock (rule-based) should get wrong. Approved as-is 2026-09-28.
 - [x] **Claude** Dataset-backed tools: `job.input.snapshot` (validated by `JobInputSchema`) is returned by the same tool functions; traces record `source: dataset_case | built_in_mock`
 - [x] **ME** `POST /runs`: create the run and one job per case in a single transaction. Each job's `input` carries the case's `userId`, `snapshot`, `promptVersion` and `expectedRisk` (decided 2026-09-28: copy, don't look up). Add a test that the built prompt never contains the label.
-- [ ] **ME** Per-run aggregates: pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total cost. Scaffolded: `RunReport` type, `getRunReport` stub, `GET /runs/:id` route, `startRun` / `finishJob` test helpers and 7 stubs.
+- [ ] **ME** Per-run aggregates: pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total cost. `getRunReport` implemented; `GET /runs/:id` route and `startRun` / `finishJob` test helpers present. Verification pending: 7 report tests remain `it.todo`.
 - [ ] **ME** `GET /runs/:a/compare/:b`: per-case diff and the list of regressions
 - [x] **ME** Evaluator scores against the case's expected label (depends on the ground-truth decision)
 - [x] **ME** `scoreRetentionAnalysis` tests, deferred from M0 (11 stubs in `evaluator.test.ts`). Write them against the new scoring; rewrite or delete the threshold stubs if the rules moved into dataset labels. Includes the substring evidence test ("4" matches "14 days").
@@ -190,6 +190,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 ## Session log
 
+- **2026-10-07:** Checked the roadmap and current code to identify the next task. `getRunReport` is implemented, but all 7 report tests remain TODOs. Updated the stale status snapshot: next is owner-written report DB tests, followed by per-case comparison. No code changes or tests run.
 - **2026-09-27:** Started M0 on `m0-foundations`. Added roadmap, Vitest (unit + db projects), CI workflow, bounded poll loop, migrate service, `GEMINI_MODEL`. Created 25 TODO test stubs for you. Typecheck, unit project and server build pass locally; Docker and DB tests unverified (no Docker on this machine). Added this plan.
 - **2026-09-27 (later):** Re-prioritized M0 tests: queue + `parseLlmJson` now, `scoreRetentionAnalysis` deferred to M1. Marked the deferred block in `evaluator.test.ts`.
 - **2026-09-27 (later):** Docker Desktop and pnpm installed; `postgres-test` container running. You wrote the first 2 `jobs.test.ts` tests with a `seedJob` helper. Added test commands and layout to `AGENTS.md`.
