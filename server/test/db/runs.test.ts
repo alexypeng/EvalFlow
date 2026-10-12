@@ -1,12 +1,13 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadDataset, readDatasetFile } from "../../src/datasets.js";
 import { prisma } from "../../src/db.js";
 import { createRun, getRunReport } from "../../src/runs.js";
 import { finishJob, resetDatabase, retentionV1, startRun } from "./helpers.js";
-import { JobInputSchema } from "../../src/types.js";
+import { JobInputSchema, MockConfigSchema } from "../../src/types.js";
 import { buildRetentionPrompt } from "../../src/llm.js";
 
 beforeEach(resetDatabase);
+afterEach(() => vi.unstubAllEnvs());
 
 describe("createRun", () => {
     it("creates one queued job per case, linked by runId and caseId", async () => {
@@ -51,6 +52,7 @@ describe("createRun", () => {
             snapshot: dsCase!.snapshot,
             promptVersion: "v1",
             expectedRisk: "high",
+            mockConfig: MockConfigSchema.parse({}),
         });
     });
 
@@ -70,6 +72,40 @@ describe("createRun", () => {
         expect(run!.promptVersion).toBe("v1");
         expect(run!.provider).toBe("mock");
         expect(run!.model).toBe("mock-rule-based");
+        expect(run!.mockConfig).toEqual(MockConfigSchema.parse({}));
+    });
+
+    it("persists normalized settings on the run and copies them into all jobs", async () => {
+        await loadDataset(await readDatasetFile(retentionV1));
+        const result = await createRun({
+            datasetName: "retention", datasetVersion: 1, promptVersion: "v2",
+            mockConfig: { seed: "demo", wrongLabelRate: 0.25, latencyMs: 100 },
+        });
+        if (!result.ok) throw new Error("expected createRun to succeed");
+        const expected = MockConfigSchema.parse({ seed: "demo", wrongLabelRate: 0.25, latencyMs: 100 });
+        expect((await getRunReport(result.run.id))!.run.mockConfig).toEqual(expected);
+        const jobs = await prisma.job.findMany({ where: { runId: result.run.id } });
+        for (const job of jobs) expect(JobInputSchema.parse(job.input).mockConfig).toEqual(expected);
+        const normal = await createRun({ datasetName: "retention", datasetVersion: 1 });
+        if (!normal.ok) throw new Error("expected createRun to succeed");
+        expect(normal.run.mockConfig).toEqual(MockConfigSchema.parse({}));
+    });
+
+    it("rejects invalid settings before inserting a run or jobs", async () => {
+        await expect(createRun({ datasetName: "retention", datasetVersion: 1, mockConfig: { wrongLabelRate: 2 } }))
+            .rejects.toThrow();
+        expect(await prisma.run.count()).toBe(0);
+        expect(await prisma.job.count()).toBe(0);
+    });
+
+    it("rejects mock settings for Gemini without inserting work", async () => {
+        await loadDataset(await readDatasetFile(retentionV1));
+        vi.stubEnv("LLM_PROVIDER", "gemini");
+        vi.stubEnv("GEMINI_API_KEY", "test-key");
+        expect(await createRun({ datasetName: "retention", datasetVersion: 1, mockConfig: {} }))
+            .toEqual({ ok: false, reason: "mock_config_requires_mock" });
+        expect(await prisma.run.count()).toBe(0);
+        expect(await prisma.job.count()).toBe(0);
     });
 
     it("returns dataset_not_found and creates nothing for an unknown dataset", async () => {

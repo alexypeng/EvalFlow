@@ -120,6 +120,7 @@ model Run {
   promptVersion String   @map("prompt_version")
   provider      String
   model         String
+  mockConfig    Json     @default("{}") @map("mock_config")
   createdAt     DateTime @default(now()) @map("created_at")
 
   dataset Dataset @relation(fields: [datasetId], references: [id])

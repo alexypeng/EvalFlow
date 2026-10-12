@@ -56,24 +56,34 @@ export const PromptVersionSchema = z.string().regex(/^v\d+$/, 'Prompt version mu
 
 export const RiskLevelSchema = z.enum(["low", "medium", "high"]);
 
+export const MockConfigSchema = z.strictObject({
+    seed: z.string().min(1).max(100).default("evalflow"),
+    invalidJsonRate: z.number().min(0).max(1).default(0),
+    wrongLabelRate: z.number().min(0).max(1).default(0),
+    missingEvidenceRate: z.number().min(0).max(1).default(0),
+    latencyMs: z.number().int().min(0).max(60_000).default(0),
+});
+
+export type MockConfig = z.infer<typeof MockConfigSchema>;
+
 export const JobInputSchema = z.object({
     userId: z.string().min(1),
     snapshot: AnalyticsSnapshotSchema.optional(),
     promptVersion: PromptVersionSchema.optional(),
     expectedRisk: RiskLevelSchema.optional(),
+    mockConfig: MockConfigSchema.optional(),
 });
 
 export type JobInput = z.infer<typeof JobInputSchema>;
 
-// TODO(ME): the POST /runs body. Suggested fields: datasetName, datasetVersion
-// (positive int) and promptVersion (PromptVersionSchema, default "v1").
 export const CreateRunSchema = z.object({
     datasetName: z.string().min(1),
     datasetVersion: z.number().int().min(1),
     promptVersion: PromptVersionSchema.default("v1"),
+    mockConfig: MockConfigSchema.optional(),
 });
 
-export type CreateRunInput = z.infer<typeof CreateRunSchema>;
+export type CreateRunInput = z.input<typeof CreateRunSchema>;
 
 export const DatasetFileSchema = z
     .object({

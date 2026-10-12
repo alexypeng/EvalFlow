@@ -974,6 +974,7 @@ export const RunScalarFieldEnum = {
   promptVersion: 'promptVersion',
   provider: 'provider',
   model: 'model',
+  mockConfig: 'mockConfig',
   createdAt: 'createdAt'
 } as const
 

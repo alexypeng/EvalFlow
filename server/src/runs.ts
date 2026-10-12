@@ -1,12 +1,14 @@
 import { prisma } from "./db.js";
 import type { Run } from "./generated/prisma/client.js";
 import { promptVersionExists, resolveLlm } from "./llm.js";
-import { AnalyticsSnapshotSchema, type CreateRunInput } from "./types.js";
+import { AnalyticsSnapshotSchema, CreateRunSchema, MockConfigSchema, type CreateRunInput } from "./types.js";
 
 export type CreateRunResult =
-    { ok: true; run: Run; jobCount: number } | { ok: false; reason: "dataset_not_found" | "unknown_prompt_version" };
+    { ok: true; run: Run; jobCount: number }
+    | { ok: false; reason: "dataset_not_found" | "unknown_prompt_version" | "mock_config_requires_mock" };
 
-export async function createRun(input: CreateRunInput): Promise<CreateRunResult> {
+export async function createRun(body: CreateRunInput): Promise<CreateRunResult> {
+    const input = CreateRunSchema.parse(body);
     const dataset = await prisma.dataset.findUnique({
         where: { name_version: { name: input.datasetName, version: input.datasetVersion } },
         include: { datasetCases: true },
@@ -21,6 +23,10 @@ export async function createRun(input: CreateRunInput): Promise<CreateRunResult>
     }
 
     const { provider, model } = resolveLlm();
+    if (input.mockConfig && provider !== "mock") {
+        return { ok: false, reason: "mock_config_requires_mock" };
+    }
+    const mockConfig = provider === "mock" ? MockConfigSchema.parse(input.mockConfig ?? {}) : undefined;
 
     const run = await prisma.$transaction(async (tx) => {
         const run = await tx.run.create({
@@ -29,6 +35,7 @@ export async function createRun(input: CreateRunInput): Promise<CreateRunResult>
                 promptVersion: input.promptVersion,
                 provider: provider,
                 model: model,
+                ...(mockConfig ? { mockConfig } : {}),
             },
         });
 
@@ -45,6 +52,7 @@ export async function createRun(input: CreateRunInput): Promise<CreateRunResult>
                         snapshot,
                         promptVersion: input.promptVersion,
                         expectedRisk: datasetCase.expectedRisk,
+                        ...(mockConfig ? { mockConfig } : {}),
                     },
                 };
             }),

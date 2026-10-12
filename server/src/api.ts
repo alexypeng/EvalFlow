@@ -87,6 +87,10 @@ app.post("/runs", async (request, reply) => {
         });
     }
 
+    if (!result.ok && result.reason === "mock_config_requires_mock") {
+        return reply.code(400).send({ error: "mockConfig requires the mock provider" });
+    }
+
     return reply.code(201).send(result);
 });
 

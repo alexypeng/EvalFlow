@@ -281,6 +281,49 @@ EvalFlow also stores observability data for each run:
 
 ## API
 
+### Dataset runs and mock failure settings
+
+Load the fixture with `pnpm --filter server dataset:load datasets/retention-v1.json`, then create a run:
+
+```bash
+curl -X POST http://localhost:3000/runs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "datasetName": "retention",
+    "datasetVersion": 1,
+    "promptVersion": "v2",
+    "mockConfig": {
+      "seed": "demo",
+      "wrongLabelRate": 0.25,
+      "invalidJsonRate": 0,
+      "missingEvidenceRate": 0,
+      "latencyMs": 100
+    }
+  }'
+```
+
+`mockConfig` is optional and only accepted when the resolved provider is mock. Rates range from 0 to 1;
+0 disables a failure and 1 selects every case. Rates default to 0, latency to 0 (maximum 60,000 ms),
+and seed to `evalflow`. The run saves the normalized settings and copies them into every job.
+
+Each failure uses a separate hash of the seed and case ID. The same settings select the same cases
+across retries and worker ordering; rates are probabilities, not exact case counts. Reloading the dataset
+into a fresh database creates new case IDs and can change the selection. Changing prompt versions alone
+does not change the mock's predictions.
+
+Wrong-label mode rotates the mock's predicted risk to another label without reading the answer key.
+It can accidentally correct an existing mistake. Missing-evidence mode produces an empty evidence array,
+which fails schema validation. Invalid JSON takes precedence if both modes select a case. These two
+validation failures retry normally and eventually fail; their calls retain token usage and timing in traces.
+Added latency is included in the LLM-call trace and completed-job latency.
+
+Use `GET /runs/<run_id>` for a report (including settings), and
+`GET /runs/<baseline_id>/compare/<candidate_id>` for per-case changes. For a reproducible regression demo,
+create a baseline without failure settings and a candidate with `wrongLabelRate: 1` on the same dataset.
+These are simulated failures rather than evidence that a prompt performs worse on a real provider.
+
+### Jobs
+
 Create a job:
 
 ```bash

@@ -63,6 +63,7 @@ export async function claimNextJob() {
     const jobs = await prisma.$queryRaw<
         Array<{
             id: string;
+            caseId: string | null;
             type: string;
             status: string;
             input: unknown;
@@ -98,6 +99,7 @@ export async function claimNextJob() {
           )
           RETURNING
               id,
+              case_id AS "caseId",
               type,
               status,
               input,

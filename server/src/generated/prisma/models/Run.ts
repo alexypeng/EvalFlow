@@ -48,6 +48,7 @@ export type RunCountAggregateOutputType = {
   promptVersion: number
   provider: number
   model: number
+  mockConfig: number
   createdAt: number
   _all: number
 }
@@ -77,6 +78,7 @@ export type RunCountAggregateInputType = {
   promptVersion?: true
   provider?: true
   model?: true
+  mockConfig?: true
   createdAt?: true
   _all?: true
 }
@@ -159,6 +161,7 @@ export type RunGroupByOutputType = {
   promptVersion: string
   provider: string
   model: string
+  mockConfig: runtime.JsonValue
   createdAt: Date
   _count: RunCountAggregateOutputType | null
   _min: RunMinAggregateOutputType | null
@@ -189,6 +192,7 @@ export type RunWhereInput = {
   promptVersion?: Prisma.StringFilter<"Run"> | string
   provider?: Prisma.StringFilter<"Run"> | string
   model?: Prisma.StringFilter<"Run"> | string
+  mockConfig?: Prisma.JsonFilter<"Run">
   createdAt?: Prisma.DateTimeFilter<"Run"> | Date | string
   dataset?: Prisma.XOR<Prisma.DatasetScalarRelationFilter, Prisma.DatasetWhereInput>
   jobs?: Prisma.JobListRelationFilter
@@ -200,6 +204,7 @@ export type RunOrderByWithRelationInput = {
   promptVersion?: Prisma.SortOrder
   provider?: Prisma.SortOrder
   model?: Prisma.SortOrder
+  mockConfig?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   dataset?: Prisma.DatasetOrderByWithRelationInput
   jobs?: Prisma.JobOrderByRelationAggregateInput
@@ -214,6 +219,7 @@ export type RunWhereUniqueInput = Prisma.AtLeast<{
   promptVersion?: Prisma.StringFilter<"Run"> | string
   provider?: Prisma.StringFilter<"Run"> | string
   model?: Prisma.StringFilter<"Run"> | string
+  mockConfig?: Prisma.JsonFilter<"Run">
   createdAt?: Prisma.DateTimeFilter<"Run"> | Date | string
   dataset?: Prisma.XOR<Prisma.DatasetScalarRelationFilter, Prisma.DatasetWhereInput>
   jobs?: Prisma.JobListRelationFilter
@@ -225,6 +231,7 @@ export type RunOrderByWithAggregationInput = {
   promptVersion?: Prisma.SortOrder
   provider?: Prisma.SortOrder
   model?: Prisma.SortOrder
+  mockConfig?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.RunCountOrderByAggregateInput
   _max?: Prisma.RunMaxOrderByAggregateInput
@@ -240,6 +247,7 @@ export type RunScalarWhereWithAggregatesInput = {
   promptVersion?: Prisma.StringWithAggregatesFilter<"Run"> | string
   provider?: Prisma.StringWithAggregatesFilter<"Run"> | string
   model?: Prisma.StringWithAggregatesFilter<"Run"> | string
+  mockConfig?: Prisma.JsonWithAggregatesFilter<"Run">
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Run"> | Date | string
 }
 
@@ -248,6 +256,7 @@ export type RunCreateInput = {
   promptVersion: string
   provider: string
   model: string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   dataset: Prisma.DatasetCreateNestedOneWithoutRunsInput
   jobs?: Prisma.JobCreateNestedManyWithoutRunInput
@@ -259,6 +268,7 @@ export type RunUncheckedCreateInput = {
   promptVersion: string
   provider: string
   model: string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutRunInput
 }
@@ -268,6 +278,7 @@ export type RunUpdateInput = {
   promptVersion?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   model?: Prisma.StringFieldUpdateOperationsInput | string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   dataset?: Prisma.DatasetUpdateOneRequiredWithoutRunsNestedInput
   jobs?: Prisma.JobUpdateManyWithoutRunNestedInput
@@ -279,6 +290,7 @@ export type RunUncheckedUpdateInput = {
   promptVersion?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   model?: Prisma.StringFieldUpdateOperationsInput | string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   jobs?: Prisma.JobUncheckedUpdateManyWithoutRunNestedInput
 }
@@ -289,6 +301,7 @@ export type RunCreateManyInput = {
   promptVersion: string
   provider: string
   model: string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
 }
 
@@ -297,6 +310,7 @@ export type RunUpdateManyMutationInput = {
   promptVersion?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   model?: Prisma.StringFieldUpdateOperationsInput | string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -306,6 +320,7 @@ export type RunUncheckedUpdateManyInput = {
   promptVersion?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   model?: Prisma.StringFieldUpdateOperationsInput | string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -330,6 +345,7 @@ export type RunCountOrderByAggregateInput = {
   promptVersion?: Prisma.SortOrder
   provider?: Prisma.SortOrder
   model?: Prisma.SortOrder
+  mockConfig?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -414,6 +430,7 @@ export type RunCreateWithoutJobsInput = {
   promptVersion: string
   provider: string
   model: string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   dataset: Prisma.DatasetCreateNestedOneWithoutRunsInput
 }
@@ -424,6 +441,7 @@ export type RunUncheckedCreateWithoutJobsInput = {
   promptVersion: string
   provider: string
   model: string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
 }
 
@@ -448,6 +466,7 @@ export type RunUpdateWithoutJobsInput = {
   promptVersion?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   model?: Prisma.StringFieldUpdateOperationsInput | string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   dataset?: Prisma.DatasetUpdateOneRequiredWithoutRunsNestedInput
 }
@@ -458,6 +477,7 @@ export type RunUncheckedUpdateWithoutJobsInput = {
   promptVersion?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   model?: Prisma.StringFieldUpdateOperationsInput | string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -466,6 +486,7 @@ export type RunCreateWithoutDatasetInput = {
   promptVersion: string
   provider: string
   model: string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   jobs?: Prisma.JobCreateNestedManyWithoutRunInput
 }
@@ -475,6 +496,7 @@ export type RunUncheckedCreateWithoutDatasetInput = {
   promptVersion: string
   provider: string
   model: string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   jobs?: Prisma.JobUncheckedCreateNestedManyWithoutRunInput
 }
@@ -514,6 +536,7 @@ export type RunScalarWhereInput = {
   promptVersion?: Prisma.StringFilter<"Run"> | string
   provider?: Prisma.StringFilter<"Run"> | string
   model?: Prisma.StringFilter<"Run"> | string
+  mockConfig?: Prisma.JsonFilter<"Run">
   createdAt?: Prisma.DateTimeFilter<"Run"> | Date | string
 }
 
@@ -522,6 +545,7 @@ export type RunCreateManyDatasetInput = {
   promptVersion: string
   provider: string
   model: string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
 }
 
@@ -530,6 +554,7 @@ export type RunUpdateWithoutDatasetInput = {
   promptVersion?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   model?: Prisma.StringFieldUpdateOperationsInput | string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   jobs?: Prisma.JobUpdateManyWithoutRunNestedInput
 }
@@ -539,6 +564,7 @@ export type RunUncheckedUpdateWithoutDatasetInput = {
   promptVersion?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   model?: Prisma.StringFieldUpdateOperationsInput | string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   jobs?: Prisma.JobUncheckedUpdateManyWithoutRunNestedInput
 }
@@ -548,6 +574,7 @@ export type RunUncheckedUpdateManyWithoutDatasetInput = {
   promptVersion?: Prisma.StringFieldUpdateOperationsInput | string
   provider?: Prisma.StringFieldUpdateOperationsInput | string
   model?: Prisma.StringFieldUpdateOperationsInput | string
+  mockConfig?: Prisma.JsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -588,6 +615,7 @@ export type RunSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = ru
   promptVersion?: boolean
   provider?: boolean
   model?: boolean
+  mockConfig?: boolean
   createdAt?: boolean
   dataset?: boolean | Prisma.DatasetDefaultArgs<ExtArgs>
   jobs?: boolean | Prisma.Run$jobsArgs<ExtArgs>
@@ -600,6 +628,7 @@ export type RunSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extension
   promptVersion?: boolean
   provider?: boolean
   model?: boolean
+  mockConfig?: boolean
   createdAt?: boolean
   dataset?: boolean | Prisma.DatasetDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["run"]>
@@ -610,6 +639,7 @@ export type RunSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extension
   promptVersion?: boolean
   provider?: boolean
   model?: boolean
+  mockConfig?: boolean
   createdAt?: boolean
   dataset?: boolean | Prisma.DatasetDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["run"]>
@@ -620,10 +650,11 @@ export type RunSelectScalar = {
   promptVersion?: boolean
   provider?: boolean
   model?: boolean
+  mockConfig?: boolean
   createdAt?: boolean
 }
 
-export type RunOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "datasetId" | "promptVersion" | "provider" | "model" | "createdAt", ExtArgs["result"]["run"]>
+export type RunOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "datasetId" | "promptVersion" | "provider" | "model" | "mockConfig" | "createdAt", ExtArgs["result"]["run"]>
 export type RunInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   dataset?: boolean | Prisma.DatasetDefaultArgs<ExtArgs>
   jobs?: boolean | Prisma.Run$jobsArgs<ExtArgs>
@@ -648,6 +679,7 @@ export type $RunPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
     promptVersion: string
     provider: string
     model: string
+    mockConfig: runtime.JsonValue
     createdAt: Date
   }, ExtArgs["result"]["run"]>
   composites: {}
@@ -1079,6 +1111,7 @@ export interface RunFieldRefs {
   readonly promptVersion: Prisma.FieldRef<"Run", 'String'>
   readonly provider: Prisma.FieldRef<"Run", 'String'>
   readonly model: Prisma.FieldRef<"Run", 'String'>
+  readonly mockConfig: Prisma.FieldRef<"Run", 'Json'>
   readonly createdAt: Prisma.FieldRef<"Run", 'DateTime'>
 }
     

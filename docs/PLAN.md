@@ -10,14 +10,26 @@ The working plan and status tracker. [`ROADMAP.md`](ROADMAP.md) is the one-parag
 
 ## Status snapshot
 
-_Last updated: 2026-10-07_
+_Last updated: 2026-10-12_
 
 | | |
 |---|---|
 | **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
 | **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | Answer the quiz on `compareRuns`, then commit it · then plan the remaining M1 tasks (mock failure modes, dashboard, Gemini SDK) |
-| **Next up** | Mock failure modes, so mock runs differ between prompt versions and compare has something to show |
+| **Waiting on you** | Review and answer the quiz on per-run mock failure settings; changes are uncommitted |
+| **Next up** | After the mock-settings learning review, plan run/dataset listing APIs and the runs/compare dashboard |
+
+**Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
+awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
+
+**Implementation refresh (2026-10-12):** Comparison learning review completed. Owner chose
+per-run mock settings. Implemented validated failure rates, seed and latency, saved on each run
+and copied into its jobs. Reports and comparisons expose the saved configuration. Full suite:
+100 passed, 1 expected failure; typecheck passes. The mock still ignores prompt content when
+selecting labels, so different prompt versions alone do not demonstrate label regressions.
+The dashboard has only job APIs today, and the backend has no run-list or dataset-list routes;
+include those in the next design discussion. Gemini SDK/parser work remains afterward.
+Auth scope is unresolved.
 
 ---
 
@@ -64,7 +76,7 @@ Tasks:
 - [x] **ME** `scoreRetentionAnalysis` tests, deferred from M0 (11 stubs in `evaluator.test.ts`). Write them against the new scoring; rewrite or delete the threshold stubs if the rules moved into dataset labels. Includes the substring evidence test ("4" matches "14 days").
 - [ ] **ME** Decide on `parseLlmJson` and prose before a fence (locked in as a known limitation in M0); fix it if real Gemini output hits it
 - [x] **Claude** Versioned prompt files (`server/prompts/retention/v1.md`, `v2.md`); jobs carry `input.promptVersion` (default `v1`) and the `llm_call` trace records it. `POST /runs` should validate the version with `PromptVersionSchema`, store it on the run, and copy it into each job's `input`.
-- [ ] **Claude** Configurable mock failure modes (invalid JSON, wrong label, missing evidence, added latency), seeded by case ID so runs are reproducible
+- [x] **Claude** Configurable mock failure modes (invalid JSON, wrong label, missing evidence, added latency), seeded by case ID so runs are reproducible. Per-run `mockConfig` is saved and copied into jobs; learning review pending.
 - [ ] **Claude** Dashboard: runs list and compare view
 - [x] **ME** Tests for aggregates and compare
 - [ ] **Claude** Migrate `@google/generative-ai` (end of life since Nov 2025) to `@google/genai`
@@ -161,7 +173,8 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 ## Backlog and known issues
 
-- **Known (M1):** mock LLM and evaluator use the same rule, so mock runs always score 100.
+- [ ] **ME** Auth: decide access/ownership scope, agree design and implementation scope, then implement with VibeWise.
+- **Known (M1):** ground-truth grading is implemented, so mock runs can lose points on judgment cases; the mock still ignores prompt content when selecting labels, so v1/v2 alone do not demonstrate label regressions.
 - **Known (M3):** a worker crash leaves jobs stuck in `running` forever.
 - `scoreRetentionAnalysis` evidence check is a substring match: NPS `4` "matches" "14 days". Documented by an `it.fails` test; fixing it flips that test.
 - `parseLlmJson` fails if the model writes prose before the fenced block. Covered by a TODO test.
@@ -173,6 +186,8 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-12 | Owner chose per-run mock settings rather than worker environment settings | Baseline and candidate can use different settings without restarting workers; saved settings make results explainable and repeatable. |
+| 2026-10-12 | Implementation uses independent seed/case-ID/mode hashes for failure rates, with zero failures by default; settings are copied into jobs in the run transaction | Selection stays stable across retries and worker ordering. Independent mode hashes prevent one setting from shifting another mode's selection. Case IDs must remain the same for reproduction; a fresh database can select different cases. Missing evidence remains a schema failure, and label perturbation never reads ground truth. |
 | 2026-09-27 | Test DB is a separate `postgres-test` compose service locally (profile `test`, port 5433, tmpfs) and a service container in CI | Tests truncate tables, so they must never share the dev database. Config refuses any DB not ending in `_test`. |
 | 2026-09-27 | Worker runs `WORKER_CONCURRENCY` sequential loops instead of `setInterval` | `setInterval` made in-flight jobs grow with job latency, unbounded. Now concurrency is explicit. |
 | 2026-09-27 | Migrations run in a one-shot `migrate` service, gated on a Postgres healthcheck | api and worker both migrating at startup could race. |
@@ -191,6 +206,11 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 ## Session log
 
+- **2026-10-12 (per-run mock settings):** Owner approved per-run configuration. Added Zod validation/defaults, a Prisma-generated `Run.mockConfig` migration and regenerated client, transactional run/job settings, claimed case ID, worker trace settings, deterministic mock failures and latency. Added unit validation/determinism/provider tests, persistence tests and a real-worker DB test covering retries, failures, latency and 16 demonstrated regressions. Documented the API and limitations in README. Typecheck and full suite pass (100 passed, 1 expected failure); DB suite needed Docker Desktop/test Postgres startup and sandbox escalation. Migration applied only to test DB. Learning quiz pending. No commits, pushes or PRs; existing untracked learning files preserved.
+- **2026-10-12 (comparison learning review):** Owner explained why unfinished candidate cases remain pending, identified fail-to-pass as improvement, and identified a score drop with both cases passing as warning. Comparison checkpoint completed. Next design question: configure mock failures per run and persist the configuration, or configure them globally through worker environment variables. No approach confirmed; no application code changed or tests run.
+- **2026-10-12 (next-task review):** Read roadmap, plan, learning checkpoints, mock implementation, comparison logic and API routes. Recommended completing the outstanding comparison quiz, then agreeing deterministic mock failure profiles, adding run/dataset listing APIs and the runs/compare dashboard, and finishing Gemini SDK/parser work. Refreshed the stale mock known issue. No application code changed or tests run; existing plan edits and untracked learning files preserved. No new design decisions confirmed.
+- **2026-10-07 (VibeWise planning):** Reviewed remaining M1 tasks against the LLM implementation, comparison classifications, worker call sites, and frontend API. Proposed an M1 completion sequence without treating it as a confirmed choice. Recorded the outstanding comparison reasoning question in learning notes. Auth remains unresolved. No application code changed or tests run.
+- **2026-10-07 (VibeWise auth):** Inspected API, browser API calls, dashboard flow, and Prisma schema. No auth checks or account/session/ownership models observed. Created `.vibe-wise/` learning notes and recorded the pending Build checkpoint: shared workspace versus private user data and the owner's reasoning. Auth design remains undecided; no implementation or tests run. Existing untracked `LEARNING_CHECKLIST.md` left untouched.
 - **2026-10-07 (merge resolution):** Resolved the plan conflict between the local status refresh and remote report/comparison work. Kept the October 7 update date, remote completed task status and next steps, and both session histories. The earlier October 7 entry describes the older local checkout before these remote commits were merged. Verification: typecheck and full suite pass (74 passed, 1 expected failure); full suite required access outside the sandbox to reach local Postgres. Merge left uncommitted.
 - **2026-10-07:** Checked the roadmap and current code to identify the next task. `getRunReport` is implemented, but all 7 report tests remain TODOs. Updated the stale status snapshot: next is owner-written report DB tests, followed by per-case comparison. No code changes or tests run.
 - **2026-09-27:** Started M0 on `m0-foundations`. Added roadmap, Vitest (unit + db projects), CI workflow, bounded poll loop, migrate service, `GEMINI_MODEL`. Created 25 TODO test stubs for you. Typecheck, unit project and server build pass locally; Docker and DB tests unverified (no Docker on this machine). Added this plan.

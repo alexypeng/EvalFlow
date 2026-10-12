@@ -25,7 +25,13 @@ async function timed<T>(fn: () => Promise<T>) {
     };
 }
 
-async function processJob(job: { id: string; input: unknown; attempts: number; maxAttempts: number }) {
+async function processJob(job: {
+    id: string;
+    caseId: string | null;
+    input: unknown;
+    attempts: number;
+    maxAttempts: number;
+}) {
     const startedAt = Date.now();
 
     const {
@@ -33,6 +39,7 @@ async function processJob(job: { id: string; input: unknown; attempts: number; m
         snapshot: caseSnapshot,
         promptVersion = defaultPromptVersion,
         expectedRisk,
+        mockConfig,
     } = JobInputSchema.parse(job.input);
     const toolInput = {
         userId,
@@ -84,7 +91,7 @@ async function processJob(job: { id: string; input: unknown; attempts: number; m
 
     const prompt = await buildRetentionPrompt(userId, snapshot, promptVersion);
 
-    const llmCall = await timed(() => callLlm(prompt, snapshot));
+    const llmCall = await timed(() => callLlm(prompt, snapshot, { caseId: job.caseId ?? undefined, mockConfig }));
 
     await addTrace({
         jobId: job.id,
@@ -93,6 +100,7 @@ async function processJob(job: { id: string; input: unknown; attempts: number; m
             provider: llmCall.output.provider,
             model: llmCall.output.model,
             promptVersion,
+            ...(mockConfig ? { mockConfig, caseId: job.caseId } : {}),
             prompt,
         },
         output: {

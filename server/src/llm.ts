@@ -1,7 +1,9 @@
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { AnalyticsSnapshot } from "./analyticsTools.js";
-import { PromptVersionSchema } from "./types.js";
+import { MockConfigSchema, PromptVersionSchema, type MockConfig } from "./types.js";
 
 export type LlmProvider = "mock" | "gemini";
 
@@ -90,8 +92,22 @@ function getRiskLabel(snapshot: AnalyticsSnapshot) {
     return "low";
 }
 
-export async function callLlm(prompt: string, snapshot: AnalyticsSnapshot): Promise<LlmResponse> {
+// Independent hash buckets keep case selection stable across retries, worker order and other failure settings.
+function selected(config: MockConfig, caseId: string, mode: string, rate: number) {
+    const hash = createHash("sha256").update(JSON.stringify([config.seed, caseId, mode])).digest();
+    return hash.readUInt32BE(0) / 2 ** 32 < rate;
+}
+
+export async function callLlm(
+    prompt: string,
+    snapshot: AnalyticsSnapshot,
+    options: { caseId?: string; mockConfig?: Partial<MockConfig> } = {},
+): Promise<LlmResponse> {
     const { provider, model: modelName } = resolveLlm();
+
+    if (options.mockConfig && provider !== "mock") {
+        throw new Error("mockConfig requires the mock provider");
+    }
 
     if (provider === "gemini") {
         const client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
@@ -116,9 +132,20 @@ export async function callLlm(prompt: string, snapshot: AnalyticsSnapshot): Prom
         };
     }
 
-    const risk = getRiskLabel(snapshot);
+    const config = MockConfigSchema.parse(options.mockConfig ?? {});
+    if (options.mockConfig && !options.caseId) {
+        throw new Error("mockConfig requires a case ID");
+    }
+    const caseId = options.caseId ?? snapshot.retentionSummary.userId;
+    if (config.latencyMs > 0) await sleep(config.latencyMs);
 
-    const text = JSON.stringify({
+    let risk = getRiskLabel(snapshot);
+    // Perturb the mock's prediction, never consult the evaluator's answer key.
+    if (selected(config, caseId, "wrongLabel", config.wrongLabelRate)) {
+        risk = risk === "low" ? "medium" : risk === "medium" ? "high" : "low";
+    }
+
+    const output = {
         summary: `User ${snapshot.retentionSummary.userId} has ${risk} retention risk based on recent
           activity, feature usage, subscription state, and NPS.`,
         retentionRisk: risk,
@@ -134,7 +161,13 @@ export async function callLlm(prompt: string, snapshot: AnalyticsSnapshot): Prom
                 : risk === "medium"
                   ? ["Send targeted enablement content.", "Monitor usage trend over the next week."]
                   : ["Continue normal lifecycle messaging.", "Invite the user to try advanced features."],
-    });
+    };
+    if (selected(config, caseId, "missingEvidence", config.missingEvidenceRate)) {
+        output.evidence = [];
+    }
+    const text = selected(config, caseId, "invalidJson", config.invalidJsonRate)
+        ? "{invalid JSON"
+        : JSON.stringify(output);
 
     const promptTokens = estimateTokens(prompt);
     const completionTokens = estimateTokens(text);
