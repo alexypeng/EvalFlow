@@ -283,6 +283,22 @@ EvalFlow also stores observability data for each run:
 
 ### Dataset runs and mock failure settings
 
+The dashboard opens on **Dataset runs**. Choose a loaded dataset and prompt version, optionally
+enable mock failure settings, then select **Start run**. Each dataset case becomes a queued job.
+Run progress and results refresh every two seconds. Select a run ID to inspect pass rate, score,
+latency percentiles, tokens, cost and saved settings. Use **Single job** for the original analysis,
+job history, traces and retry flow.
+
+Select **Use as baseline** on a reference run, then choose a candidate of the same dataset version
+in **Compare runs**. The table shows per-case outcomes and scores; filter it to inspect regressions,
+improvements, warnings or pending cases. Pending results stay visible until both cases finish.
+
+`GET /datasets` lists loaded dataset versions and case counts. `GET /runs` returns the latest 50
+run reports; use `?limit=<1–100>` to change the page size. Runs are newest first. Pass rate uses
+all cases as the denominator, including unfinished ones; mean score, latency, tokens and cost use
+completed jobs. Mock failures simulate a change in behavior and do not measure the effect of prompt
+text on a real model.
+
 Load the fixture with `pnpm --filter server dataset:load datasets/retention-v1.json`, then create a run:
 
 ```bash

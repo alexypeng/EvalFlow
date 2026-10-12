@@ -16,8 +16,8 @@ _Last updated: 2026-10-12_
 |---|---|
 | **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
 | **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | Review and answer the quiz on per-run mock failure settings; changes are uncommitted |
-| **Next up** | After the mock-settings learning review, plan run/dataset listing APIs and the runs/compare dashboard |
+| **Waiting on you** | Review and answer the dashboard learning quiz; dashboard changes are uncommitted |
+| **Next up** | After dashboard review, plan the remaining M1 Gemini SDK/parser tasks |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -27,9 +27,11 @@ per-run mock settings. Implemented validated failure rates, seed and latency, sa
 and copied into its jobs. Reports and comparisons expose the saved configuration. Full suite:
 100 passed, 1 expected failure; typecheck passes. The mock still ignores prompt content when
 selecting labels, so different prompt versions alone do not demonstrate label regressions.
-The dashboard has only job APIs today, and the backend has no run-list or dataset-list routes;
-include those in the next design discussion. Gemini SDK/parser work remains afterward.
-Auth scope is unresolved.
+Owner approved the dashboard scope and it is implemented: run/dataset lists, run creation,
+report details and comparison filters. Full suite now passes 105 tests plus 1 expected failure;
+typecheck, frontend lint and builds pass. Browser QA covered empty states, creating v1/v2 runs,
+finished metrics, baseline/candidate selection, improvement filtering and a 400-pixel comparison
+layout. Gemini SDK/parser work remains afterward. Auth scope is unresolved.
 
 ---
 
@@ -76,8 +78,8 @@ Tasks:
 - [x] **ME** `scoreRetentionAnalysis` tests, deferred from M0 (11 stubs in `evaluator.test.ts`). Write them against the new scoring; rewrite or delete the threshold stubs if the rules moved into dataset labels. Includes the substring evidence test ("4" matches "14 days").
 - [ ] **ME** Decide on `parseLlmJson` and prose before a fence (locked in as a known limitation in M0); fix it if real Gemini output hits it
 - [x] **Claude** Versioned prompt files (`server/prompts/retention/v1.md`, `v2.md`); jobs carry `input.promptVersion` (default `v1`) and the `llm_call` trace records it. `POST /runs` should validate the version with `PromptVersionSchema`, store it on the run, and copy it into each job's `input`.
-- [x] **Claude** Configurable mock failure modes (invalid JSON, wrong label, missing evidence, added latency), seeded by case ID so runs are reproducible. Per-run `mockConfig` is saved and copied into jobs; learning review pending.
-- [ ] **Claude** Dashboard: runs list and compare view
+- [x] **Claude** Configurable mock failure modes (invalid JSON, wrong label, missing evidence, added latency), seeded by case ID so runs are reproducible. Per-run `mockConfig` is saved and copied into jobs; learning review completed.
+- [x] **Claude** Dashboard: runs list and compare view, with dataset selection, run creation, saved mock settings, report details and comparison filters; dashboard learning review pending.
 - [x] **ME** Tests for aggregates and compare
 - [ ] **Claude** Migrate `@google/generative-ai` (end of life since Nov 2025) to `@google/genai`
 - [x] **Claude** Fix the trace mislabel: `callLlm` now returns the `provider` and `model` that actually ran, and the trace uses them. `resolveLlm()` gives the same answer up front, for `POST /runs` to fill `Run.provider` / `Run.model`.
@@ -186,6 +188,9 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-12 | Owner approved dataset/run listing APIs, run creation with prompt/mock settings, progress/results, and baseline/candidate comparison | Completes the visible dataset evaluation workflow while retaining the Single job view for traces and retry. |
+| 2026-10-12 | Run list defaults to the newest 50 (validated maximum 100), with one batched aggregate query over the selected runs and a latest-eval lateral join | Avoids invoking the multi-query individual report for every list row. One eval per job prevents retries from inflating pass counts; metrics and pass rules match individual reports. |
+| 2026-10-12 | Dashboard polls after requests finish, cancels obsolete requests and restricts candidates to the baseline's dataset ID | Slow requests do not accumulate overlapping polls. Selection changes cannot apply an old response to a new pair. Dataset ID includes version, so each comparison uses the same questions and answer key. |
 | 2026-10-12 | Owner chose per-run mock settings rather than worker environment settings | Baseline and candidate can use different settings without restarting workers; saved settings make results explainable and repeatable. |
 | 2026-10-12 | Implementation uses independent seed/case-ID/mode hashes for failure rates, with zero failures by default; settings are copied into jobs in the run transaction | Selection stays stable across retries and worker ordering. Independent mode hashes prevent one setting from shifting another mode's selection. Case IDs must remain the same for reproduction; a fresh database can select different cases. Missing evidence remains a schema failure, and label perturbation never reads ground truth. |
 | 2026-09-27 | Test DB is a separate `postgres-test` compose service locally (profile `test`, port 5433, tmpfs) and a service container in CI | Tests truncate tables, so they must never share the dev database. Config refuses any DB not ending in `_test`. |
@@ -206,6 +211,8 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 ## Session log
 
+- **2026-10-12 (runs dashboard):** Owner approved the proposed scope. Added GET /datasets with case counts and GET /runs with bounded newest-first reports using batched SQL aggregates. Added Dataset runs / Single job navigation, run creation with optional mock settings, run table, report details, compatible baseline/candidate selection, per-case filters, visible pending/error states and responsive styles. Added 5 DB tests for list/report consistency, latest evals, mixed statuses, limits, empty results and dataset versions. Verified typecheck, frontend lint, server/frontend builds and full suite (105 passed, 1 expected failure). HTTP smoke checks covered list routes and invalid limits. Browser-created v1/v2 runs finished with 16 regressions, 2 improvements and 2 unchanged cases; verified comparison selection/filtering and the 400-pixel layout, with no console runtime errors observed. Used the Sites skill's local-only workflow; no hosting or publication. QA used only the dedicated test DB. Temporary QA servers stopped afterward. Updated README and the stale roadmap mock issue. No commits, pushes or PRs; pre-existing learning files preserved. Dashboard quiz pending.
+- **2026-10-12 (mock-settings learning review):** Owner identified changing environment settings as a reproducibility risk, explained that changing seed/case ID can hide a previously selected failure, and identified invalid JSON as a retry trigger. Clarified that valid JSON with a wrong label completes execution but fails evaluation; retries are for execution/validation failures. Learning checkpoint completed. No application changes or additional tests; dashboard scope remains to be agreed.
 - **2026-10-12 (per-run mock settings):** Owner approved per-run configuration. Added Zod validation/defaults, a Prisma-generated `Run.mockConfig` migration and regenerated client, transactional run/job settings, claimed case ID, worker trace settings, deterministic mock failures and latency. Added unit validation/determinism/provider tests, persistence tests and a real-worker DB test covering retries, failures, latency and 16 demonstrated regressions. Documented the API and limitations in README. Typecheck and full suite pass (100 passed, 1 expected failure); DB suite needed Docker Desktop/test Postgres startup and sandbox escalation. Migration applied only to test DB. Learning quiz pending. No commits, pushes or PRs; existing untracked learning files preserved.
 - **2026-10-12 (comparison learning review):** Owner explained why unfinished candidate cases remain pending, identified fail-to-pass as improvement, and identified a score drop with both cases passing as warning. Comparison checkpoint completed. Next design question: configure mock failures per run and persist the configuration, or configure them globally through worker environment variables. No approach confirmed; no application code changed or tests run.
 - **2026-10-12 (next-task review):** Read roadmap, plan, learning checkpoints, mock implementation, comparison logic and API routes. Recommended completing the outstanding comparison quiz, then agreeing deterministic mock failure profiles, adding run/dataset listing APIs and the runs/compare dashboard, and finishing Gemini SDK/parser work. Refreshed the stale mock known issue. No application code changed or tests run; existing plan edits and untracked learning files preserved. No new design decisions confirmed.

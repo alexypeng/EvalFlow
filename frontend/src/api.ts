@@ -60,6 +60,56 @@ export type Metrics = {
     totalTokens: number;
 };
 
+export type Dataset = { id: string; name: string; version: number; caseCount: number };
+
+export type MockConfig = {
+    seed: string;
+    invalidJsonRate: number;
+    wrongLabelRate: number;
+    missingEvidenceRate: number;
+    latencyMs: number;
+};
+
+export type Run = {
+    id: string;
+    datasetId: string;
+    promptVersion: string;
+    provider: string;
+    model: string;
+    mockConfig: Partial<MockConfig>;
+    createdAt: string;
+};
+
+export type RunReport = {
+    run: Run & { dataset: { name: string; version: number } };
+    status: "in_progress" | "finished";
+    jobs: { total: number; queued: number; running: number; completed: number; failed: number };
+    passed: number;
+    passRate: number;
+    meanScore: number | null;
+    latencyMs: { p50: number | null; p95: number | null };
+    totalTokens: number;
+    totalCost: number;
+};
+
+export type CaseChange = "regression" | "improvement" | "warning" | "unchanged" | "pending";
+type RunSide = { outcome: "pass" | "fail" | "pending"; score: number | null };
+
+export type RunComparison = {
+    baseline: Run;
+    candidate: Run;
+    dataset: { name: string; version: number };
+    cases: Array<{ caseId: string; caseName: string; baseline: RunSide; candidate: RunSide; change: CaseChange }>;
+    summary: Record<CaseChange, number>;
+};
+
+export type CreateRunInput = {
+    datasetName: string;
+    datasetVersion: number;
+    promptVersion: string;
+    mockConfig?: MockConfig;
+};
+
 async function parseResponseError(response: Response, fallback: string) {
     const body = (await response.json().catch(() => null)) as {
         error?: unknown;
@@ -67,7 +117,45 @@ async function parseResponseError(response: Response, fallback: string) {
     } | null;
     const detail = body?.message ?? body?.error;
 
-    return typeof detail === "string" ? `${fallback}: ${detail}` : fallback;
+    if (typeof detail === "string") return `${fallback}: ${detail}`;
+    if (detail && typeof detail === "object" && "fieldErrors" in detail) {
+        const errors = (detail as { fieldErrors: Record<string, string[]> }).fieldErrors;
+        const fields = Object.entries(errors).map(([field, messages]) => `${field}: ${messages.join(", ")}`);
+        return `${fallback}: ${fields.join("; ")}`;
+    }
+    return fallback;
+}
+
+async function runRequest<T>(path: string, options?: RequestInit): Promise<T> {
+    const response = await fetch(`${API_URL}${path}`, options);
+    if (!response.ok) throw new Error(await parseResponseError(response, "Run request failed"));
+    return response.json();
+}
+
+export function listDatasets(signal?: AbortSignal) {
+    return runRequest<Dataset[]>("/datasets", { signal });
+}
+
+export function listRuns(signal?: AbortSignal) {
+    return runRequest<RunReport[]>("/runs", { signal });
+}
+
+export function getRunReport(id: string, signal?: AbortSignal) {
+    return runRequest<RunReport>(`/runs/${encodeURIComponent(id)}`, { signal });
+}
+
+export function compareRuns(baselineId: string, candidateId: string, signal?: AbortSignal) {
+    return runRequest<RunComparison>(
+        `/runs/${encodeURIComponent(baselineId)}/compare/${encodeURIComponent(candidateId)}`, { signal },
+    );
+}
+
+export function createRun(input: CreateRunInput) {
+    return runRequest<{ ok: true; run: Run; jobCount: number }>("/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+    });
 }
 
 export async function listJobs(): Promise<Job[]> {

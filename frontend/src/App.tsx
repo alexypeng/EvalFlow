@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { SubmitEventHandler } from "react";
 import { ChevronDown } from "lucide-react";
+import RunsDashboard from "./RunsDashboard";
 import {
     createJob,
     getJobDetails,
@@ -18,6 +19,33 @@ async function fetchDashboard() {
 }
 
 function App() {
+    const [view, setView] = useState<"runs" | "jobs">("runs");
+    return (
+        <div className="min-h-screen bg-slate-950">
+            <nav className="border-b border-slate-800 px-4 py-4 sm:px-8" aria-label="Dashboard views">
+                <div className="mx-auto flex max-w-6xl items-center gap-2 sm:gap-3">
+                    <span className="mr-auto font-semibold text-white">EvalFlow</span>
+                    {([ ["runs", "Dataset runs"], ["jobs", "Single job"] ] as const).map(([value, label]) => (
+                        <button
+                            key={value}
+                            type="button"
+                            aria-pressed={view === value}
+                            onClick={() => setView(value)}
+                            className={`rounded-lg px-3 py-2 text-xs font-semibold sm:text-sm ${
+                                view === value ? "bg-cyan-400 text-slate-950" : "text-slate-300 hover:bg-slate-800"
+                            }`}
+                        >
+                            {label}
+                        </button>
+                    ))}
+                </div>
+            </nav>
+            {view === "runs" ? <RunsDashboard /> : <SingleJobDashboard />}
+        </div>
+    );
+}
+
+function SingleJobDashboard() {
     const [jobs, setJobs] = useState<Job[]>([]);
     const [metrics, setMetrics] = useState<Metrics | null>(null);
     const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -205,7 +233,7 @@ function TopDropdowns(props: {
     onMetricsToggle: (open: boolean) => void;
 }) {
     return (
-        <div className="fixed right-4 top-4 z-50 flex max-w-[calc(100vw-2rem)] items-start justify-end gap-2 sm:right-6">
+        <div className="fixed right-4 top-20 z-50 flex max-w-[calc(100vw-2rem)] items-start justify-end gap-2 sm:right-6">
             <div
                 className={`overflow-hidden rounded-xl border border-slate-700 bg-slate-900/95 shadow-2xl shadow-slate-950/50 transition-all duration-200 ease-out ${
                     props.showHistory ? "w-[22rem] max-w-[calc(100vw-2rem)]" : "w-[6.25rem]"

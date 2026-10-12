@@ -1,5 +1,5 @@
 import { prisma } from "./db.js";
-import type { Run } from "./generated/prisma/client.js";
+import { Prisma, type Run } from "./generated/prisma/client.js";
 import { promptVersionExists, resolveLlm } from "./llm.js";
 import { AnalyticsSnapshotSchema, CreateRunSchema, MockConfigSchema, type CreateRunInput } from "./types.js";
 
@@ -79,6 +79,76 @@ export type RunReport = {
     totalTokens: number;
     totalCost: number;
 };
+
+export async function listRuns(limit = 50): Promise<RunReport[]> {
+    const runs = await prisma.run.findMany({
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit,
+        include: { dataset: { select: { name: true, version: true } } },
+    });
+    if (runs.length === 0) return [];
+
+    type Aggregate = {
+        runId: string;
+        total: number;
+        queued: number;
+        running: number;
+        completed: number;
+        failed: number;
+        passed: number;
+        meanScore: number | null;
+        p50: number | null;
+        p95: number | null;
+        totalTokens: number;
+        totalCost: number;
+    };
+    // Aggregate only the selected page, with one latest eval per job so retries cannot inflate counts.
+    const aggregates = await prisma.$queryRaw<Aggregate[]>`
+        SELECT j.run_id AS "runId",
+            count(*)::int AS total,
+            count(*) FILTER (WHERE j.status = 'queued')::int AS queued,
+            count(*) FILTER (WHERE j.status = 'running')::int AS running,
+            count(*) FILTER (WHERE j.status = 'completed')::int AS completed,
+            count(*) FILTER (WHERE j.status = 'failed')::int AS failed,
+            count(*) FILTER (WHERE j.status = 'completed' AND e.reasonable_risk_label)::int AS passed,
+            avg(j.eval_score) FILTER (WHERE j.status = 'completed')::float8 AS "meanScore",
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY j.latency_ms)
+                FILTER (WHERE j.status = 'completed') AS p50,
+            percentile_cont(0.95) WITHIN GROUP (ORDER BY j.latency_ms)
+                FILTER (WHERE j.status = 'completed') AS p95,
+            coalesce(sum(j.total_tokens) FILTER (WHERE j.status = 'completed'), 0)::float8 AS "totalTokens",
+            coalesce(sum(j.estimated_cost) FILTER (WHERE j.status = 'completed'), 0)::float8 AS "totalCost"
+        FROM jobs j
+        LEFT JOIN LATERAL (
+            SELECT reasonable_risk_label FROM evals WHERE job_id = j.id ORDER BY created_at DESC LIMIT 1
+        ) e ON true
+        WHERE j.run_id IN (${Prisma.join(runs.map((run) => Prisma.sql`${run.id}::uuid`))})
+        GROUP BY j.run_id
+    `;
+    const byRun = new Map(aggregates.map((row) => [row.runId, row]));
+    return runs.map((run) => {
+        const row = byRun.get(run.id);
+        const jobs = {
+            total: row?.total ?? 0,
+            queued: row?.queued ?? 0,
+            running: row?.running ?? 0,
+            completed: row?.completed ?? 0,
+            failed: row?.failed ?? 0,
+        };
+        const passed = row?.passed ?? 0;
+        return {
+            run,
+            jobs,
+            status: jobs.queued + jobs.running === 0 ? "finished" : "in_progress",
+            passed,
+            passRate: jobs.total === 0 ? 0 : passed / jobs.total,
+            meanScore: row?.meanScore ?? null,
+            latencyMs: { p50: row?.p50 ?? null, p95: row?.p95 ?? null },
+            totalTokens: row?.totalTokens ?? 0,
+            totalCost: row?.totalCost ?? 0,
+        };
+    });
+}
 
 // TODO(ME): build the report for one run; null if the run doesn't exist.
 // - Load the run with its dataset's name and version (include).

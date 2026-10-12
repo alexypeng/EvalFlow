@@ -3,7 +3,8 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { checkDatabaseConnection } from "./db.js";
 import { createJob, getJobDetails, getMetrics, listJobs, retryJob } from "./jobs.js";
-import { compareRuns, createRun, getRunReport } from "./runs.js";
+import { compareRuns, createRun, getRunReport, listRuns } from "./runs.js";
+import { listDatasets } from "./datasets.js";
 import { CreateJobSchema, CreateRunSchema } from "./types.js";
 import { z } from "zod";
 
@@ -62,6 +63,14 @@ app.post<{ Params: { id: string } }>("/jobs/:id/retry", async (request, reply) =
     }
 
     return result.job;
+});
+
+app.get("/datasets", async () => listDatasets());
+
+app.get("/runs", async (request, reply) => {
+    const parsed = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }).safeParse(request.query);
+    if (!parsed.success) return reply.code(400).send({ error: "limit must be an integer from 1 to 100" });
+    return listRuns(parsed.data.limit);
 });
 
 app.post("/runs", async (request, reply) => {

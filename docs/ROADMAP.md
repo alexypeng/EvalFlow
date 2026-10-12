@@ -17,4 +17,4 @@ Task-level breakdown, owners, status and decisions: [`PLAN.md`](PLAN.md).
 ## Known issues
 
 - A worker crash leaves jobs stuck in `running` forever (fix in M3).
-- The mock LLM uses the same rule as the evaluator, so mock runs always score 100 (fix in M1).
+- Mock predictions ignore prompt content; per-run failure settings can simulate regressions, while dataset labels already allow mock mistakes to lose points.

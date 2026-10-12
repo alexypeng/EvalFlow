@@ -3,6 +3,14 @@ import { z } from "zod";
 import { prisma } from "./db.js";
 import { DatasetFileSchema, type DatasetFile } from "./types.js";
 
+export async function listDatasets() {
+    const datasets = await prisma.dataset.findMany({
+        orderBy: [{ name: "asc" }, { version: "desc" }],
+        select: { id: true, name: true, version: true, _count: { select: { datasetCases: true } } },
+    });
+    return datasets.map(({ _count, ...dataset }) => ({ ...dataset, caseCount: _count.datasetCases }));
+}
+
 export async function readDatasetFile(path: string): Promise<DatasetFile> {
     const raw: unknown = JSON.parse(await readFile(path, "utf8"));
     const parsed = DatasetFileSchema.safeParse(raw);
