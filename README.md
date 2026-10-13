@@ -240,7 +240,23 @@ the original report-only behavior remains. The dashboard and gate share the case
 Prompt/provider/model and mock settings are recorded but may differ between the baseline and candidate, so the gate
 can evaluate intentional changes to them. Dataset compatibility currently checks name, version and case names; it
 does not hash the underlying snapshots or labels. Dataset content changes must use a new version.
-Markdown summaries and GitHub Actions integration follow this gate implementation.
+### Markdown summary
+
+Use `--format markdown` on a gate run to write a summary suitable for a GitHub check or PR comment:
+
+```bash
+node server/dist/cli.js run --dataset retention --prompt v2 \
+  --baseline baselines/retention-v1.json --format markdown > summary.md
+```
+
+The summary includes the gate verdict, candidate run ID, dataset/settings, classification counts, regressed cases,
+warnings, and candidate-minus-baseline changes in passed cases, pass rate and mean recorded score. Pass-rate changes
+use percentage points. Missing scores are excluded from the mean, with the scored-case count shown; unavailable values
+use `—`. Baselines do not store latency, tokens or cost, so those comparison deltas are not available.
+
+JSON remains the default output. Markdown requires `--baseline`, leaves progress on stderr, and preserves the native
+0/1/2 exit codes. A regression still writes its summary before exiting 1. Validation/API errors exit 2 without a summary.
+Dynamic names/settings are escaped so they cannot break tables or insert HTML. GitHub Actions integration is next.
 
 ## Architecture
 

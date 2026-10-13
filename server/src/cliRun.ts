@@ -5,6 +5,7 @@ import { z } from "zod";
 import { CreateRunSchema } from "./types.js";
 import { BaselineSchema, type Baseline } from "./baseline.js";
 import { compareBaselines } from "./gate.js";
+import { renderGateSummary } from "./gateSummary.js";
 
 export const cliUsage = `Usage: evalflow run --dataset <name> [options]
        evalflow baseline export <runId> [--output <file>] [options]
@@ -12,6 +13,7 @@ export const cliUsage = `Usage: evalflow run --dataset <name> [options]
   --dataset-version <number>  Dataset version (default: 1)
   --prompt <version>          Prompt version (default: v1)
   --baseline <file|runId>     Compare the candidate with a saved file or finished run
+  --format <json|markdown>   Gate output format (default: json; markdown requires --baseline)
   --api-url <url>             API address (default: http://localhost:3000)
   --poll-ms <number>          Wait between completed polls (default: 1000)
   --timeout-ms <number>       Total deadline including creation (default: 120000)
@@ -22,7 +24,7 @@ Prints the finished run report as JSON to stdout; progress goes to stderr.
 Exit 0: no regressions (or report retrieved without --baseline).
 Exit 1: at least one regression. Exit 2: input, compatibility, API, or timeout error.
 Baseline export requires a finished run. Existing output files are never overwritten.
-With --baseline, stdout contains the report and per-case comparison; warnings do not block.`;
+With --baseline, stdout contains JSON or a Markdown summary; warnings do not block.`;
 
 const count = z.number().int().nonnegative();
 const runSchema = z.object({ id: z.uuid() }).passthrough();
@@ -66,6 +68,7 @@ export async function runCli(args: string[], io: CliIo = {
                 "dataset-version": { type: "string", default: "1" },
                 prompt: { type: "string", default: "v1" },
                 baseline: { type: "string" },
+                format: { type: "string", default: "json" },
                 "api-url": { type: "string", default: "http://localhost:3000" },
                 "poll-ms": { type: "string", default: "1000" },
                 "timeout-ms": { type: "string", default: "120000" },
@@ -80,6 +83,10 @@ export async function runCli(args: string[], io: CliIo = {
         exporting = positionals.length === 3 && positionals[0] === "baseline" && positionals[1] === "export";
         if (!exporting && (positionals.length !== 1 || positionals[0] !== "run")) throw new Error(cliUsage);
         if (!exporting && values.output !== undefined) throw new Error("--output is only for baseline export");
+        const format = z.enum(["json", "markdown"]).parse(values.format);
+        if (!exporting && format === "markdown" && values.baseline === undefined) {
+            throw new Error("--format markdown requires --baseline");
+        }
         if (exporting) {
             const allowed = new Set(["api-url", "timeout-ms", "output", "help"]);
             if (tokens.some((token) => token.kind === "option" && !allowed.has(token.name))) {
@@ -166,7 +173,8 @@ export async function runCli(args: string[], io: CliIo = {
                 if (baseline) {
                     const candidate = BaselineSchema.parse(await request(`runs/${runId}/baseline`));
                     const comparison = compareBaselines(baseline, candidate);
-                    io.out(JSON.stringify({ report, comparison }, null, 2));
+                    io.out(format === "markdown" ? renderGateSummary(comparison, runId)
+                        : JSON.stringify({ report, comparison }, null, 2));
                     const { regression, warning } = comparison.summary;
                     io.error(`Gate: ${regression} regressions, ${warning} warnings`);
                     return comparison.exitCode;

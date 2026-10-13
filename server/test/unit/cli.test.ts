@@ -69,6 +69,32 @@ describe("evalflow regression gate CLI", () => {
         });
     });
 
+    it.each([false, true])("prints Markdown while retaining the gate exit code (regression=%s)", async (regression) => {
+        await withFile(baseline(), async (path) => {
+            const candidate = baseline();
+            candidate.cases[0] = { caseName: "healthy", outcome: regression ? "fail" : "pass", score: 80 };
+            const io = harness();
+            io.fetch.mockResolvedValueOnce(created()).mockResolvedValueOnce(Response.json(report()))
+                .mockResolvedValueOnce(Response.json(candidate));
+            const input = [...args, "--baseline", path, "--format", "markdown"];
+            expect(await runCli(input, io)).toBe(regression ? 1 : 0);
+            expect(io.out).toHaveBeenCalledTimes(1);
+            expect(io.out.mock.calls[0][0]).toContain("## EvalFlow regression check");
+            expect(io.out.mock.calls[0][0]).toContain(regression ? "**Result: FAIL**" : "**Result: PASS**");
+        });
+    });
+
+    it.each([
+        [...args, "--format", "markdown"],
+        [...args, "--format", "html"],
+        ["baseline", "export", runId, "--format", "markdown"],
+    ])("rejects unsupported format combinations before contacting the API: %j", async (...input) => {
+        const io = harness();
+        expect(await runCli(input, io)).toBe(2);
+        expect(io.fetch).not.toHaveBeenCalled();
+        expect(io.out).not.toHaveBeenCalled();
+    });
+
     it.each(["{bad json", {}, { ...baseline(), dataset: { name: "other", version: 1 } }])(
         "rejects invalid or incompatible files before run creation: %j", async (body) => {
             await withFile(body, async (path) => {

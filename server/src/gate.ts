@@ -39,3 +39,5 @@ export function compareBaselines(baselineInput: unknown, candidateInput: unknown
         exitCode: summary.regression > 0 ? 1 : 0,
     };
 }
+
+export type GateComparison = ReturnType<typeof compareBaselines>;
