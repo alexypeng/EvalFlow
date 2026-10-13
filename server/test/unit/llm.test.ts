@@ -1,7 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildRetentionPrompt, callLlm, mockModel, resolveLlm } from "../../src/llm.js";
+import { buildRetentionPrompt, callLlm, geminiModel, mockModel, resolveLlm } from "../../src/llm.js";
 import { CreateRunSchema, MockConfigSchema, type AnalyticsSnapshot } from "../../src/types.js";
 import { parseLlmJson, validateRetentionOutput } from "../../src/evaluator.js";
+
+const { generateContent, createClient } = vi.hoisted(() => ({
+    generateContent: vi.fn(),
+    createClient: vi.fn(),
+}));
+
+vi.mock("@google/genai", () => ({
+    GoogleGenAI: class {
+        models = { generateContent };
+        constructor(options: { apiKey: string }) {
+            createClient(options);
+        }
+    },
+}));
 
 const snapshot: AnalyticsSnapshot = {
     events: [{ event: "login", daysAgo: 1 }],
@@ -18,6 +32,56 @@ const snapshot: AnalyticsSnapshot = {
 
 afterEach(() => {
     vi.unstubAllEnvs();
+    vi.resetAllMocks();
+});
+
+describe("Gemini SDK integration", () => {
+    it("sends the configured model and exact prompt and preserves response accounting", async () => {
+        vi.stubEnv("LLM_PROVIDER", "gemini");
+        vi.stubEnv("GEMINI_API_KEY", "test-key");
+        generateContent.mockResolvedValue({ text: '{"retentionRisk":"low"}' });
+
+        const response = await callLlm("exact prompt", snapshot);
+
+        expect(createClient).toHaveBeenCalledWith({ apiKey: "test-key" });
+        expect(generateContent).toHaveBeenCalledExactlyOnceWith({ model: geminiModel, contents: "exact prompt" });
+        expect(response).toEqual({
+            text: '{"retentionRisk":"low"}',
+            promptTokens: 3,
+            completionTokens: 6,
+            totalTokens: 9,
+            estimatedCost: 0,
+            provider: "gemini",
+            model: geminiModel,
+        });
+    });
+
+    it("returns empty text for a response without text so validation rejects it", async () => {
+        vi.stubEnv("LLM_PROVIDER", "gemini");
+        vi.stubEnv("GEMINI_API_KEY", "test-key");
+        generateContent.mockResolvedValue({});
+
+        const response = await callLlm("prompt", snapshot);
+        expect(response.text).toBe("");
+        expect(parseLlmJson(response.text).validJson).toBe(false);
+        expect(response.provider).toBe("gemini");
+    });
+
+    it("propagates provider errors to the worker retry path", async () => {
+        vi.stubEnv("LLM_PROVIDER", "gemini");
+        vi.stubEnv("GEMINI_API_KEY", "test-key");
+        const error = new Error("Provider unavailable");
+        generateContent.mockRejectedValue(error);
+
+        await expect(callLlm("prompt", snapshot)).rejects.toBe(error);
+    });
+
+    it("does not construct a Gemini client when using the default mock", async () => {
+        vi.stubEnv("LLM_PROVIDER", "mock");
+        await callLlm("prompt", snapshot);
+        expect(createClient).not.toHaveBeenCalled();
+        expect(generateContent).not.toHaveBeenCalled();
+    });
 });
 
 describe("per-run mock failures", () => {

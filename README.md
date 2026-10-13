@@ -163,6 +163,9 @@ WORKER_CONCURRENCY=1
 
 `LLM_PROVIDER=mock` is the default so the project can run locally without an API key. Use `LLM_PROVIDER=gemini` and set `GEMINI_API_KEY` to call Gemini instead of the mock provider. `GEMINI_MODEL` selects the model (see [Gemini models](https://ai.google.dev/gemini-api/docs/models)).
 
+Gemini calls use `@google/genai`. Token counts currently remain character-based estimates, and estimated cost is
+zero; they do not yet use the provider's usage metadata or pricing.
+
 `WORKER_CONCURRENCY` is the number of jobs one worker process runs at once.
 
 `TEST_DATABASE_URL` is the database used by `pnpm test`. Start it locally with `docker compose --profile test up -d postgres-test`. The name must end in `_test`, since tests truncate tables.

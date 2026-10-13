@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import type { AnalyticsSnapshot } from "./analyticsTools.js";
 import { MockConfigSchema, PromptVersionSchema, type MockConfig } from "./types.js";
 
@@ -110,13 +110,12 @@ export async function callLlm(
     }
 
     if (provider === "gemini") {
-        const client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-        const model = client.getGenerativeModel({
+        const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+        const result = await client.models.generateContent({
             model: modelName,
+            contents: prompt,
         });
-
-        const result = await model.generateContent(prompt);
-        const text = result.response.text();
+        const text = result.text ?? "";
 
         const promptTokens = estimateTokens(prompt);
         const completionTokens = estimateTokens(text);
