@@ -144,6 +144,11 @@ export async function callLlm(
         risk = risk === "low" ? "medium" : risk === "medium" ? "high" : "low";
     }
 
+    // TEMPORARY DEMO: mislabel this healthy case under v2; remove after capturing the failing CI check.
+    if (snapshot.retentionSummary.userId === "case_healthy_power_user" && prompt.includes("B2B SaaS product")) {
+        risk = "high";
+    }
+
     const output = {
         summary: `User ${snapshot.retentionSummary.userId} has ${risk} retention risk based on recent
           activity, feature usage, subscription state, and NPS.`,
