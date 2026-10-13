@@ -509,6 +509,16 @@ curl http://localhost:3000/health
 
 ![Evaluation and traces](docs/screenshots/eval-traces.png)
 
+### CI Regression Gate
+
+A temporary mock-code override changed `healthy_power_user` from pass/100 to fail/80. The gate exited 1 and
+updated the PR summary while ordinary tests passed. The override was then removed and CI returned to green.
+
+![GitHub PR summary showing the deliberate healthy_power_user regression](docs/screenshots/ci-regression-failure.png)
+
+[Failing workflow run](https://github.com/alexypeng/EvalFlow/actions/runs/38471539384) ·
+[Restored passing workflow run](https://github.com/alexypeng/EvalFlow/actions/runs/38475140863)
+
 ## Roadmap
 
 - Add more analytics workflows.
