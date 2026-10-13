@@ -1,0 +1,121 @@
+{
+  "formatVersion": 1,
+  "dataset": {
+    "name": "retention",
+    "version": 1
+  },
+  "run": {
+    "promptVersion": "v1",
+    "provider": "mock",
+    "model": "mock-rule-based",
+    "mockConfig": {
+      "seed": "evalflow",
+      "invalidJsonRate": 0,
+      "wrongLabelRate": 0,
+      "missingEvidenceRate": 0,
+      "latencyMs": 0
+    }
+  },
+  "cases": [
+    {
+      "caseName": "activity_up_but_detractor",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "boundary_drop_10",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "boundary_drop_4",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "boundary_drop_5",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "boundary_drop_9",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "boundary_nps_4",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "boundary_nps_5",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "boundary_nps_6",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "boundary_nps_7",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "boundary_one_ticket",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "clear_high_all_signals",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "healthy_power_user",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "high_activity_drop_only",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "high_low_nps_only",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "high_support_tickets_only",
+      "outcome": "pass",
+      "score": 100
+    },
+    {
+      "caseName": "judgment_cancellation_scheduled",
+      "outcome": "fail",
+      "score": 80
+    },
+    {
+      "caseName": "judgment_gone_quiet",
+      "outcome": "fail",
+      "score": 80
+    },
+    {
+      "caseName": "judgment_onboarding_tickets",
+      "outcome": "fail",
+      "score": 80
+    },
+    {
+      "caseName": "judgment_plan_downgrade",
+      "outcome": "fail",
+      "score": 80
+    },
+    {
+      "caseName": "medium_mixed_signals",
+      "outcome": "pass",
+      "score": 100
+    }
+  ]
+}

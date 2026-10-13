@@ -3,7 +3,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { checkDatabaseConnection } from "./db.js";
 import { createJob, getJobDetails, getMetrics, listJobs, retryJob } from "./jobs.js";
-import { compareRuns, createRun, getRunReport, listRuns } from "./runs.js";
+import { compareRuns, createRun, getRunBaseline, getRunReport, listRuns } from "./runs.js";
 import { listDatasets } from "./datasets.js";
 import { CreateJobSchema, CreateRunSchema } from "./types.js";
 import { z } from "zod";
@@ -138,6 +138,16 @@ app.get<{ Params: { baselineId: string; candidateId: string } }>(
         });
     },
 );
+
+app.get<{ Params: { id: string } }>("/runs/:id/baseline", async (request, reply) => {
+    if (!z.uuid().safeParse(request.params.id).success) {
+        return reply.code(404).send({ error: "Run not found" });
+    }
+    const result = await getRunBaseline(request.params.id);
+    if (result.ok) return result.baseline;
+    if (result.reason === "run_not_found") return reply.code(404).send({ error: "Run not found" });
+    return reply.code(409).send({ error: "Baseline export requires a finished run with all case results" });
+});
 
 app.get("/metrics", async () => {
     return getMetrics();

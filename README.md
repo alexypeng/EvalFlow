@@ -175,6 +175,120 @@ zero; they do not yet use the provider's usage metadata or pricing.
 - Inside Docker Compose, services use `postgres` as the database host.
 - Outside Docker, local processes use `localhost` as the database host.
 
+## Run a dataset from the CLI
+
+With the API and worker running and the dataset loaded:
+
+```bash
+pnpm --silent evalflow run --dataset retention --dataset-version 1 --prompt v2
+```
+
+The command creates one run, polls its report until all jobs are completed or failed, and prints the finished
+report as JSON to stdout. Progress and the run ID go to stderr. Use `--api-url` to choose another API,
+`--poll-ms` to change the delay between polls, and `--timeout-ms` to change the total deadline (default two minutes).
+`pnpm --silent evalflow --help` lists the options. The `--silent` flag suppresses pnpm's script output.
+
+After a server build, the compiled entry point is `node server/dist/cli.js`; the server package also declares
+the `evalflow` binary at `dist/cli.js`.
+
+Without `--baseline`, the CLI exits 0 when it retrieves a finished report, including runs with failed cases;
+input/API/timeout errors exit 2. Use the compiled command directly when exact exit codes matter: pnpm can map a child
+error to exit 1. A timeout stops waiting but does not cancel
+the server's jobs. Creation requests are never automatically retried, because a lost response could still have created
+a run.
+
+## Export a baseline
+
+Export a finished run for comparison in a fresh CI database:
+
+```bash
+mkdir -p baselines
+pnpm --silent evalflow baseline export <runId> --output baselines/retention-v1.json
+```
+
+Omit `--output` to print JSON to stdout. The output directory must already exist; an existing file is never overwritten.
+The compiled equivalent is `node server/dist/cli.js baseline export <runId> --output <file>`.
+The read-only API route is `GET /runs/:id/baseline`: unknown runs return 404, and unfinished or missing case results return
+409. Queued/running cases cannot be exported; failed jobs are terminal and are exported as failed outcomes.
+
+The versioned format contains `formatVersion: 1`, dataset name/version, saved prompt/provider/model/mock settings,
+and sorted `cases` with `caseName`, `outcome` (`pass` or `fail`) and `score` (nullable for failed jobs). Passing cases
+must have a score. Each case uses its latest evaluation, matching the existing report/comparison rules. Case names
+are portable across databases; database run/dataset/case IDs are omitted. This exports stored results and does not
+rerun the model. Saved nonzero mock failure rates still select cases using database case IDs, so the same seed can
+select different failures in a fresh database.
+
+## Check for regressions
+
+After building the server, compare a new dataset run against a saved baseline:
+
+```bash
+node server/dist/cli.js run --dataset retention --dataset-version 1 --prompt v2 \
+  --baseline baselines/retention-v1.json
+```
+
+`--baseline` accepts a JSON file or a finished run UUID from the API's database. File paths that look like UUIDs
+can use a `./` prefix. Baseline contents and dataset name/version are checked before the candidate is created.
+After it finishes, all case names must match exactly: missing, extra or duplicate names are errors.
+
+The compiled CLI exits 0 for no regressions, 1 for any pass-to-fail regression, or 2 for invalid/incompatible data,
+API errors and timeouts. Improvements and lower scores on still-passing cases (warnings) are reported without blocking.
+An existing failed case remaining failed does not block. With `--baseline`, stdout is JSON containing `report` and
+`comparison` (per-case changes, counts, saved settings and exit code); progress goes to stderr. Without the flag,
+the original report-only behavior remains. The dashboard and gate share the case classification rule.
+
+Prompt/provider/model and mock settings are recorded but may differ between the baseline and candidate, so the gate
+can evaluate intentional changes to them. Dataset compatibility currently checks name, version and case names; it
+does not hash the underlying snapshots or labels. Dataset content changes must use a new version.
+### Markdown summary
+
+Use `--format markdown` on a gate run to write a summary suitable for a GitHub check or PR comment:
+
+```bash
+node server/dist/cli.js run --dataset retention --prompt v2 \
+  --baseline baselines/retention-v1.json --format markdown > summary.md
+```
+
+The summary includes the gate verdict, candidate run ID, dataset/settings, classification counts, regressed cases,
+warnings, and candidate-minus-baseline changes in passed cases, pass rate and mean recorded score. Pass-rate changes
+use percentage points. Missing scores are excluded from the mean, with the scored-case count shown; unavailable values
+use `—`. Baselines do not store latency, tokens or cost, so those comparison deltas are not available.
+
+JSON remains the default output. Markdown requires `--baseline`, leaves progress on stderr, and preserves the native
+0/1/2 exit codes. A regression still writes its summary before exiting 1. Validation/API errors exit 2 without a summary.
+Dynamic names/settings are escaped so they cannot break tables or insert HTML.
+
+### GitHub Actions regression check
+
+`.github/workflows/regression.yml` runs on pushes and PRs alongside the existing test/build workflow. It uses a fresh
+Postgres service and the mock provider with no Gemini key. `scripts/ci-regression.sh` builds the server, applies
+migrations, loads retention v1, starts API/worker processes, waits for API health, and runs prompt v2 against
+`baselines/retention-v1.json`. It preserves the native gate exit code and stops its processes on exit.
+
+The initial baseline was exported from a default mock v1 run: 20 cases, 16 passes, four judgment-case failures,
+and zero configured mock failures. CI reads the baseline from the checked-out revision; changes to baseline files
+need review alongside code changes. Baseline updates use the export command and must be intentional.
+
+Every run publishes a check summary and an `evalflow-regression-report` artifact, retained for 14 days, including
+the Markdown report and process/gate logs. Publication runs after failures too; setup/API errors produce an ERROR
+summary rather than reusing an old report. The runner records its exit code in `exit-code.txt`.
+
+A separate job posts or updates one marked PR comment for same-repository PRs. It downloads the report without
+checking out or executing PR code and has PR-write permission; evaluation has only repository-read permission.
+Fork and Dependabot PRs get the check summary/artifact, with commenting skipped. No custom token or API secret is needed.
+
+To exercise the same runner locally with the dedicated test database:
+
+```bash
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/evalflow_test \
+  PORT=3100 bash scripts/ci-regression.sh
+```
+
+Reports go to ignored `.evalflow-ci/`. `EVALFLOW_REPORT_DIR` and `EVALFLOW_BASELINE_FILE` can select local QA output and
+fixture baselines. The script does not start Postgres or install dependencies; CI handles those steps.
+The mock ignores prompt text, so a prompt-only edit cannot demonstrate a failing gate. Changes to predictions,
+validation or evaluation can produce regressions; real prompt evaluation requires the Gemini provider separately.
+
 ## Architecture
 
 ```text
@@ -394,6 +508,16 @@ curl http://localhost:3000/health
 ### Evaluation And Traces
 
 ![Evaluation and traces](docs/screenshots/eval-traces.png)
+
+### CI Regression Gate
+
+A temporary mock-code override changed `healthy_power_user` from pass/100 to fail/80. The gate exited 1 and
+updated the PR summary while ordinary tests passed. The override was then removed and CI returned to green.
+
+![GitHub PR summary showing the deliberate healthy_power_user regression](docs/screenshots/ci-regression-failure.png)
+
+[Failing workflow run](https://github.com/alexypeng/EvalFlow/actions/runs/38471539384) ·
+[Restored passing workflow run](https://github.com/alexypeng/EvalFlow/actions/runs/38475140863)
 
 ## Roadmap
 
