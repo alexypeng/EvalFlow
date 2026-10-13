@@ -256,7 +256,38 @@ use `—`. Baselines do not store latency, tokens or cost, so those comparison d
 
 JSON remains the default output. Markdown requires `--baseline`, leaves progress on stderr, and preserves the native
 0/1/2 exit codes. A regression still writes its summary before exiting 1. Validation/API errors exit 2 without a summary.
-Dynamic names/settings are escaped so they cannot break tables or insert HTML. GitHub Actions integration is next.
+Dynamic names/settings are escaped so they cannot break tables or insert HTML.
+
+### GitHub Actions regression check
+
+`.github/workflows/regression.yml` runs on pushes and PRs alongside the existing test/build workflow. It uses a fresh
+Postgres service and the mock provider with no Gemini key. `scripts/ci-regression.sh` builds the server, applies
+migrations, loads retention v1, starts API/worker processes, waits for API health, and runs prompt v2 against
+`baselines/retention-v1.json`. It preserves the native gate exit code and stops its processes on exit.
+
+The initial baseline was exported from a default mock v1 run: 20 cases, 16 passes, four judgment-case failures,
+and zero configured mock failures. CI reads the baseline from the checked-out revision; changes to baseline files
+need review alongside code changes. Baseline updates use the export command and must be intentional.
+
+Every run publishes a check summary and an `evalflow-regression-report` artifact, retained for 14 days, including
+the Markdown report and process/gate logs. Publication runs after failures too; setup/API errors produce an ERROR
+summary rather than reusing an old report. The runner records its exit code in `exit-code.txt`.
+
+A separate job posts or updates one marked PR comment for same-repository PRs. It downloads the report without
+checking out or executing PR code and has PR-write permission; evaluation has only repository-read permission.
+Fork and Dependabot PRs get the check summary/artifact, with commenting skipped. No custom token or API secret is needed.
+
+To exercise the same runner locally with the dedicated test database:
+
+```bash
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/evalflow_test \
+  PORT=3100 bash scripts/ci-regression.sh
+```
+
+Reports go to ignored `.evalflow-ci/`. `EVALFLOW_REPORT_DIR` and `EVALFLOW_BASELINE_FILE` can select local QA output and
+fixture baselines. The script does not start Postgres or install dependencies; CI handles those steps.
+The mock ignores prompt text, so a prompt-only edit cannot demonstrate a failing gate. Changes to predictions,
+validation or evaluation can produce regressions; real prompt evaluation requires the Gemini provider separately.
 
 ## Architecture
 
