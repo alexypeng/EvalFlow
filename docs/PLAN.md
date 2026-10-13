@@ -4,26 +4,42 @@ The working plan and status tracker. [`ROADMAP.md`](ROADMAP.md) is the one-parag
 
 **Keeping it current:** Claude updates this file at the end of every work session (status snapshot, checkboxes, session log, decisions). Edit anything you disagree with; your edits win.
 
-**Owners:** **ME** = you write it (core logic you'll explain in interviews; Claude leaves TODO stubs). **Claude** = scaffolding, plumbing, config, CI, infra. **You** = a manual step only you can do (review, push, run Docker). Owners on M1–M6 are proposals; change them freely.
+**How we work (since 2026-10-03):** we plan together; Claude writes the code; Claude then grills you until you can explain it; you commit. **ME** = core logic you must be able to explain in interviews (you decide the design and get quizzed on it). **Claude** = scaffolding, plumbing, config, CI, infra. **You** = a manual step only you can do (review, push, run Docker).
 
 ---
 
 ## Status snapshot
 
-_Last updated: 2026-09-27_
+_Last updated: 2026-10-12_
 
 | | |
 |---|---|
-| **Current milestone** | M0 Foundations, branch `m0-foundations` (not pushed) |
-| **Waiting on you** | Run `docker compose up --build` and complete a job from the dashboard · push and open PR · confirm CI is green |
-| **Unverified** | Full Compose stack and image builds · DB tests not yet confirmed passing (test DB container is up) · CI has never run on GitHub |
-| **Next up** | M1: decide the open questions under M1, then schema design |
+| **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
+| **Done** | M0 Foundations, merged in PR #1 |
+| **Waiting on you** | Gemini SDK migration learning review; migration changes are uncommitted |
+| **Next up** | After review, revisit JSON parsing with real provider output |
+
+**Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
+awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
+
+**Implementation refresh (2026-10-12):** Comparison learning review completed. Owner chose
+per-run mock settings. Implemented validated failure rates, seed and latency, saved on each run
+and copied into its jobs. Reports and comparisons expose the saved configuration. Full suite:
+100 passed, 1 expected failure; typecheck passes. The mock still ignores prompt content when
+selecting labels, so different prompt versions alone do not demonstrate label regressions.
+Owner approved the dashboard scope and it is implemented: run/dataset lists, run creation,
+report details and comparison filters. Full suite now passes 105 tests plus 1 expected failure;
+typecheck, frontend lint and builds pass. Browser QA covered empty states, creating v1/v2 runs,
+finished metrics, baseline/candidate selection, improvement filtering and a 400-pixel comparison
+layout. Gemini SDK migration is now implemented and verified (109 passed, 1 expected failure;
+typecheck and server build pass), with learning review pending. Parser work remains afterward.
+Auth scope is unresolved.
 
 ---
 
-## M0 Foundations
+## M0 Foundations ✅
 
-Branch `m0-foundations`. Done when CI is green on a PR with the job-queue and `parseLlmJson` tests implemented.
+Merged in PR #1 (2026-09-27). Done when CI is green on a PR with the job-queue and `parseLlmJson` tests implemented.
 
 Test priority: write tests that protect code the next milestones change, and skip ones M1 would throw away. The queue tests are the safety net for the M3 lease/backoff rewrite and the first real proof the DB test setup works. The `scoreRetentionAnalysis` tests wait for M1, because ground-truth labels will likely replace the threshold rules they'd test.
 
@@ -35,35 +51,40 @@ Test priority: write tests that protect code the next milestones change, and ski
 - [x] `GEMINI_MODEL` env var, default `gemini-3.8-flash` (Claude)
 - [x] **ME** `test/db/jobs.test.ts`: all 7 tests for `claimNextJob` and `failOrRetryJob`, including the concurrent-claim test
 - [x] **ME** `test/unit/evaluator.test.ts`: the 6 `parseLlmJson` tests (leading prose before a fence locked in as a known limitation; fix in M1)
-- [ ] **ME** (optional) The substring evidence test ("4" matches "14 days"). That check likely survives M1, so it's fine to write now.
-- [ ] **You** Run `docker compose up --build`, submit a job from the dashboard, confirm it completes
+- [x] **You** Run `docker compose up --build`, submit a job from the dashboard, confirm it completes
 - [x] **You** Install Docker Desktop (WSL 2) and pnpm
-- [ ] **You** Run DB tests locally: `docker compose --profile test up -d postgres-test` then `pnpm test`
-- [ ] **You** Review the branch, push, open PR, confirm CI is green
+- [x] **You** Run DB tests locally: `docker compose --profile test up -d postgres-test` then `pnpm test`
+- [x] **You** Review the branch, push, open PR, confirm CI is green
+- Moved to M1: the optional substring evidence test
 
 ## M1 Eval datasets & runs
 
 Turns "run one job" into "run a dataset and compare results", the core of an eval platform. Also fixes the known issue that mock runs always score 100.
 
-**Decide before starting:**
-- **Ground truth:** should each `DatasetCase` store an `expectedRisk` label that the evaluator checks against? Recommended. Today the evaluator recomputes the same rule the mock uses, which is why the score is always 100. Ground-truth labels fix that at the root.
-- **Run completion:** how does a run become `completed`? Options: the worker checks after finishing each job, or status is derived on read from the job counts. Deriving on read is simpler and can't drift.
-- **Regression definition:** a case regresses if it goes pass → fail, or if its score drops by more than a threshold? What counts as "pass"?
+**Decided (2026-09-27, see decisions log):**
+- **Ground truth:** each `DatasetCase` stores an `expectedRisk` label; the evaluator compares the LLM's label against it instead of recomputing the rule.
+- **Run completion:** derived on read from the run's job counts (finished when no job is `queued` or `running`). No stored run status.
+- **Regression definition:** pass → fail (score crosses a pass threshold, e.g. 80) is a regression and will fail the M2 gate; a score drop that still passes is a warning, reported but not blocking. Exact threshold to settle during schema/compare design.
+- **Case data:** each `DatasetCase` stores its own analytics snapshot next to `expectedRisk`. The tool functions and traces stay the same; for run jobs they return the case's snapshot, and dashboard jobs fall back to the hard-coded users in `analyticsTools.ts`.
 
 Tasks:
-- [ ] **ME** Schema design: `Dataset`, `DatasetCase` (input, expected output, tags), `Run` (dataset, prompt version, provider, model, status), `Job.runId` + `Job.caseId`. Claude writes the migration once you've settled the shape.
-- [ ] **Claude** Seed dataset file (`datasets/retention-v1.json`, ~20 cases including edge cases) and a loader script
-- [ ] **ME** `POST /runs`: create the run and one job per case in a single transaction
-- [ ] **ME** Per-run aggregates: pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total cost
-- [ ] **ME** `GET /runs/:a/compare/:b`: per-case diff and the list of regressions
-- [ ] **ME** Evaluator scores against the case's expected label (depends on the ground-truth decision)
-- [ ] **ME** `scoreRetentionAnalysis` tests, deferred from M0 (11 stubs in `evaluator.test.ts`). Write them against the new scoring; rewrite or delete the threshold stubs if the rules moved into dataset labels.
-- [ ] **Claude** Versioned prompt files (`prompts/retention/v1.md`, `v2.md`); runs record which version they used
-- [ ] **Claude** Configurable mock failure modes (invalid JSON, wrong label, missing evidence, added latency), seeded by case ID so runs are reproducible
-- [ ] **Claude** Dashboard: runs list and compare view
-- [ ] **ME** Tests for aggregates and compare
-- [ ] **Claude** Migrate `@google/generative-ai` (end of life since Nov 2025) to `@google/genai`
-- [ ] **Claude** Fix the trace mislabel: `LLM_PROVIDER=gemini` without an API key falls back to the mock but the trace says gemini. `callLlm` should report which provider and model actually ran.
+- [x] **ME** Schema design: `RiskLevel` enum, `Dataset` (name + version unique), `DatasetCase` (snapshot, `expectedRisk`), `Run` (prompt version, provider, model; no status), optional `Job.runId` / `Job.caseId`
+- [x] **Claude** Migration `20260928052727_add_datasets_and_runs` and regenerated Prisma client
+- [x] **Claude** Seed dataset `server/datasets/retention-v1.json` (20 cases: 16 follow the threshold rule incl. boundaries, 4 `judgment_*` cases where the rule is wrong) and loader `pnpm --filter server dataset:load <file>` (Zod-validated; immutable: same version reloads are no-ops, changed content errors)
+- [x] **ME** Review the 4 `judgment_*` labels; they are the cases the mock (rule-based) should get wrong. Approved as-is 2026-09-28.
+- [x] **Claude** Dataset-backed tools: `job.input.snapshot` (validated by `JobInputSchema`) is returned by the same tool functions; traces record `source: dataset_case | built_in_mock`
+- [x] **ME** `POST /runs`: create the run and one job per case in a single transaction. Each job's `input` carries the case's `userId`, `snapshot`, `promptVersion` and `expectedRisk` (decided 2026-09-28: copy, don't look up). Add a test that the built prompt never contains the label.
+- [x] **ME** Per-run aggregates: implemented `getRunReport` and `GET /runs/:id`, with pass rate, mean score, p50/p95 latency (Postgres `percentile_cont`), total tokens and cost; 8 report tests implemented.
+- [x] **ME** `GET /runs/:a/compare/:b`: implemented `compareRuns`, per-case outcomes and regression/improvement/warning/pending classification; route `GET /runs/:baselineId/compare/:candidateId` (404 unknown, 400 different datasets), with 9 comparison tests.
+- [x] **ME** Evaluator scores against the case's expected label (depends on the ground-truth decision)
+- [x] **ME** `scoreRetentionAnalysis` tests, deferred from M0 (11 stubs in `evaluator.test.ts`). Write them against the new scoring; rewrite or delete the threshold stubs if the rules moved into dataset labels. Includes the substring evidence test ("4" matches "14 days").
+- [ ] **ME** Decide on `parseLlmJson` and prose before a fence (locked in as a known limitation in M0); fix it if real Gemini output hits it
+- [x] **Claude** Versioned prompt files (`server/prompts/retention/v1.md`, `v2.md`); jobs carry `input.promptVersion` (default `v1`) and the `llm_call` trace records it. `POST /runs` should validate the version with `PromptVersionSchema`, store it on the run, and copy it into each job's `input`.
+- [x] **Claude** Configurable mock failure modes (invalid JSON, wrong label, missing evidence, added latency), seeded by case ID so runs are reproducible. Per-run `mockConfig` is saved and copied into jobs; learning review completed.
+- [x] **Claude** Dashboard: runs list and compare view, with dataset selection, run creation, saved mock settings, report details and comparison filters; dashboard learning review completed.
+- [x] **ME** Tests for aggregates and compare
+- [x] **Claude** Migrate `@google/generative-ai` to `@google/genai`; learning review pending, live provider call not yet verified.
+- [x] **Claude** Fix the trace mislabel: `callLlm` now returns the `provider` and `model` that actually ran, and the trace uses them. `resolveLlm()` gives the same answer up front, for `POST /runs` to fill `Run.provider` / `Run.model`.
 
 Done when: running the same dataset with prompt v1 and v2 shows per-case regressions in the compare view, and mock runs no longer score a flat 100.
 
@@ -156,12 +177,12 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 ## Backlog and known issues
 
-- **Known (M1):** mock LLM and evaluator use the same rule, so mock runs always score 100.
+- [ ] **ME** Auth: decide access/ownership scope, agree design and implementation scope, then implement with VibeWise.
+- **Known (M1):** ground-truth grading is implemented, so mock runs can lose points on judgment cases; the mock still ignores prompt content when selecting labels, so v1/v2 alone do not demonstrate label regressions.
 - **Known (M3):** a worker crash leaves jobs stuck in `running` forever.
-- `scoreRetentionAnalysis` evidence check is a substring match: NPS `4` "matches" "14 days". Covered by a TODO test; fix or lock in.
+- `scoreRetentionAnalysis` evidence check is a substring match: NPS `4` "matches" "14 days". Documented by an `it.fails` test; fixing it flips that test.
 - `parseLlmJson` fails if the model writes prose before the fenced block. Covered by a TODO test.
-- Trace mislabels the provider when Gemini falls back to the mock (scheduled in M1).
-- `@google/generative-ai` is end of life (scheduled in M1).
+- Gemini now uses `@google/genai`; token counts remain character-based estimates and cost remains zero.
 - api, worker and migrate each build the same server image in compose; could share one image tag.
 - High `WORKER_CONCURRENCY` will hit the Postgres connection pool limit (measure in M6).
 
@@ -169,17 +190,71 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-12 | Owner approved Gemini SDK migration; switched to `GoogleGenAI.models.generateContent` while retaining model configuration, prompts, estimated tokens and zero cost | Limits this piece to the SDK replacement. Missing response text becomes an empty string rejected by the existing JSON validation path; provider errors still propagate for worker retries. Actual usage metadata and parser changes remain separate work. |
+| 2026-10-12 | Owner approved dataset/run listing APIs, run creation with prompt/mock settings, progress/results, and baseline/candidate comparison | Completes the visible dataset evaluation workflow while retaining the Single job view for traces and retry. |
+| 2026-10-12 | Run list defaults to the newest 50 (validated maximum 100), with one batched aggregate query over the selected runs and a latest-eval lateral join | Avoids invoking the multi-query individual report for every list row. One eval per job prevents retries from inflating pass counts; metrics and pass rules match individual reports. |
+| 2026-10-12 | Dashboard polls after requests finish, cancels obsolete requests and restricts candidates to the baseline's dataset ID | Slow requests do not accumulate overlapping polls. Selection changes cannot apply an old response to a new pair. Dataset ID includes version, so each comparison uses the same questions and answer key. |
+| 2026-10-12 | Owner chose per-run mock settings rather than worker environment settings | Baseline and candidate can use different settings without restarting workers; saved settings make results explainable and repeatable. |
+| 2026-10-12 | Implementation uses independent seed/case-ID/mode hashes for failure rates, with zero failures by default; settings are copied into jobs in the run transaction | Selection stays stable across retries and worker ordering. Independent mode hashes prevent one setting from shifting another mode's selection. Case IDs must remain the same for reproduction; a fresh database can select different cases. Missing evidence remains a schema failure, and label perturbation never reads ground truth. |
 | 2026-09-27 | Test DB is a separate `postgres-test` compose service locally (profile `test`, port 5433, tmpfs) and a service container in CI | Tests truncate tables, so they must never share the dev database. Config refuses any DB not ending in `_test`. |
 | 2026-09-27 | Worker runs `WORKER_CONCURRENCY` sequential loops instead of `setInterval` | `setInterval` made in-flight jobs grow with job latency, unbounded. Now concurrency is explicit. |
 | 2026-09-27 | Migrations run in a one-shot `migrate` service, gated on a Postgres healthcheck | api and worker both migrating at startup could race. |
 | 2026-09-27 | M0 ships with queue + `parseLlmJson` tests; `scoreRetentionAnalysis` tests move to M1 | M1 likely replaces the scoring rules with ground-truth labels, so testing them now is throwaway work. Queue tests guard the M3 rewrite. |
 | 2026-09-27 | Default Gemini model pinned to `gemini-3.8-flash`, not the `-latest` alias | Eval baselines must map to a known model; an alias can change silently. |
+| 2026-09-27 | Evaluator checks against a ground-truth `expectedRisk` stored on each dataset case | The evaluator and mock shared one rule, so mock runs always scored 100. Labels make the score meaningful and match how real eval datasets work. |
+| 2026-09-27 | Run completion is derived on read from job counts, not stored | Nothing to keep in sync; avoids a race when two workers finish a run's last jobs at once. Caveat until M3: a crashed worker's job stays `running`, so its run never finishes. |
+| 2026-09-27 | Each dataset case stores its own analytics snapshot; tools return it for run jobs | A dataset is a fixed, self-contained fixture: data and expected answer side by side, runs stay reproducible, new cases are data not code. Tools and traces are unchanged, so the agent pipeline still exercises tool calls. |
+| 2026-09-27 | Regression = pass → fail (blocks M2 gate); score drop that still passes = warning | Pass/fail is clear-cut enough to block a PR on; warnings still surface quieter declines without blocking small changes. |
+| 2026-09-28 | Prompt version travels in `job.input.promptVersion`, like the snapshot; validated as `v<N>` | The worker needs no extra lookup and dashboard jobs keep working (default `v1`). The pattern stops the version from being used as a file path. Same shape as the open `expectedRisk` question, so pick one approach for both. |
+| 2026-09-28 | `POST /runs` copies each case's `expectedRisk` into `job.input` (optional in `JobInputSchema`); the evaluator reads it from there and falls back to the threshold rule for dashboard jobs | Same pattern as `snapshot` and `promptVersion`: jobs are self-contained and the worker never queries dataset tables. Datasets are immutable, so the copy can't go stale. The label never reaches the prompt (`buildRetentionPrompt` only takes userId + snapshot); a test should lock that in. Lookup via `caseId` would only win if labels could change after a run or job inputs were exposed somewhere the answer mustn't be seen. |
+| 2026-09-28 | Traces and runs record the provider/model that actually ran (`resolveLlm()`), not `LLM_PROVIDER` | Gemini without a key falls back to the mock; recording the env var would label mock results as gemini and poison run comparisons. |
+| 2026-10-01 | Code is formatted with Prettier at 4-space indent, 120 columns (was 80) | Matches the owner's editor settings, so saving a file no longer reformats untouched lines and bloats diffs. One-off reformat of all hand-written TS/TSX; `src/generated/` excluded. |
+| 2026-10-01 | A case passes when its job completed and its risk label matches the answer key; failed jobs don't pass. Pass rate = passed / all cases | A score threshold (e.g. >= 80) lets a wrong label pass: the mock scores 80 on the 4 judgment cases, so it would show 100% despite 4 wrong answers. The label is the task; format/evidence quality shows in mean score. |
+| 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
 
+- **2026-10-12 (Gemini SDK migration):** Owner approved the migration. Replaced the legacy dependency with `@google/genai` 2.28.0 and updated the Gemini call/response format using Google's official migration guide. Added four unit tests for prompt/model forwarding and accounting, empty responses, provider errors and mock isolation. Verified typecheck, server build and full suite (109 passed, 1 expected failure); DB tests required sandbox escalation to access local test Postgres. Updated README with the existing token/cost limitations. No live Gemini request made; parser unchanged. Migration learning review pending. No commits, pushes or PRs.
+- **2026-10-12 (dashboard learning review):** Reviewed why comparisons require the same cases and answer keys, why only the latest evaluation counts for each job, and how overlapping polls can return out of order and overwrite newer progress. Owner identified the stale-response problem; explained polling as repeated read-only requests scheduled two seconds after completion. Dashboard review completed. Proposed planning the Gemini SDK migration next, then revisiting JSON parsing with real provider output. No application code changes or additional tests; no commits, pushes or PRs.
+- **2026-10-12 (runs dashboard):** Owner approved the proposed scope. Added GET /datasets with case counts and GET /runs with bounded newest-first reports using batched SQL aggregates. Added Dataset runs / Single job navigation, run creation with optional mock settings, run table, report details, compatible baseline/candidate selection, per-case filters, visible pending/error states and responsive styles. Added 5 DB tests for list/report consistency, latest evals, mixed statuses, limits, empty results and dataset versions. Verified typecheck, frontend lint, server/frontend builds and full suite (105 passed, 1 expected failure). HTTP smoke checks covered list routes and invalid limits. Browser-created v1/v2 runs finished with 16 regressions, 2 improvements and 2 unchanged cases; verified comparison selection/filtering and the 400-pixel layout, with no console runtime errors observed. Used the Sites skill's local-only workflow; no hosting or publication. QA used only the dedicated test DB. Temporary QA servers stopped afterward. Updated README and the stale roadmap mock issue. No commits, pushes or PRs; pre-existing learning files preserved. Dashboard quiz pending.
+- **2026-10-12 (mock-settings learning review):** Owner identified changing environment settings as a reproducibility risk, explained that changing seed/case ID can hide a previously selected failure, and identified invalid JSON as a retry trigger. Clarified that valid JSON with a wrong label completes execution but fails evaluation; retries are for execution/validation failures. Learning checkpoint completed. No application changes or additional tests; dashboard scope remains to be agreed.
+- **2026-10-12 (per-run mock settings):** Owner approved per-run configuration. Added Zod validation/defaults, a Prisma-generated `Run.mockConfig` migration and regenerated client, transactional run/job settings, claimed case ID, worker trace settings, deterministic mock failures and latency. Added unit validation/determinism/provider tests, persistence tests and a real-worker DB test covering retries, failures, latency and 16 demonstrated regressions. Documented the API and limitations in README. Typecheck and full suite pass (100 passed, 1 expected failure); DB suite needed Docker Desktop/test Postgres startup and sandbox escalation. Migration applied only to test DB. Learning quiz pending. No commits, pushes or PRs; existing untracked learning files preserved.
+- **2026-10-12 (comparison learning review):** Owner explained why unfinished candidate cases remain pending, identified fail-to-pass as improvement, and identified a score drop with both cases passing as warning. Comparison checkpoint completed. Next design question: configure mock failures per run and persist the configuration, or configure them globally through worker environment variables. No approach confirmed; no application code changed or tests run.
+- **2026-10-12 (next-task review):** Read roadmap, plan, learning checkpoints, mock implementation, comparison logic and API routes. Recommended completing the outstanding comparison quiz, then agreeing deterministic mock failure profiles, adding run/dataset listing APIs and the runs/compare dashboard, and finishing Gemini SDK/parser work. Refreshed the stale mock known issue. No application code changed or tests run; existing plan edits and untracked learning files preserved. No new design decisions confirmed.
+- **2026-10-07 (VibeWise planning):** Reviewed remaining M1 tasks against the LLM implementation, comparison classifications, worker call sites, and frontend API. Proposed an M1 completion sequence without treating it as a confirmed choice. Recorded the outstanding comparison reasoning question in learning notes. Auth remains unresolved. No application code changed or tests run.
+- **2026-10-07 (VibeWise auth):** Inspected API, browser API calls, dashboard flow, and Prisma schema. No auth checks or account/session/ownership models observed. Created `.vibe-wise/` learning notes and recorded the pending Build checkpoint: shared workspace versus private user data and the owner's reasoning. Auth design remains undecided; no implementation or tests run. Existing untracked `LEARNING_CHECKLIST.md` left untouched.
+- **2026-10-07 (merge resolution):** Resolved the plan conflict between the local status refresh and remote report/comparison work. Kept the October 7 update date, remote completed task status and next steps, and both session histories. The earlier October 7 entry describes the older local checkout before these remote commits were merged. Verification: typecheck and full suite pass (74 passed, 1 expected failure); full suite required access outside the sandbox to reach local Postgres. Merge left uncommitted.
+- **2026-10-07:** Checked the roadmap and current code to identify the next task. `getRunReport` is implemented, but all 7 report tests remain TODOs. Updated the stale status snapshot: next is owner-written report DB tests, followed by per-case comparison. No code changes or tests run.
 - **2026-09-27:** Started M0 on `m0-foundations`. Added roadmap, Vitest (unit + db projects), CI workflow, bounded poll loop, migrate service, `GEMINI_MODEL`. Created 25 TODO test stubs for you. Typecheck, unit project and server build pass locally; Docker and DB tests unverified (no Docker on this machine). Added this plan.
 - **2026-09-27 (later):** Re-prioritized M0 tests: queue + `parseLlmJson` now, `scoreRetentionAnalysis` deferred to M1. Marked the deferred block in `evaluator.test.ts`.
 - **2026-09-27 (later):** Docker Desktop and pnpm installed; `postgres-test` container running. You wrote the first 2 `jobs.test.ts` tests with a `seedJob` helper. Added test commands and layout to `AGENTS.md`.
 - **2026-09-27 (later):** You wrote all 7 `jobs.test.ts` tests, including the 50-claims/20-jobs concurrency test. Tried the lock-removal experiment: removing the lock did not reliably make the concurrency test fail (race is timing-dependent). You re-committed the branch as your own commits.
 - **2026-09-27 (later):** You wrote the 6 `parseLlmJson` tests. Decided to lock in "prose before a fence does not parse" as a known limitation and revisit in M1 with real Gemini output.
 - **2026-09-27 (later):** First `docker compose up --build` failed. Two causes: no `.dockerignore`, so local Windows `node_modules` overwrote the image's; and `prisma generate` needs `DATABASE_URL` at build time. Added `.dockerignore` and a build-only placeholder URL in `server/Dockerfile`; both images build.
+- **2026-09-27 (later):** M0 merged (PR #1): Compose stack runs, CI green. Starting M1 on `m1-datasets`.
+- **2026-09-27 (later):** Made the three M1 decisions: ground-truth `expectedRisk` labels, run completion derived on read, pass→fail regressions with score-drop warnings.
+- **2026-09-27 (later):** Decided dataset cases carry their own analytics snapshot (option b), with tools returning it for run jobs.
+- **2026-09-28:** You designed the M1 schema. Claude generated the migration (against the throwaway test DB) and regenerated the client; typecheck passes.
+- **2026-09-28:** Claude added the retention-v1 dataset (20 cases), the dataset loader, and dataset-backed tools, with 6 new tests (19 passing). Until the evaluator scores against `expectedRisk` (ME task), mock runs will still score 100.
+- **2026-09-28 (later):** Ran `pnpm install` (server dev deps like vitest were missing on this Mac); typecheck and unit tests then passed. Claude added versioned prompts (`server/prompts/retention/v1.md` = the old inline prompt, `v2.md` = weighs subscription/events and context, aimed at the `judgment_*` cases), `input.promptVersion`, `resolveLlm()`, and the provider/model fix, plus `test/unit/llm.test.ts` (8 tests). **Unverified:** the shell stopped accepting commands partway through, so typecheck and tests were not run after these edits.
+- **2026-09-28 (later):** You approved the 4 `judgment_*` labels and chose to copy `expectedRisk` into `job.input`. Claude scaffolded `POST /runs`:
+  - `RiskLevelSchema` and optional `expectedRisk` in `JobInputSchema`
+  - a `CreateRunSchema` stub
+  - `server/src/runs.ts` with the `CreateRunResult` contract and a `createRun` TODO(ME)
+  - the route in `api.ts` (400 bad body or unknown prompt, 404 unknown dataset, 201 created)
+  - `promptVersionExists()` in `llm.ts`
+  - 7 `it.todo` stubs in `test/db/runs.test.ts`
+
+  Unverified (shell down).
+- **2026-09-28 (later):** Removed unnecessary code comments repo-wide (Prisma/Vite boilerplate, stale test instructions above implemented tests, comments restating code or duplicating the decisions log). Kept only the comments that stop someone from breaking something, plus the TODO(ME) guidance on the open `scoreRetentionAnalysis` stubs. `frontend/src/api.ts` `parseResponseError` rewritten without the empty catch. Also unverified (shell down).
+- **2026-09-28 (later, Windows PC):** Verified the Mac sessions' unverified work here: `pnpm typecheck` (server + frontend) and all 16 unit tests pass. The comment cleanup touched only comments in config files. DB tests not run: Docker Desktop wasn't running.
+- **2026-09-28 (later, Windows PC):** DB tests verified too: `pnpm test` gives 27 passed, 19 todo (12 deferred scoring stubs + 7 `runs.test.ts` stubs). All Mac-session work is now verified.
+- **2026-09-29:** You implemented `createRun` (dataset lookup, prompt check, `resolveLlm`, run + jobs in one `$transaction`) and 3 of its tests. Claude pinned `LLM_PROVIDER=mock` in `vitest.config.ts` so a developer's `.env` can't switch tests to Gemini; verified by running the suite with Gemini env set (30 passed).
+- **2026-09-29 (later):** You finished all 7 `runs.test.ts` tests, including transaction rollback (break-it check done: `tx` → `prisma` makes it fail) and the answer-key-never-in-prompt test. `POST /runs` is done.
+- **2026-10-01:** You made the evaluator grade run jobs against `expectedRisk` (rule fallback for dashboard jobs; notes name the source) and the worker pass it through. Claude reformatted the codebase to 120 columns; typecheck, lint and unit tests pass, DB tests not run (Docker off).
+- **2026-10-01 (later):** Claude wrote the 14 `scoreRetentionAnalysis` tests at your request (helpers `makeSnapshot` / `makeOutput` / `score`; answer-key vs rule-fallback grading, score arithmetic, evidence support, threshold boundaries via `it.each`, notes text). Substring weakness documented with `it.fails`. Break-it check: making the evaluator ignore `expectedRisk` fails the 2 answer-key tests. 39 unit tests pass.
+- **2026-10-01 (later):** Decided the pass rule (correct label). Claude scaffolded the run report card: `RunReport` contract, `getRunReport` TODO(ME), `GET /runs/:id` (404 for unknown or non-UUID ids), test helpers and 7 stubs. Also removed a stray `import { snapshot } from "node:test"` from `runs.ts`. Typecheck and unit tests pass; DB tests not run (Docker off).
+- **2026-10-02:** You implemented `getRunReport` (groupBy status counts, passes from each completed job's latest eval, aggregate mean/totals, `percentile_cont` p50/p95). Typecheck passes; its 7 tests are next.
+- **2026-10-02 (later):** Claude wrote the 8 `getRunReport` tests at your request (unknown run, fresh run, pass rule, mean/totals over completed only, p50/p95 = 1050/1905, finished status, latest eval). Break-it check caught a flawed first version of the latest-eval test (two mirror-image jobs always gave 1 pass), split into two tests that both fail when the oldest eval is read. 65 tests pass.
+- **2026-10-02 (later):** Claude scaffolded compare: the contract (a case is pass / fail / pending; a pair is regression / improvement / warning / unchanged / pending, with pending checked first so unfinished cases are never called regressions), the `compareRuns` TODO(ME), the route, and 9 stubs in a new `test/db/compare.test.ts`. Moved `startRun` / `finishJob` into `test/db/helpers.ts` and added `jobForCase`. Typecheck passes; 65 tests pass.
+- **2026-10-03:** New working agreement (plan together, Claude writes, Claude quizzes you, you commit). Agreed any score drop on a still-passing case is a warning. Claude implemented `compareRuns` (both runs loaded in parallel, each run's jobs in a Map keyed by caseId, pending checked first, sorted by case name in code) and its 9 tests. Break-it checks: dropping the pending-first rule and treating equal scores as warnings each fail 2 tests. 74 tests pass.

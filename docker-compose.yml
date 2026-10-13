@@ -15,9 +15,6 @@ services:
             timeout: 5s
             retries: 15
 
-    # Throwaway database for `pnpm --filter server test`. Only started with
-    # `docker compose --profile test up -d postgres-test`. tmpfs = no state
-    # survives a restart, which is what we want for tests.
     postgres-test:
         image: postgres:16
         profiles: ["test"]
@@ -30,8 +27,6 @@ services:
         tmpfs:
             - /var/lib/postgresql/data
 
-    # One-shot: applies migrations, then exits. api and worker wait for it to
-    # exit 0, so migrations run exactly once instead of racing at startup.
     migrate:
         build:
             context: .

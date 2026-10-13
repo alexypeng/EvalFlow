@@ -56,3 +56,18 @@ export type Trace = Prisma.TraceModel
  * 
  */
 export type Eval = Prisma.EvalModel
+/**
+ * Model Dataset
+ * 
+ */
+export type Dataset = Prisma.DatasetModel
+/**
+ * Model DatasetCase
+ * 
+ */
+export type DatasetCase = Prisma.DatasetCaseModel
+/**
+ * Model Run
+ * 
+ */
+export type Run = Prisma.RunModel

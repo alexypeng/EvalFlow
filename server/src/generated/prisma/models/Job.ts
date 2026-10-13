@@ -64,6 +64,8 @@ export type JobMinAggregateOutputType = {
   totalTokens: number | null
   estimatedCost: runtime.Decimal | null
   evalScore: number | null
+  runId: string | null
+  caseId: string | null
 }
 
 export type JobMaxAggregateOutputType = {
@@ -82,6 +84,8 @@ export type JobMaxAggregateOutputType = {
   totalTokens: number | null
   estimatedCost: runtime.Decimal | null
   evalScore: number | null
+  runId: string | null
+  caseId: string | null
 }
 
 export type JobCountAggregateOutputType = {
@@ -102,6 +106,8 @@ export type JobCountAggregateOutputType = {
   totalTokens: number
   estimatedCost: number
   evalScore: number
+  runId: number
+  caseId: number
   _all: number
 }
 
@@ -144,6 +150,8 @@ export type JobMinAggregateInputType = {
   totalTokens?: true
   estimatedCost?: true
   evalScore?: true
+  runId?: true
+  caseId?: true
 }
 
 export type JobMaxAggregateInputType = {
@@ -162,6 +170,8 @@ export type JobMaxAggregateInputType = {
   totalTokens?: true
   estimatedCost?: true
   evalScore?: true
+  runId?: true
+  caseId?: true
 }
 
 export type JobCountAggregateInputType = {
@@ -182,6 +192,8 @@ export type JobCountAggregateInputType = {
   totalTokens?: true
   estimatedCost?: true
   evalScore?: true
+  runId?: true
+  caseId?: true
   _all?: true
 }
 
@@ -289,6 +301,8 @@ export type JobGroupByOutputType = {
   totalTokens: number | null
   estimatedCost: runtime.Decimal | null
   evalScore: number | null
+  runId: string | null
+  caseId: string | null
   _count: JobCountAggregateOutputType | null
   _avg: JobAvgAggregateOutputType | null
   _sum: JobSumAggregateOutputType | null
@@ -332,8 +346,12 @@ export type JobWhereInput = {
   totalTokens?: Prisma.IntNullableFilter<"Job"> | number | null
   estimatedCost?: Prisma.DecimalNullableFilter<"Job"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: Prisma.IntNullableFilter<"Job"> | number | null
+  runId?: Prisma.UuidNullableFilter<"Job"> | string | null
+  caseId?: Prisma.UuidNullableFilter<"Job"> | string | null
   traces?: Prisma.TraceListRelationFilter
   evals?: Prisma.EvalListRelationFilter
+  run?: Prisma.XOR<Prisma.RunNullableScalarRelationFilter, Prisma.RunWhereInput> | null
+  datasetCase?: Prisma.XOR<Prisma.DatasetCaseNullableScalarRelationFilter, Prisma.DatasetCaseWhereInput> | null
 }
 
 export type JobOrderByWithRelationInput = {
@@ -354,8 +372,12 @@ export type JobOrderByWithRelationInput = {
   totalTokens?: Prisma.SortOrderInput | Prisma.SortOrder
   estimatedCost?: Prisma.SortOrderInput | Prisma.SortOrder
   evalScore?: Prisma.SortOrderInput | Prisma.SortOrder
+  runId?: Prisma.SortOrderInput | Prisma.SortOrder
+  caseId?: Prisma.SortOrderInput | Prisma.SortOrder
   traces?: Prisma.TraceOrderByRelationAggregateInput
   evals?: Prisma.EvalOrderByRelationAggregateInput
+  run?: Prisma.RunOrderByWithRelationInput
+  datasetCase?: Prisma.DatasetCaseOrderByWithRelationInput
 }
 
 export type JobWhereUniqueInput = Prisma.AtLeast<{
@@ -379,8 +401,12 @@ export type JobWhereUniqueInput = Prisma.AtLeast<{
   totalTokens?: Prisma.IntNullableFilter<"Job"> | number | null
   estimatedCost?: Prisma.DecimalNullableFilter<"Job"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: Prisma.IntNullableFilter<"Job"> | number | null
+  runId?: Prisma.UuidNullableFilter<"Job"> | string | null
+  caseId?: Prisma.UuidNullableFilter<"Job"> | string | null
   traces?: Prisma.TraceListRelationFilter
   evals?: Prisma.EvalListRelationFilter
+  run?: Prisma.XOR<Prisma.RunNullableScalarRelationFilter, Prisma.RunWhereInput> | null
+  datasetCase?: Prisma.XOR<Prisma.DatasetCaseNullableScalarRelationFilter, Prisma.DatasetCaseWhereInput> | null
 }, "id">
 
 export type JobOrderByWithAggregationInput = {
@@ -401,6 +427,8 @@ export type JobOrderByWithAggregationInput = {
   totalTokens?: Prisma.SortOrderInput | Prisma.SortOrder
   estimatedCost?: Prisma.SortOrderInput | Prisma.SortOrder
   evalScore?: Prisma.SortOrderInput | Prisma.SortOrder
+  runId?: Prisma.SortOrderInput | Prisma.SortOrder
+  caseId?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.JobCountOrderByAggregateInput
   _avg?: Prisma.JobAvgOrderByAggregateInput
   _max?: Prisma.JobMaxOrderByAggregateInput
@@ -429,6 +457,8 @@ export type JobScalarWhereWithAggregatesInput = {
   totalTokens?: Prisma.IntNullableWithAggregatesFilter<"Job"> | number | null
   estimatedCost?: Prisma.DecimalNullableWithAggregatesFilter<"Job"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: Prisma.IntNullableWithAggregatesFilter<"Job"> | number | null
+  runId?: Prisma.UuidNullableWithAggregatesFilter<"Job"> | string | null
+  caseId?: Prisma.UuidNullableWithAggregatesFilter<"Job"> | string | null
 }
 
 export type JobCreateInput = {
@@ -451,6 +481,8 @@ export type JobCreateInput = {
   evalScore?: number | null
   traces?: Prisma.TraceCreateNestedManyWithoutJobInput
   evals?: Prisma.EvalCreateNestedManyWithoutJobInput
+  run?: Prisma.RunCreateNestedOneWithoutJobsInput
+  datasetCase?: Prisma.DatasetCaseCreateNestedOneWithoutJobsInput
 }
 
 export type JobUncheckedCreateInput = {
@@ -471,6 +503,8 @@ export type JobUncheckedCreateInput = {
   totalTokens?: number | null
   estimatedCost?: runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: number | null
+  runId?: string | null
+  caseId?: string | null
   traces?: Prisma.TraceUncheckedCreateNestedManyWithoutJobInput
   evals?: Prisma.EvalUncheckedCreateNestedManyWithoutJobInput
 }
@@ -495,6 +529,8 @@ export type JobUpdateInput = {
   evalScore?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   traces?: Prisma.TraceUpdateManyWithoutJobNestedInput
   evals?: Prisma.EvalUpdateManyWithoutJobNestedInput
+  run?: Prisma.RunUpdateOneWithoutJobsNestedInput
+  datasetCase?: Prisma.DatasetCaseUpdateOneWithoutJobsNestedInput
 }
 
 export type JobUncheckedUpdateInput = {
@@ -515,6 +551,8 @@ export type JobUncheckedUpdateInput = {
   totalTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   estimatedCost?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  caseId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   traces?: Prisma.TraceUncheckedUpdateManyWithoutJobNestedInput
   evals?: Prisma.EvalUncheckedUpdateManyWithoutJobNestedInput
 }
@@ -537,6 +575,8 @@ export type JobCreateManyInput = {
   totalTokens?: number | null
   estimatedCost?: runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: number | null
+  runId?: string | null
+  caseId?: string | null
 }
 
 export type JobUpdateManyMutationInput = {
@@ -577,6 +617,8 @@ export type JobUncheckedUpdateManyInput = {
   totalTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   estimatedCost?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  caseId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 export type JobCountOrderByAggregateInput = {
@@ -597,6 +639,8 @@ export type JobCountOrderByAggregateInput = {
   totalTokens?: Prisma.SortOrder
   estimatedCost?: Prisma.SortOrder
   evalScore?: Prisma.SortOrder
+  runId?: Prisma.SortOrder
+  caseId?: Prisma.SortOrder
 }
 
 export type JobAvgOrderByAggregateInput = {
@@ -626,6 +670,8 @@ export type JobMaxOrderByAggregateInput = {
   totalTokens?: Prisma.SortOrder
   estimatedCost?: Prisma.SortOrder
   evalScore?: Prisma.SortOrder
+  runId?: Prisma.SortOrder
+  caseId?: Prisma.SortOrder
 }
 
 export type JobMinOrderByAggregateInput = {
@@ -644,6 +690,8 @@ export type JobMinOrderByAggregateInput = {
   totalTokens?: Prisma.SortOrder
   estimatedCost?: Prisma.SortOrder
   evalScore?: Prisma.SortOrder
+  runId?: Prisma.SortOrder
+  caseId?: Prisma.SortOrder
 }
 
 export type JobSumOrderByAggregateInput = {
@@ -660,6 +708,16 @@ export type JobSumOrderByAggregateInput = {
 export type JobScalarRelationFilter = {
   is?: Prisma.JobWhereInput
   isNot?: Prisma.JobWhereInput
+}
+
+export type JobListRelationFilter = {
+  every?: Prisma.JobWhereInput
+  some?: Prisma.JobWhereInput
+  none?: Prisma.JobWhereInput
+}
+
+export type JobOrderByRelationAggregateInput = {
+  _count?: Prisma.SortOrder
 }
 
 export type StringFieldUpdateOperationsInput = {
@@ -734,6 +792,90 @@ export type JobUpdateOneRequiredWithoutEvalsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.JobUpdateToOneWithWhereWithoutEvalsInput, Prisma.JobUpdateWithoutEvalsInput>, Prisma.JobUncheckedUpdateWithoutEvalsInput>
 }
 
+export type JobCreateNestedManyWithoutDatasetCaseInput = {
+  create?: Prisma.XOR<Prisma.JobCreateWithoutDatasetCaseInput, Prisma.JobUncheckedCreateWithoutDatasetCaseInput> | Prisma.JobCreateWithoutDatasetCaseInput[] | Prisma.JobUncheckedCreateWithoutDatasetCaseInput[]
+  connectOrCreate?: Prisma.JobCreateOrConnectWithoutDatasetCaseInput | Prisma.JobCreateOrConnectWithoutDatasetCaseInput[]
+  createMany?: Prisma.JobCreateManyDatasetCaseInputEnvelope
+  connect?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+}
+
+export type JobUncheckedCreateNestedManyWithoutDatasetCaseInput = {
+  create?: Prisma.XOR<Prisma.JobCreateWithoutDatasetCaseInput, Prisma.JobUncheckedCreateWithoutDatasetCaseInput> | Prisma.JobCreateWithoutDatasetCaseInput[] | Prisma.JobUncheckedCreateWithoutDatasetCaseInput[]
+  connectOrCreate?: Prisma.JobCreateOrConnectWithoutDatasetCaseInput | Prisma.JobCreateOrConnectWithoutDatasetCaseInput[]
+  createMany?: Prisma.JobCreateManyDatasetCaseInputEnvelope
+  connect?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+}
+
+export type JobUpdateManyWithoutDatasetCaseNestedInput = {
+  create?: Prisma.XOR<Prisma.JobCreateWithoutDatasetCaseInput, Prisma.JobUncheckedCreateWithoutDatasetCaseInput> | Prisma.JobCreateWithoutDatasetCaseInput[] | Prisma.JobUncheckedCreateWithoutDatasetCaseInput[]
+  connectOrCreate?: Prisma.JobCreateOrConnectWithoutDatasetCaseInput | Prisma.JobCreateOrConnectWithoutDatasetCaseInput[]
+  upsert?: Prisma.JobUpsertWithWhereUniqueWithoutDatasetCaseInput | Prisma.JobUpsertWithWhereUniqueWithoutDatasetCaseInput[]
+  createMany?: Prisma.JobCreateManyDatasetCaseInputEnvelope
+  set?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  disconnect?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  delete?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  connect?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  update?: Prisma.JobUpdateWithWhereUniqueWithoutDatasetCaseInput | Prisma.JobUpdateWithWhereUniqueWithoutDatasetCaseInput[]
+  updateMany?: Prisma.JobUpdateManyWithWhereWithoutDatasetCaseInput | Prisma.JobUpdateManyWithWhereWithoutDatasetCaseInput[]
+  deleteMany?: Prisma.JobScalarWhereInput | Prisma.JobScalarWhereInput[]
+}
+
+export type JobUncheckedUpdateManyWithoutDatasetCaseNestedInput = {
+  create?: Prisma.XOR<Prisma.JobCreateWithoutDatasetCaseInput, Prisma.JobUncheckedCreateWithoutDatasetCaseInput> | Prisma.JobCreateWithoutDatasetCaseInput[] | Prisma.JobUncheckedCreateWithoutDatasetCaseInput[]
+  connectOrCreate?: Prisma.JobCreateOrConnectWithoutDatasetCaseInput | Prisma.JobCreateOrConnectWithoutDatasetCaseInput[]
+  upsert?: Prisma.JobUpsertWithWhereUniqueWithoutDatasetCaseInput | Prisma.JobUpsertWithWhereUniqueWithoutDatasetCaseInput[]
+  createMany?: Prisma.JobCreateManyDatasetCaseInputEnvelope
+  set?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  disconnect?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  delete?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  connect?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  update?: Prisma.JobUpdateWithWhereUniqueWithoutDatasetCaseInput | Prisma.JobUpdateWithWhereUniqueWithoutDatasetCaseInput[]
+  updateMany?: Prisma.JobUpdateManyWithWhereWithoutDatasetCaseInput | Prisma.JobUpdateManyWithWhereWithoutDatasetCaseInput[]
+  deleteMany?: Prisma.JobScalarWhereInput | Prisma.JobScalarWhereInput[]
+}
+
+export type JobCreateNestedManyWithoutRunInput = {
+  create?: Prisma.XOR<Prisma.JobCreateWithoutRunInput, Prisma.JobUncheckedCreateWithoutRunInput> | Prisma.JobCreateWithoutRunInput[] | Prisma.JobUncheckedCreateWithoutRunInput[]
+  connectOrCreate?: Prisma.JobCreateOrConnectWithoutRunInput | Prisma.JobCreateOrConnectWithoutRunInput[]
+  createMany?: Prisma.JobCreateManyRunInputEnvelope
+  connect?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+}
+
+export type JobUncheckedCreateNestedManyWithoutRunInput = {
+  create?: Prisma.XOR<Prisma.JobCreateWithoutRunInput, Prisma.JobUncheckedCreateWithoutRunInput> | Prisma.JobCreateWithoutRunInput[] | Prisma.JobUncheckedCreateWithoutRunInput[]
+  connectOrCreate?: Prisma.JobCreateOrConnectWithoutRunInput | Prisma.JobCreateOrConnectWithoutRunInput[]
+  createMany?: Prisma.JobCreateManyRunInputEnvelope
+  connect?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+}
+
+export type JobUpdateManyWithoutRunNestedInput = {
+  create?: Prisma.XOR<Prisma.JobCreateWithoutRunInput, Prisma.JobUncheckedCreateWithoutRunInput> | Prisma.JobCreateWithoutRunInput[] | Prisma.JobUncheckedCreateWithoutRunInput[]
+  connectOrCreate?: Prisma.JobCreateOrConnectWithoutRunInput | Prisma.JobCreateOrConnectWithoutRunInput[]
+  upsert?: Prisma.JobUpsertWithWhereUniqueWithoutRunInput | Prisma.JobUpsertWithWhereUniqueWithoutRunInput[]
+  createMany?: Prisma.JobCreateManyRunInputEnvelope
+  set?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  disconnect?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  delete?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  connect?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  update?: Prisma.JobUpdateWithWhereUniqueWithoutRunInput | Prisma.JobUpdateWithWhereUniqueWithoutRunInput[]
+  updateMany?: Prisma.JobUpdateManyWithWhereWithoutRunInput | Prisma.JobUpdateManyWithWhereWithoutRunInput[]
+  deleteMany?: Prisma.JobScalarWhereInput | Prisma.JobScalarWhereInput[]
+}
+
+export type JobUncheckedUpdateManyWithoutRunNestedInput = {
+  create?: Prisma.XOR<Prisma.JobCreateWithoutRunInput, Prisma.JobUncheckedCreateWithoutRunInput> | Prisma.JobCreateWithoutRunInput[] | Prisma.JobUncheckedCreateWithoutRunInput[]
+  connectOrCreate?: Prisma.JobCreateOrConnectWithoutRunInput | Prisma.JobCreateOrConnectWithoutRunInput[]
+  upsert?: Prisma.JobUpsertWithWhereUniqueWithoutRunInput | Prisma.JobUpsertWithWhereUniqueWithoutRunInput[]
+  createMany?: Prisma.JobCreateManyRunInputEnvelope
+  set?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  disconnect?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  delete?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  connect?: Prisma.JobWhereUniqueInput | Prisma.JobWhereUniqueInput[]
+  update?: Prisma.JobUpdateWithWhereUniqueWithoutRunInput | Prisma.JobUpdateWithWhereUniqueWithoutRunInput[]
+  updateMany?: Prisma.JobUpdateManyWithWhereWithoutRunInput | Prisma.JobUpdateManyWithWhereWithoutRunInput[]
+  deleteMany?: Prisma.JobScalarWhereInput | Prisma.JobScalarWhereInput[]
+}
+
 export type JobCreateWithoutTracesInput = {
   id?: string
   type: string
@@ -753,6 +895,8 @@ export type JobCreateWithoutTracesInput = {
   estimatedCost?: runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: number | null
   evals?: Prisma.EvalCreateNestedManyWithoutJobInput
+  run?: Prisma.RunCreateNestedOneWithoutJobsInput
+  datasetCase?: Prisma.DatasetCaseCreateNestedOneWithoutJobsInput
 }
 
 export type JobUncheckedCreateWithoutTracesInput = {
@@ -773,6 +917,8 @@ export type JobUncheckedCreateWithoutTracesInput = {
   totalTokens?: number | null
   estimatedCost?: runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: number | null
+  runId?: string | null
+  caseId?: string | null
   evals?: Prisma.EvalUncheckedCreateNestedManyWithoutJobInput
 }
 
@@ -811,6 +957,8 @@ export type JobUpdateWithoutTracesInput = {
   estimatedCost?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   evals?: Prisma.EvalUpdateManyWithoutJobNestedInput
+  run?: Prisma.RunUpdateOneWithoutJobsNestedInput
+  datasetCase?: Prisma.DatasetCaseUpdateOneWithoutJobsNestedInput
 }
 
 export type JobUncheckedUpdateWithoutTracesInput = {
@@ -831,6 +979,8 @@ export type JobUncheckedUpdateWithoutTracesInput = {
   totalTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   estimatedCost?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  caseId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   evals?: Prisma.EvalUncheckedUpdateManyWithoutJobNestedInput
 }
 
@@ -853,6 +1003,8 @@ export type JobCreateWithoutEvalsInput = {
   estimatedCost?: runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: number | null
   traces?: Prisma.TraceCreateNestedManyWithoutJobInput
+  run?: Prisma.RunCreateNestedOneWithoutJobsInput
+  datasetCase?: Prisma.DatasetCaseCreateNestedOneWithoutJobsInput
 }
 
 export type JobUncheckedCreateWithoutEvalsInput = {
@@ -873,6 +1025,8 @@ export type JobUncheckedCreateWithoutEvalsInput = {
   totalTokens?: number | null
   estimatedCost?: runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: number | null
+  runId?: string | null
+  caseId?: string | null
   traces?: Prisma.TraceUncheckedCreateNestedManyWithoutJobInput
 }
 
@@ -911,6 +1065,8 @@ export type JobUpdateWithoutEvalsInput = {
   estimatedCost?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   traces?: Prisma.TraceUpdateManyWithoutJobNestedInput
+  run?: Prisma.RunUpdateOneWithoutJobsNestedInput
+  datasetCase?: Prisma.DatasetCaseUpdateOneWithoutJobsNestedInput
 }
 
 export type JobUncheckedUpdateWithoutEvalsInput = {
@@ -931,7 +1087,354 @@ export type JobUncheckedUpdateWithoutEvalsInput = {
   totalTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   estimatedCost?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
   evalScore?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  caseId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   traces?: Prisma.TraceUncheckedUpdateManyWithoutJobNestedInput
+}
+
+export type JobCreateWithoutDatasetCaseInput = {
+  id?: string
+  type: string
+  status?: $Enums.JobStatus
+  input: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: string | null
+  attempts?: number
+  maxAttempts?: number
+  createdAt?: Date | string
+  startedAt?: Date | string | null
+  completedAt?: Date | string | null
+  latencyMs?: number | null
+  promptTokens?: number | null
+  completionTokens?: number | null
+  totalTokens?: number | null
+  estimatedCost?: runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  evalScore?: number | null
+  traces?: Prisma.TraceCreateNestedManyWithoutJobInput
+  evals?: Prisma.EvalCreateNestedManyWithoutJobInput
+  run?: Prisma.RunCreateNestedOneWithoutJobsInput
+}
+
+export type JobUncheckedCreateWithoutDatasetCaseInput = {
+  id?: string
+  type: string
+  status?: $Enums.JobStatus
+  input: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: string | null
+  attempts?: number
+  maxAttempts?: number
+  createdAt?: Date | string
+  startedAt?: Date | string | null
+  completedAt?: Date | string | null
+  latencyMs?: number | null
+  promptTokens?: number | null
+  completionTokens?: number | null
+  totalTokens?: number | null
+  estimatedCost?: runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  evalScore?: number | null
+  runId?: string | null
+  traces?: Prisma.TraceUncheckedCreateNestedManyWithoutJobInput
+  evals?: Prisma.EvalUncheckedCreateNestedManyWithoutJobInput
+}
+
+export type JobCreateOrConnectWithoutDatasetCaseInput = {
+  where: Prisma.JobWhereUniqueInput
+  create: Prisma.XOR<Prisma.JobCreateWithoutDatasetCaseInput, Prisma.JobUncheckedCreateWithoutDatasetCaseInput>
+}
+
+export type JobCreateManyDatasetCaseInputEnvelope = {
+  data: Prisma.JobCreateManyDatasetCaseInput | Prisma.JobCreateManyDatasetCaseInput[]
+  skipDuplicates?: boolean
+}
+
+export type JobUpsertWithWhereUniqueWithoutDatasetCaseInput = {
+  where: Prisma.JobWhereUniqueInput
+  update: Prisma.XOR<Prisma.JobUpdateWithoutDatasetCaseInput, Prisma.JobUncheckedUpdateWithoutDatasetCaseInput>
+  create: Prisma.XOR<Prisma.JobCreateWithoutDatasetCaseInput, Prisma.JobUncheckedCreateWithoutDatasetCaseInput>
+}
+
+export type JobUpdateWithWhereUniqueWithoutDatasetCaseInput = {
+  where: Prisma.JobWhereUniqueInput
+  data: Prisma.XOR<Prisma.JobUpdateWithoutDatasetCaseInput, Prisma.JobUncheckedUpdateWithoutDatasetCaseInput>
+}
+
+export type JobUpdateManyWithWhereWithoutDatasetCaseInput = {
+  where: Prisma.JobScalarWhereInput
+  data: Prisma.XOR<Prisma.JobUpdateManyMutationInput, Prisma.JobUncheckedUpdateManyWithoutDatasetCaseInput>
+}
+
+export type JobScalarWhereInput = {
+  AND?: Prisma.JobScalarWhereInput | Prisma.JobScalarWhereInput[]
+  OR?: Prisma.JobScalarWhereInput[]
+  NOT?: Prisma.JobScalarWhereInput | Prisma.JobScalarWhereInput[]
+  id?: Prisma.UuidFilter<"Job"> | string
+  type?: Prisma.StringFilter<"Job"> | string
+  status?: Prisma.EnumJobStatusFilter<"Job"> | $Enums.JobStatus
+  input?: Prisma.JsonFilter<"Job">
+  result?: Prisma.JsonNullableFilter<"Job">
+  error?: Prisma.StringNullableFilter<"Job"> | string | null
+  attempts?: Prisma.IntFilter<"Job"> | number
+  maxAttempts?: Prisma.IntFilter<"Job"> | number
+  createdAt?: Prisma.DateTimeFilter<"Job"> | Date | string
+  startedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
+  completedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
+  latencyMs?: Prisma.IntNullableFilter<"Job"> | number | null
+  promptTokens?: Prisma.IntNullableFilter<"Job"> | number | null
+  completionTokens?: Prisma.IntNullableFilter<"Job"> | number | null
+  totalTokens?: Prisma.IntNullableFilter<"Job"> | number | null
+  estimatedCost?: Prisma.DecimalNullableFilter<"Job"> | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  evalScore?: Prisma.IntNullableFilter<"Job"> | number | null
+  runId?: Prisma.UuidNullableFilter<"Job"> | string | null
+  caseId?: Prisma.UuidNullableFilter<"Job"> | string | null
+}
+
+export type JobCreateWithoutRunInput = {
+  id?: string
+  type: string
+  status?: $Enums.JobStatus
+  input: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: string | null
+  attempts?: number
+  maxAttempts?: number
+  createdAt?: Date | string
+  startedAt?: Date | string | null
+  completedAt?: Date | string | null
+  latencyMs?: number | null
+  promptTokens?: number | null
+  completionTokens?: number | null
+  totalTokens?: number | null
+  estimatedCost?: runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  evalScore?: number | null
+  traces?: Prisma.TraceCreateNestedManyWithoutJobInput
+  evals?: Prisma.EvalCreateNestedManyWithoutJobInput
+  datasetCase?: Prisma.DatasetCaseCreateNestedOneWithoutJobsInput
+}
+
+export type JobUncheckedCreateWithoutRunInput = {
+  id?: string
+  type: string
+  status?: $Enums.JobStatus
+  input: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: string | null
+  attempts?: number
+  maxAttempts?: number
+  createdAt?: Date | string
+  startedAt?: Date | string | null
+  completedAt?: Date | string | null
+  latencyMs?: number | null
+  promptTokens?: number | null
+  completionTokens?: number | null
+  totalTokens?: number | null
+  estimatedCost?: runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  evalScore?: number | null
+  caseId?: string | null
+  traces?: Prisma.TraceUncheckedCreateNestedManyWithoutJobInput
+  evals?: Prisma.EvalUncheckedCreateNestedManyWithoutJobInput
+}
+
+export type JobCreateOrConnectWithoutRunInput = {
+  where: Prisma.JobWhereUniqueInput
+  create: Prisma.XOR<Prisma.JobCreateWithoutRunInput, Prisma.JobUncheckedCreateWithoutRunInput>
+}
+
+export type JobCreateManyRunInputEnvelope = {
+  data: Prisma.JobCreateManyRunInput | Prisma.JobCreateManyRunInput[]
+  skipDuplicates?: boolean
+}
+
+export type JobUpsertWithWhereUniqueWithoutRunInput = {
+  where: Prisma.JobWhereUniqueInput
+  update: Prisma.XOR<Prisma.JobUpdateWithoutRunInput, Prisma.JobUncheckedUpdateWithoutRunInput>
+  create: Prisma.XOR<Prisma.JobCreateWithoutRunInput, Prisma.JobUncheckedCreateWithoutRunInput>
+}
+
+export type JobUpdateWithWhereUniqueWithoutRunInput = {
+  where: Prisma.JobWhereUniqueInput
+  data: Prisma.XOR<Prisma.JobUpdateWithoutRunInput, Prisma.JobUncheckedUpdateWithoutRunInput>
+}
+
+export type JobUpdateManyWithWhereWithoutRunInput = {
+  where: Prisma.JobScalarWhereInput
+  data: Prisma.XOR<Prisma.JobUpdateManyMutationInput, Prisma.JobUncheckedUpdateManyWithoutRunInput>
+}
+
+export type JobCreateManyDatasetCaseInput = {
+  id?: string
+  type: string
+  status?: $Enums.JobStatus
+  input: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: string | null
+  attempts?: number
+  maxAttempts?: number
+  createdAt?: Date | string
+  startedAt?: Date | string | null
+  completedAt?: Date | string | null
+  latencyMs?: number | null
+  promptTokens?: number | null
+  completionTokens?: number | null
+  totalTokens?: number | null
+  estimatedCost?: runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  evalScore?: number | null
+  runId?: string | null
+}
+
+export type JobUpdateWithoutDatasetCaseInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumJobStatusFieldUpdateOperationsInput | $Enums.JobStatus
+  input?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  maxAttempts?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  totalTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  estimatedCost?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  evalScore?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  traces?: Prisma.TraceUpdateManyWithoutJobNestedInput
+  evals?: Prisma.EvalUpdateManyWithoutJobNestedInput
+  run?: Prisma.RunUpdateOneWithoutJobsNestedInput
+}
+
+export type JobUncheckedUpdateWithoutDatasetCaseInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumJobStatusFieldUpdateOperationsInput | $Enums.JobStatus
+  input?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  maxAttempts?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  totalTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  estimatedCost?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  evalScore?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  traces?: Prisma.TraceUncheckedUpdateManyWithoutJobNestedInput
+  evals?: Prisma.EvalUncheckedUpdateManyWithoutJobNestedInput
+}
+
+export type JobUncheckedUpdateManyWithoutDatasetCaseInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumJobStatusFieldUpdateOperationsInput | $Enums.JobStatus
+  input?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  maxAttempts?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  totalTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  estimatedCost?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  evalScore?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  runId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+}
+
+export type JobCreateManyRunInput = {
+  id?: string
+  type: string
+  status?: $Enums.JobStatus
+  input: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: string | null
+  attempts?: number
+  maxAttempts?: number
+  createdAt?: Date | string
+  startedAt?: Date | string | null
+  completedAt?: Date | string | null
+  latencyMs?: number | null
+  promptTokens?: number | null
+  completionTokens?: number | null
+  totalTokens?: number | null
+  estimatedCost?: runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  evalScore?: number | null
+  caseId?: string | null
+}
+
+export type JobUpdateWithoutRunInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumJobStatusFieldUpdateOperationsInput | $Enums.JobStatus
+  input?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  maxAttempts?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  totalTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  estimatedCost?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  evalScore?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  traces?: Prisma.TraceUpdateManyWithoutJobNestedInput
+  evals?: Prisma.EvalUpdateManyWithoutJobNestedInput
+  datasetCase?: Prisma.DatasetCaseUpdateOneWithoutJobsNestedInput
+}
+
+export type JobUncheckedUpdateWithoutRunInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumJobStatusFieldUpdateOperationsInput | $Enums.JobStatus
+  input?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  maxAttempts?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  totalTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  estimatedCost?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  evalScore?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  caseId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  traces?: Prisma.TraceUncheckedUpdateManyWithoutJobNestedInput
+  evals?: Prisma.EvalUncheckedUpdateManyWithoutJobNestedInput
+}
+
+export type JobUncheckedUpdateManyWithoutRunInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumJobStatusFieldUpdateOperationsInput | $Enums.JobStatus
+  input?: Prisma.JsonNullValueInput | runtime.InputJsonValue
+  result?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
+  error?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attempts?: Prisma.IntFieldUpdateOperationsInput | number
+  maxAttempts?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  totalTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  estimatedCost?: Prisma.NullableDecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string | null
+  evalScore?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  caseId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
 
@@ -992,8 +1495,12 @@ export type JobSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = ru
   totalTokens?: boolean
   estimatedCost?: boolean
   evalScore?: boolean
+  runId?: boolean
+  caseId?: boolean
   traces?: boolean | Prisma.Job$tracesArgs<ExtArgs>
   evals?: boolean | Prisma.Job$evalsArgs<ExtArgs>
+  run?: boolean | Prisma.Job$runArgs<ExtArgs>
+  datasetCase?: boolean | Prisma.Job$datasetCaseArgs<ExtArgs>
   _count?: boolean | Prisma.JobCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["job"]>
 
@@ -1015,6 +1522,10 @@ export type JobSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extension
   totalTokens?: boolean
   estimatedCost?: boolean
   evalScore?: boolean
+  runId?: boolean
+  caseId?: boolean
+  run?: boolean | Prisma.Job$runArgs<ExtArgs>
+  datasetCase?: boolean | Prisma.Job$datasetCaseArgs<ExtArgs>
 }, ExtArgs["result"]["job"]>
 
 export type JobSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -1035,6 +1546,10 @@ export type JobSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extension
   totalTokens?: boolean
   estimatedCost?: boolean
   evalScore?: boolean
+  runId?: boolean
+  caseId?: boolean
+  run?: boolean | Prisma.Job$runArgs<ExtArgs>
+  datasetCase?: boolean | Prisma.Job$datasetCaseArgs<ExtArgs>
 }, ExtArgs["result"]["job"]>
 
 export type JobSelectScalar = {
@@ -1055,22 +1570,34 @@ export type JobSelectScalar = {
   totalTokens?: boolean
   estimatedCost?: boolean
   evalScore?: boolean
+  runId?: boolean
+  caseId?: boolean
 }
 
-export type JobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "type" | "status" | "input" | "result" | "error" | "attempts" | "maxAttempts" | "createdAt" | "startedAt" | "completedAt" | "latencyMs" | "promptTokens" | "completionTokens" | "totalTokens" | "estimatedCost" | "evalScore", ExtArgs["result"]["job"]>
+export type JobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "type" | "status" | "input" | "result" | "error" | "attempts" | "maxAttempts" | "createdAt" | "startedAt" | "completedAt" | "latencyMs" | "promptTokens" | "completionTokens" | "totalTokens" | "estimatedCost" | "evalScore" | "runId" | "caseId", ExtArgs["result"]["job"]>
 export type JobInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   traces?: boolean | Prisma.Job$tracesArgs<ExtArgs>
   evals?: boolean | Prisma.Job$evalsArgs<ExtArgs>
+  run?: boolean | Prisma.Job$runArgs<ExtArgs>
+  datasetCase?: boolean | Prisma.Job$datasetCaseArgs<ExtArgs>
   _count?: boolean | Prisma.JobCountOutputTypeDefaultArgs<ExtArgs>
 }
-export type JobIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
-export type JobIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
+export type JobIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  run?: boolean | Prisma.Job$runArgs<ExtArgs>
+  datasetCase?: boolean | Prisma.Job$datasetCaseArgs<ExtArgs>
+}
+export type JobIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  run?: boolean | Prisma.Job$runArgs<ExtArgs>
+  datasetCase?: boolean | Prisma.Job$datasetCaseArgs<ExtArgs>
+}
 
 export type $JobPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "Job"
   objects: {
     traces: Prisma.$TracePayload<ExtArgs>[]
     evals: Prisma.$EvalPayload<ExtArgs>[]
+    run: Prisma.$RunPayload<ExtArgs> | null
+    datasetCase: Prisma.$DatasetCasePayload<ExtArgs> | null
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1090,6 +1617,8 @@ export type $JobPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
     totalTokens: number | null
     estimatedCost: runtime.Decimal | null
     evalScore: number | null
+    runId: string | null
+    caseId: string | null
   }, ExtArgs["result"]["job"]>
   composites: {}
 }
@@ -1486,6 +2015,8 @@ export interface Prisma__JobClient<T, Null = never, ExtArgs extends runtime.Type
   readonly [Symbol.toStringTag]: "PrismaPromise"
   traces<T extends Prisma.Job$tracesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Job$tracesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TracePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   evals<T extends Prisma.Job$evalsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Job$evalsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$EvalPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  run<T extends Prisma.Job$runArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Job$runArgs<ExtArgs>>): Prisma.Prisma__RunClient<runtime.Types.Result.GetResult<Prisma.$RunPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  datasetCase<T extends Prisma.Job$datasetCaseArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Job$datasetCaseArgs<ExtArgs>>): Prisma.Prisma__DatasetCaseClient<runtime.Types.Result.GetResult<Prisma.$DatasetCasePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1532,6 +2063,8 @@ export interface JobFieldRefs {
   readonly totalTokens: Prisma.FieldRef<"Job", 'Int'>
   readonly estimatedCost: Prisma.FieldRef<"Job", 'Decimal'>
   readonly evalScore: Prisma.FieldRef<"Job", 'Int'>
+  readonly runId: Prisma.FieldRef<"Job", 'String'>
+  readonly caseId: Prisma.FieldRef<"Job", 'String'>
 }
     
 
@@ -1786,6 +2319,10 @@ export type JobCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.
    */
   data: Prisma.JobCreateManyInput | Prisma.JobCreateManyInput[]
   skipDuplicates?: boolean
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.JobIncludeCreateManyAndReturn<ExtArgs> | null
 }
 
 /**
@@ -1856,6 +2393,10 @@ export type JobUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.
    * Limit how many Jobs to update.
    */
   limit?: number
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.JobIncludeUpdateManyAndReturn<ExtArgs> | null
 }
 
 /**
@@ -1970,6 +2511,44 @@ export type Job$evalsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   take?: number
   skip?: number
   distinct?: Prisma.EvalScalarFieldEnum | Prisma.EvalScalarFieldEnum[]
+}
+
+/**
+ * Job.run
+ */
+export type Job$runArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the Run
+   */
+  select?: Prisma.RunSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the Run
+   */
+  omit?: Prisma.RunOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.RunInclude<ExtArgs> | null
+  where?: Prisma.RunWhereInput
+}
+
+/**
+ * Job.datasetCase
+ */
+export type Job$datasetCaseArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the DatasetCase
+   */
+  select?: Prisma.DatasetCaseSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the DatasetCase
+   */
+  omit?: Prisma.DatasetCaseOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DatasetCaseInclude<ExtArgs> | null
+  where?: Prisma.DatasetCaseWhereInput
 }
 
 /**

@@ -163,6 +163,9 @@ WORKER_CONCURRENCY=1
 
 `LLM_PROVIDER=mock` is the default so the project can run locally without an API key. Use `LLM_PROVIDER=gemini` and set `GEMINI_API_KEY` to call Gemini instead of the mock provider. `GEMINI_MODEL` selects the model (see [Gemini models](https://ai.google.dev/gemini-api/docs/models)).
 
+Gemini calls use `@google/genai`. Token counts currently remain character-based estimates, and estimated cost is
+zero; they do not yet use the provider's usage metadata or pricing.
+
 `WORKER_CONCURRENCY` is the number of jobs one worker process runs at once.
 
 `TEST_DATABASE_URL` is the database used by `pnpm test`. Start it locally with `docker compose --profile test up -d postgres-test`. The name must end in `_test`, since tests truncate tables.
@@ -280,6 +283,65 @@ EvalFlow also stores observability data for each run:
 - job latency
 
 ## API
+
+### Dataset runs and mock failure settings
+
+The dashboard opens on **Dataset runs**. Choose a loaded dataset and prompt version, optionally
+enable mock failure settings, then select **Start run**. Each dataset case becomes a queued job.
+Run progress and results refresh every two seconds. Select a run ID to inspect pass rate, score,
+latency percentiles, tokens, cost and saved settings. Use **Single job** for the original analysis,
+job history, traces and retry flow.
+
+Select **Use as baseline** on a reference run, then choose a candidate of the same dataset version
+in **Compare runs**. The table shows per-case outcomes and scores; filter it to inspect regressions,
+improvements, warnings or pending cases. Pending results stay visible until both cases finish.
+
+`GET /datasets` lists loaded dataset versions and case counts. `GET /runs` returns the latest 50
+run reports; use `?limit=<1–100>` to change the page size. Runs are newest first. Pass rate uses
+all cases as the denominator, including unfinished ones; mean score, latency, tokens and cost use
+completed jobs. Mock failures simulate a change in behavior and do not measure the effect of prompt
+text on a real model.
+
+Load the fixture with `pnpm --filter server dataset:load datasets/retention-v1.json`, then create a run:
+
+```bash
+curl -X POST http://localhost:3000/runs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "datasetName": "retention",
+    "datasetVersion": 1,
+    "promptVersion": "v2",
+    "mockConfig": {
+      "seed": "demo",
+      "wrongLabelRate": 0.25,
+      "invalidJsonRate": 0,
+      "missingEvidenceRate": 0,
+      "latencyMs": 100
+    }
+  }'
+```
+
+`mockConfig` is optional and only accepted when the resolved provider is mock. Rates range from 0 to 1;
+0 disables a failure and 1 selects every case. Rates default to 0, latency to 0 (maximum 60,000 ms),
+and seed to `evalflow`. The run saves the normalized settings and copies them into every job.
+
+Each failure uses a separate hash of the seed and case ID. The same settings select the same cases
+across retries and worker ordering; rates are probabilities, not exact case counts. Reloading the dataset
+into a fresh database creates new case IDs and can change the selection. Changing prompt versions alone
+does not change the mock's predictions.
+
+Wrong-label mode rotates the mock's predicted risk to another label without reading the answer key.
+It can accidentally correct an existing mistake. Missing-evidence mode produces an empty evidence array,
+which fails schema validation. Invalid JSON takes precedence if both modes select a case. These two
+validation failures retry normally and eventually fail; their calls retain token usage and timing in traces.
+Added latency is included in the LLM-call trace and completed-job latency.
+
+Use `GET /runs/<run_id>` for a report (including settings), and
+`GET /runs/<baseline_id>/compare/<candidate_id>` for per-case changes. For a reproducible regression demo,
+create a baseline without failure settings and a candidate with `wrongLabelRate: 1` on the same dataset.
+These are simulated failures rather than evidence that a prompt performs worse on a real provider.
+
+### Jobs
 
 Create a job:
 

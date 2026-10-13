@@ -2,14 +2,11 @@ import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { checkDatabaseConnection } from "./db.js";
-import {
-    createJob,
-    getJobDetails,
-    getMetrics,
-    listJobs,
-    retryJob,
-} from "./jobs.js";
-import { CreateJobSchema } from "./types.js";
+import { createJob, getJobDetails, getMetrics, listJobs, retryJob } from "./jobs.js";
+import { compareRuns, createRun, getRunReport, listRuns } from "./runs.js";
+import { listDatasets } from "./datasets.js";
+import { CreateJobSchema, CreateRunSchema } from "./types.js";
+import { z } from "zod";
 
 const app = Fastify({
     logger: true,
@@ -28,11 +25,7 @@ app.post("/jobs", async (request, reply) => {
         });
     }
 
-    const job = await createJob(
-        parsed.data.type,
-        parsed.data.input,
-        parsed.data.maxAttempts ?? 3,
-    );
+    const job = await createJob(parsed.data.type, parsed.data.input, parsed.data.maxAttempts ?? 3);
 
     return reply.code(201).send(job);
 });
@@ -53,25 +46,96 @@ app.get<{ Params: { id: string } }>("/jobs/:id", async (request, reply) => {
     return details;
 });
 
-app.post<{ Params: { id: string } }>(
-    "/jobs/:id/retry",
+app.post<{ Params: { id: string } }>("/jobs/:id/retry", async (request, reply) => {
+    const result = await retryJob(request.params.id);
+
+    if (!result.ok && result.reason === "not_found") {
+        return reply.code(404).send({
+            error: "Job not found",
+        });
+    }
+
+    if (!result.ok && result.reason === "not_failed") {
+        return reply.code(409).send({
+            error: "Only failed jobs can be retried",
+            status: result.job.status,
+        });
+    }
+
+    return result.job;
+});
+
+app.get("/datasets", async () => listDatasets());
+
+app.get("/runs", async (request, reply) => {
+    const parsed = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }).safeParse(request.query);
+    if (!parsed.success) return reply.code(400).send({ error: "limit must be an integer from 1 to 100" });
+    return listRuns(parsed.data.limit);
+});
+
+app.post("/runs", async (request, reply) => {
+    const parsed = CreateRunSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+        return reply.code(400).send({
+            error: parsed.error.flatten(),
+        });
+    }
+
+    const result = await createRun(parsed.data);
+
+    if (!result.ok && result.reason === "dataset_not_found") {
+        return reply.code(404).send({
+            error: "Dataset not found",
+        });
+    }
+
+    if (!result.ok && result.reason === "unknown_prompt_version") {
+        return reply.code(400).send({
+            error: "Unknown prompt version",
+        });
+    }
+
+    if (!result.ok && result.reason === "mock_config_requires_mock") {
+        return reply.code(400).send({ error: "mockConfig requires the mock provider" });
+    }
+
+    return reply.code(201).send(result);
+});
+
+app.get<{ Params: { id: string } }>("/runs/:id", async (request, reply) => {
+    // Not a UUID can't be a run; checking here avoids a Postgres cast error (500).
+    const report = z.uuid().safeParse(request.params.id).success ? await getRunReport(request.params.id) : null;
+
+    if (!report) {
+        return reply.code(404).send({
+            error: "Run not found",
+        });
+    }
+
+    return report;
+});
+
+app.get<{ Params: { baselineId: string; candidateId: string } }>(
+    "/runs/:baselineId/compare/:candidateId",
     async (request, reply) => {
-        const result = await retryJob(request.params.id);
+        const { baselineId, candidateId } = request.params;
+        const validIds = z.uuid().safeParse(baselineId).success && z.uuid().safeParse(candidateId).success;
+        const result = validIds ? await compareRuns(baselineId, candidateId) : null;
 
-        if (!result.ok && result.reason === "not_found") {
-            return reply.code(404).send({
-                error: "Job not found",
+        if (result?.ok) {
+            return result.comparison;
+        }
+
+        if (result?.reason === "different_datasets") {
+            return reply.code(400).send({
+                error: "Runs are of different datasets and cannot be compared",
             });
         }
 
-        if (!result.ok && result.reason === "not_failed") {
-            return reply.code(409).send({
-                error: "Only failed jobs can be retried",
-                status: result.job.status,
-            });
-        }
-
-        return result.job;
+        return reply.code(404).send({
+            error: "Run not found",
+        });
     },
 );
 
