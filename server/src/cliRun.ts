@@ -1,20 +1,25 @@
 import { parseArgs } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
+import { writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { CreateRunSchema } from "./types.js";
+import { BaselineSchema } from "./baseline.js";
 
 export const cliUsage = `Usage: evalflow run --dataset <name> [options]
+       evalflow baseline export <runId> [--output <file>] [options]
 
   --dataset-version <number>  Dataset version (default: 1)
   --prompt <version>          Prompt version (default: v1)
   --api-url <url>             API address (default: http://localhost:3000)
   --poll-ms <number>          Wait between completed polls (default: 1000)
   --timeout-ms <number>       Total deadline including creation (default: 120000)
+  --output <file>             Export baseline to a new file instead of stdout
   --help, -h                 Show help
 
 Prints the finished run report as JSON to stdout; progress goes to stderr.
 Exit 0: report retrieved. Exit 2: input, API, or timeout error.
-This scaffold does not yet compare baselines or decide regression exit codes.`;
+Baseline export requires a finished run. Existing output files are never overwritten.
+The run command does not yet compare baselines or decide regression exit codes.`;
 
 const count = z.number().int().nonnegative();
 const runSchema = z.object({ id: z.uuid() }).passthrough();
@@ -46,9 +51,11 @@ export async function runCli(args: string[], io: CliIo = {
     let deadline: ReturnType<typeof setTimeout> | undefined;
     let signal: AbortSignal | undefined;
     let runId: string | undefined;
+    let exporting = false;
     try {
-        const { values, positionals } = parseArgs({
+        const { values, positionals, tokens } = parseArgs({
             args,
+            tokens: true,
             allowPositionals: true,
             options: {
                 dataset: { type: "string" },
@@ -57,6 +64,7 @@ export async function runCli(args: string[], io: CliIo = {
                 "api-url": { type: "string", default: "http://localhost:3000" },
                 "poll-ms": { type: "string", default: "1000" },
                 "timeout-ms": { type: "string", default: "120000" },
+                output: { type: "string" },
                 help: { type: "boolean", short: "h" },
             },
         });
@@ -64,9 +72,18 @@ export async function runCli(args: string[], io: CliIo = {
             io.out(cliUsage);
             return 0;
         }
-        if (positionals.length !== 1 || positionals[0] !== "run") throw new Error(cliUsage);
-
-        const input = CreateRunSchema.parse({
+        exporting = positionals.length === 3 && positionals[0] === "baseline" && positionals[1] === "export";
+        if (!exporting && (positionals.length !== 1 || positionals[0] !== "run")) throw new Error(cliUsage);
+        if (!exporting && values.output !== undefined) throw new Error("--output is only for baseline export");
+        if (exporting) {
+            const allowed = new Set(["api-url", "timeout-ms", "output", "help"]);
+            if (tokens.some((token) => token.kind === "option" && !allowed.has(token.name))) {
+                throw new Error("Baseline export accepts only --api-url, --timeout-ms and --output");
+            }
+            runId = z.uuid().parse(positionals[2]);
+            if (values.output !== undefined) z.string().min(1).parse(values.output);
+        }
+        const input = exporting ? undefined : CreateRunSchema.parse({
             datasetName: values.dataset,
             datasetVersion: Number(values["dataset-version"]),
             promptVersion: values.prompt,
@@ -103,6 +120,18 @@ export async function runCli(args: string[], io: CliIo = {
             }
         }
 
+        if (exporting) {
+            const baseline = BaselineSchema.parse(await request(`runs/${runId}/baseline`));
+            const json = JSON.stringify(baseline, null, 2);
+            if (values.output !== undefined) {
+                await writeFile(z.string().min(1).parse(values.output), `${json}\n`, { flag: "wx" });
+                io.error(`Exported ${baseline.cases.length} cases to ${values.output}`);
+            } else {
+                io.out(json);
+            }
+            return 0;
+        }
+
         // Never retry creation automatically: a lost response may still have created a run.
         const created = createdSchema.parse(await request("runs", {
             method: "POST",
@@ -127,7 +156,8 @@ export async function runCli(args: string[], io: CliIo = {
         let message = error instanceof Error ? error.message : "Unknown CLI error";
         if (signal?.aborted) {
             const context = runId ? ` waiting for run ${runId}` : " creating the run";
-            message = `Timed out${context}; server-side jobs are not cancelled`;
+            message = exporting ? `Timed out exporting baseline for run ${runId}`
+                : `Timed out${context}; server-side jobs are not cancelled`;
         } else if (error instanceof z.ZodError) {
             const issues = error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
             message = `Invalid input or API response: ${issues}`;

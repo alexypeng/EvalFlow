@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { runCli } from "../../src/cliRun.js";
+import { MockConfigSchema } from "../../src/types.js";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const runId = "00000000-0000-4000-8000-000000000001";
 const args = ["run", "--dataset", "retention", "--poll-ms", "1"];
@@ -21,6 +25,80 @@ function harness() {
 function created() {
     return Response.json({ ok: true, run: { id: runId }, jobCount: 2 }, { status: 201 });
 }
+
+function baseline() {
+    return {
+        formatVersion: 1,
+        dataset: { name: "retention", version: 1 },
+        run: {
+            promptVersion: "v1", provider: "mock", model: "mock-rule-based", mockConfig: MockConfigSchema.parse({}),
+        },
+        cases: [
+            { caseName: "healthy", outcome: "pass", score: 100 },
+            { caseName: "judgment", outcome: "fail", score: 80 },
+        ],
+    };
+}
+
+describe("evalflow baseline export CLI", () => {
+    it("exports validated portable JSON to stdout without creating a run", async () => {
+        const io = harness();
+        io.fetch.mockResolvedValue(Response.json(baseline()));
+        expect(await runCli(["baseline", "export", runId], io)).toBe(0);
+        expect(String(io.fetch.mock.calls[0][0])).toBe(`http://localhost:3000/runs/${runId}/baseline`);
+        expect(io.fetch).toHaveBeenCalledTimes(1);
+        expect(io.fetch.mock.calls[0][1]!.method).toBeUndefined();
+        expect(JSON.parse(io.out.mock.calls[0][0])).toEqual(baseline());
+    });
+
+    it("writes a new file and refuses to overwrite an existing baseline", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "evalflow-baseline-"));
+        const output = join(directory, "baseline.json");
+        const io = harness();
+        io.fetch.mockImplementation(async () => Response.json(baseline()));
+        try {
+            const input = ["baseline", "export", runId, "--output", output];
+            expect(await runCli(input, io)).toBe(0);
+            expect(JSON.parse(await readFile(output, "utf8"))).toEqual(baseline());
+            expect(io.out).not.toHaveBeenCalled();
+            await writeFile(output, "original baseline");
+            expect(await runCli(input, io)).toBe(2);
+            expect(await readFile(output, "utf8")).toBe("original baseline");
+        } finally {
+            await rm(directory, { recursive: true });
+        }
+    });
+
+    it.each([
+        { ...baseline(), formatVersion: 2 },
+        { ...baseline(), cases: [{ caseName: "healthy", outcome: "pending", score: null }] },
+        { ...baseline(), cases: [baseline().cases[0], baseline().cases[0]] },
+        { ...baseline(), cases: [{ caseName: "healthy", outcome: "pass", score: null }] },
+    ])("rejects invalid baseline responses before emitting JSON: %j", async (body) => {
+        const io = harness();
+        io.fetch.mockResolvedValue(Response.json(body));
+        expect(await runCli(["baseline", "export", runId], io)).toBe(2);
+        expect(io.out).not.toHaveBeenCalled();
+    });
+
+    it("reports unfinished run errors without exporting a baseline", async () => {
+        const io = harness();
+        io.fetch.mockResolvedValue(Response.json({ error: "Run is unfinished" }, { status: 409 }));
+        expect(await runCli(["baseline", "export", runId], io)).toBe(2);
+        expect(io.out).not.toHaveBeenCalled();
+        expect(io.error.mock.calls[0][0]).toContain("409: Run is unfinished");
+    });
+
+    it.each([
+        ["baseline", "export", "bad-id"],
+        ["baseline", "export", runId, "--dataset", "retention"],
+        ["baseline", "export", runId, "--output", ""],
+    ])("rejects invalid export arguments before calling the API: %j", async (...input) => {
+        const io = harness();
+        expect(await runCli(input, io)).toBe(2);
+        expect(io.fetch).not.toHaveBeenCalled();
+    });
+});
 
 describe("evalflow run CLI", () => {
     it("creates once, polls until terminal, and separates report JSON from progress", async () => {

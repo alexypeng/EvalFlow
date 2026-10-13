@@ -191,10 +191,32 @@ report as JSON to stdout. Progress and the run ID go to stderr. Use `--api-url` 
 After a server build, the compiled entry point is `node server/dist/cli.js`; the server package also declares
 the `evalflow` binary at `dist/cli.js`.
 
-This first CLI piece exits 0 when it retrieves a finished report, including runs with failed cases; input/API/timeout
-errors exit 2. Baseline export and regression gating are the next M2 tasks. A timeout stops waiting but does not cancel
+The CLI exits 0 when it retrieves a finished report, including runs with failed cases; input/API/timeout
+errors exit 2. Use the compiled command directly when exact exit codes matter: pnpm can map a child error to exit 1.
+Regression gating is the next M2 task. A timeout stops waiting but does not cancel
 the server's jobs. Creation requests are never automatically retried, because a lost response could still have created
 a run.
+
+## Export a baseline
+
+Export a finished run for comparison in a fresh CI database:
+
+```bash
+mkdir -p baselines
+pnpm --silent evalflow baseline export <runId> --output baselines/retention-v1.json
+```
+
+Omit `--output` to print JSON to stdout. The output directory must already exist; an existing file is never overwritten.
+The compiled equivalent is `node server/dist/cli.js baseline export <runId> --output <file>`.
+The read-only API route is `GET /runs/:id/baseline`: unknown runs return 404, and unfinished or missing case results return
+409. Queued/running cases cannot be exported; failed jobs are terminal and are exported as failed outcomes.
+
+The versioned format contains `formatVersion: 1`, dataset name/version, saved prompt/provider/model/mock settings,
+and sorted `cases` with `caseName`, `outcome` (`pass` or `fail`) and `score` (nullable for failed jobs). Passing cases
+must have a score. Each case uses its latest evaluation, matching the existing report/comparison rules. Case names
+are portable across databases; database run/dataset/case IDs are omitted. This exports stored results and does not
+rerun the model. Saved nonzero mock failure rates still select cases using database case IDs, so the same seed can
+select different failures in a fresh database.
 
 ## Architecture
 

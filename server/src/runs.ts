@@ -2,6 +2,7 @@ import { prisma } from "./db.js";
 import { Prisma, type Run } from "./generated/prisma/client.js";
 import { promptVersionExists, resolveLlm } from "./llm.js";
 import { AnalyticsSnapshotSchema, CreateRunSchema, MockConfigSchema, type CreateRunInput } from "./types.js";
+import { BaselineSchema, type Baseline } from "./baseline.js";
 
 export type CreateRunResult =
     { ok: true; run: Run; jobCount: number }
@@ -313,6 +314,41 @@ export async function compareRuns(baselineId: string, candidateId: string): Prom
 // createRun makes a job for every case in one transaction, so this shouldn't
 // happen; if it does, the case can't be judged.
 const noJob: RunSide = { outcome: "pending", score: null };
+
+export async function getRunBaseline(runId: string): Promise<
+    { ok: true; baseline: Baseline } | { ok: false; reason: "run_not_found" | "run_not_finished" }
+> {
+    const run = await prisma.run.findUnique({
+        where: { id: runId },
+        include: { dataset: { include: { datasetCases: { select: { id: true, name: true } } } } },
+    });
+    if (!run) return { ok: false, reason: "run_not_found" };
+
+    const sides = await sidesByCase(runId);
+    const cases = run.dataset.datasetCases.map((item) => ({
+        caseName: item.name,
+        ...(sides.get(item.id) ?? noJob),
+    }));
+    if (cases.length === 0 || cases.some((item) => item.outcome === "pending")) {
+        return { ok: false, reason: "run_not_finished" };
+    }
+    cases.sort((a, b) => a.caseName < b.caseName ? -1 : a.caseName > b.caseName ? 1 : 0);
+
+    return {
+        ok: true,
+        baseline: BaselineSchema.parse({
+            formatVersion: 1,
+            dataset: { name: run.dataset.name, version: run.dataset.version },
+            run: {
+                promptVersion: run.promptVersion,
+                provider: run.provider,
+                model: run.model,
+                ...(run.provider === "mock" ? { mockConfig: run.mockConfig } : {}),
+            },
+            cases,
+        }),
+    };
+}
 
 // Every job of one run, keyed by its case, so the other run's jobs can be
 // matched in one lookup instead of a search.

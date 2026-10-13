@@ -10,14 +10,14 @@ The working plan and status tracker. [`ROADMAP.md`](ROADMAP.md) is the one-parag
 
 ## Status snapshot
 
-_Last updated: 2026-10-12_
+_Last updated: 2026-10-13_
 
 | | |
 |---|---|
 | **Current milestone** | M2 CI regression gate, branch `m2-ci-gate` |
-| **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | CLI scaffold learning review; M2 changes are uncommitted |
-| **Next up** | After review, implement baseline export and regression gate logic using committed JSON baselines |
+| **Done** | M0 Foundations (PR #1), M1 datasets and runs (PR #2), both merged |
+| **Waiting on you** | Baseline export learning review; export changes are uncommitted |
+| **Next up** | After review, implement regression gate logic using committed JSON baselines |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -106,9 +106,9 @@ implementation come after the CLI scaffold review. Cases in exported files must 
 fresh CI databases; local database case UUIDs alone cannot identify them.
 
 Tasks:
-- [x] **Claude** CLI scaffold (`evalflow` bin, argument parsing, API client, polling until the run finishes); learning review pending. Reports only for this piece; baseline/gate commands follow.
+- [x] **Claude** CLI scaffold (`evalflow` bin, argument parsing, API client, polling until the run finishes); committed and learning review completed. Reports only for this piece; baseline/gate commands follow.
 - [ ] **ME** Gate logic: compare against the baseline, apply the regression threshold, exit codes (0 pass, 1 regression, 2 error)
-- [ ] **Claude** `evalflow baseline export <runId>` to write the baseline file
+- [x] **Claude** `evalflow baseline export <runId>` to write the baseline file; learning review pending. Validated format v1, finished runs only, stdout or non-overwriting --output file.
 - [ ] **Claude** Markdown summary output (table of regressed cases, aggregate deltas)
 - [ ] **Claude** GitHub Action: start Postgres, api and worker with the mock provider, run the CLI, post or update a sticky PR comment
 - [ ] **You** Demo PR that deliberately worsens the prompt, to show the gate failing (README screenshot)
@@ -202,6 +202,8 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-13 | Owner approved baseline format with dataset name/version, saved run configuration and case-name keyed terminal outcomes/scores; formatVersion=1 | Case names survive fresh databases, unlike UUIDs. Saved configuration explains the results; latest eval semantics match reports/comparisons. Pending/missing cases cannot establish a baseline. |
+| 2026-10-13 | Export uses read-only GET /runs/:id/baseline, validates strict JSON, and writes new files with exclusive creation | Export creates no jobs and exposes no snapshots or answer keys. Duplicate names, pending outcomes and malformed values are rejected. Existing baseline files cannot be overwritten accidentally. Native compiled CLI preserves exact exit codes; pnpm may remap errors to 1. |
 | 2026-10-12 | Owner approved committed JSON baselines for M2 | CI starts with a fresh database, so a laptop run ID is unavailable. A versioned file keeps expected results reviewable without persistent hosting. |
 | 2026-10-12 | CLI scaffold creates a run once, polls sequentially with a total deadline, and separates report stdout from progress stderr | Prevents duplicate run creation after ambiguous failures, avoids overlapping polls and unbounded CI waits, and supports machine-readable output. Exit 0 currently means report retrieved; regression exit codes belong to the next gate piece. |
 | 2026-10-12 | Follow milestone order; retain current parser and leave delayed provider retries in M3 | Sampled v1/v2 responses were valid JSON; observed failures were intermittent provider overload. No parser defect was demonstrated by these samples. M2 baseline strategy is the next design decision. |
@@ -229,6 +231,8 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 ## Session log
 
+- **2026-10-13 (baseline export):** Owner approved the proposed format. Added BaselineSchema/type (format v1, dataset/configuration, unique case names, terminal outcomes, nullable failed scores), getRunBaseline reusing latest-eval sides, and read-only GET /runs/:id/baseline (404 unknown, 409 unfinished/missing). Added CLI baseline export with UUID/options validation, request deadline, stdout JSON and exclusive --output file creation. Added six DB tests and ten CLI unit cases, including portability after DB reload, latest evals, terminal failures, Gemini metadata, invalid files and overwrite refusal. Corrected a typo in the new DB test during verification. Typecheck/server build and full suite pass (140 passed, 1 existing expected failure). Live mock test-DB QA verified 404/409, finished 20-case export with 16 passes, clean JSON stdout and unchanged file after overwrite refusal. pnpm remaps child error code 2 to 1; verified exact codes through the compiled entry and documented it. Temporary API/worker stopped; QA artifact only under /private/tmp. No production DB or Gemini calls; no commits, pushes or PRs. Gate/CI remain pending; export learning review next.
+- **2026-10-12 (CLI learning review and baseline planning):** Confirmed M1 merged as PR #2. Owner explained that a CLI timeout must not cancel durable jobs, identified that exit 0 only means a finished report was retrieved, and reviewed why repeating creation after a lost response can create duplicate runs. Clarified failed outcomes versus passing cases with weaker scores. CLI review completed. Proposed baseline export containing dataset name/version, run configuration and case-name keyed terminal outcomes/scores; export rejects unfinished runs. Case names are portable across databases unlike UUIDs. Awaiting agreement before implementing export. Only PLAN changed; no tests or commits.
 - **2026-10-12 (M2 CLI scaffold):** Owner approved committed JSON baselines. Created m2-ci-gate branch (Git reference writes required sandbox escalation), carrying the uncommitted PLAN update. Added evalflow binary/development command, Node built-in argument parsing, Zod input/response validation, one-shot run creation, sequential report polling, total timeout, progress stderr and JSON stdout. Added 15 unit cases covering terminal failures, malformed arguments/responses, API errors, no creation retries and stalled polling. Typecheck/server build and unit tests pass (80 passed, 1 expected failure). Live mock smoke checks used only evalflow_test: both prompt versions completed 20 cases with 16 passes; child-process verification confirmed stdout is valid JSON. Temporary API/worker stopped after verification. No production DB or Gemini requests. Updated README; gate/export remain unimplemented pending scaffold review. No commits, pushes or PRs; existing untracked learning files preserved.
 - **2026-10-12 (return to milestone plan):** Owner chose to follow the existing plan rather than move retry work forward. Closed the M1 parser decision with the current behavior retained and leading-prose limitation documented; successful samples do not guarantee all future outputs. Delayed retries remain M3. Read roadmap/plan and identified M2's required first choice: committed JSON baseline, base/PR runs in one CI job, or persistent DB. Recommended the plan's committed JSON option; awaiting owner choice before implementation. Only PLAN changed; no tests, branch changes, commits, pushes or PRs.
 - **2026-10-12 (v2 availability diagnosis):** Owner requested diagnosing v2 before moving on. Used diagnosing-bugs skill and the existing temporary live feedback loop; no CONTEXT/ADR files found by scoped filename search. Unchanged v2 prompt/case succeeded through the SDK (plain JSON, valid schema, correct high label, 5626 ms). Follow-up through production callLlm returned 503 after 706 ms with the explicit message that the model is experiencing high demand. This is an intermittent provider failure; no deterministic prompt defect or parser failure reproduced, so no prompt/parser fix or synthetic regression test added. Read Google's troubleshooting guidance and inspected queue retry path: failed attempts requeue immediately, with no run_after backoff. Proposed agreeing whether to bring that M3 work forward; no queue/schema changes made. Only PLAN updated; temporary diagnostics remain in /private/tmp, all processes ended. No commits, pushes or PRs.
