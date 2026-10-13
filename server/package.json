@@ -4,6 +4,9 @@
     "type": "module",
     "description": "",
     "main": "index.js",
+    "bin": {
+        "evalflow": "dist/cli.js"
+    },
     "scripts": {
         "dev:api": "tsx watch src/api.ts",
         "dev:worker": "tsx watch src/worker.ts",
@@ -11,6 +14,7 @@
         "start:api": "node dist/api.js",
         "start:worker": "node dist/worker.js",
         "dataset:load": "tsx src/loadDataset.ts",
+        "evalflow": "node --import tsx src/cli.ts",
         "typecheck": "tsc --noEmit -p tsconfig.test.json",
         "test": "vitest run",
         "test:unit": "vitest run --project unit",

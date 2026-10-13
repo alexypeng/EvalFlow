@@ -175,6 +175,27 @@ zero; they do not yet use the provider's usage metadata or pricing.
 - Inside Docker Compose, services use `postgres` as the database host.
 - Outside Docker, local processes use `localhost` as the database host.
 
+## Run a dataset from the CLI
+
+With the API and worker running and the dataset loaded:
+
+```bash
+pnpm --silent evalflow run --dataset retention --dataset-version 1 --prompt v2
+```
+
+The command creates one run, polls its report until all jobs are completed or failed, and prints the finished
+report as JSON to stdout. Progress and the run ID go to stderr. Use `--api-url` to choose another API,
+`--poll-ms` to change the delay between polls, and `--timeout-ms` to change the total deadline (default two minutes).
+`pnpm --silent evalflow --help` lists the options. The `--silent` flag suppresses pnpm's script output.
+
+After a server build, the compiled entry point is `node server/dist/cli.js`; the server package also declares
+the `evalflow` binary at `dist/cli.js`.
+
+This first CLI piece exits 0 when it retrieves a finished report, including runs with failed cases; input/API/timeout
+errors exit 2. Baseline export and regression gating are the next M2 tasks. A timeout stops waiting but does not cancel
+the server's jobs. Creation requests are never automatically retried, because a lost response could still have created
+a run.
+
 ## Architecture
 
 ```text

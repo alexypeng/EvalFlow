@@ -14,10 +14,10 @@ _Last updated: 2026-10-12_
 
 | | |
 |---|---|
-| **Current milestone** | M1 Eval datasets & runs, branch `m1-datasets` |
+| **Current milestone** | M2 CI regression gate, branch `m2-ci-gate` |
 | **Done** | M0 Foundations, merged in PR #1 |
-| **Waiting on you** | Gemini SDK migration learning review; migration changes are uncommitted |
-| **Next up** | After review, revisit JSON parsing with real provider output |
+| **Waiting on you** | CLI scaffold learning review; M2 changes are uncommitted |
+| **Next up** | After review, implement baseline export and regression gate logic using committed JSON baselines |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -32,7 +32,15 @@ report details and comparison filters. Full suite now passes 105 tests plus 1 ex
 typecheck, frontend lint and builds pass. Browser QA covered empty states, creating v1/v2 runs,
 finished metrics, baseline/candidate selection, improvement filtering and a 400-pixel comparison
 layout. Gemini SDK migration is now implemented and verified (109 passed, 1 expected failure;
-typecheck and server build pass), with learning review pending. Parser work remains afterward.
+typecheck and server build pass), committed by the owner, with learning review completed. Parser
+inspection confirmed that prose before a fence is rejected. No Gemini API key is available in
+the server environment at first inspection; the owner then configured it locally. A small live
+SDK request returned plain JSON, but dataset prompt sampling timed out and then returned 503.
+On retry, the clear-high dataset case with v1 returned plain JSON that passed schema validation
+and matched its answer key; v2 returned 503. No leading-prose failure observed in the successful
+sample. Further v2 diagnosis returned valid plain JSON matching the answer key in 5.6 seconds.
+A follow-up through the actual callLlm wrapper returned 503 with Google's explicit high-demand
+message. v2 can produce valid output; provider availability is intermittent. Parser unchanged.
 Auth scope is unresolved.
 
 ---
@@ -78,12 +86,12 @@ Tasks:
 - [x] **ME** `GET /runs/:a/compare/:b`: implemented `compareRuns`, per-case outcomes and regression/improvement/warning/pending classification; route `GET /runs/:baselineId/compare/:candidateId` (404 unknown, 400 different datasets), with 9 comparison tests.
 - [x] **ME** Evaluator scores against the case's expected label (depends on the ground-truth decision)
 - [x] **ME** `scoreRetentionAnalysis` tests, deferred from M0 (11 stubs in `evaluator.test.ts`). Write them against the new scoring; rewrite or delete the threshold stubs if the rules moved into dataset labels. Includes the substring evidence test ("4" matches "14 days").
-- [ ] **ME** Decide on `parseLlmJson` and prose before a fence (locked in as a known limitation in M0); fix it if real Gemini output hits it
+- [x] **ME** Decide on `parseLlmJson` and prose before a fence: retain current parser after sampled v1/v2 responses parsed successfully; leading-prose limitation stays documented. Owner chose to follow milestone order; provider retry improvements remain M3.
 - [x] **Claude** Versioned prompt files (`server/prompts/retention/v1.md`, `v2.md`); jobs carry `input.promptVersion` (default `v1`) and the `llm_call` trace records it. `POST /runs` should validate the version with `PromptVersionSchema`, store it on the run, and copy it into each job's `input`.
 - [x] **Claude** Configurable mock failure modes (invalid JSON, wrong label, missing evidence, added latency), seeded by case ID so runs are reproducible. Per-run `mockConfig` is saved and copied into jobs; learning review completed.
 - [x] **Claude** Dashboard: runs list and compare view, with dataset selection, run creation, saved mock settings, report details and comparison filters; dashboard learning review completed.
 - [x] **ME** Tests for aggregates and compare
-- [x] **Claude** Migrate `@google/generative-ai` to `@google/genai`; learning review pending, live provider call not yet verified.
+- [x] **Claude** Migrate `@google/generative-ai` to `@google/genai`; learning review completed, live v1/v2 SDK responses verified. Provider overload remains intermittent; full worker path not live-verified.
 - [x] **Claude** Fix the trace mislabel: `callLlm` now returns the `provider` and `model` that actually ran, and the trace uses them. `resolveLlm()` gives the same answer up front, for `POST /runs` to fill `Run.provider` / `Run.model`.
 
 Done when: running the same dataset with prompt v1 and v2 shows per-case regressions in the compare view, and mock runs no longer score a flat 100.
@@ -93,8 +101,12 @@ Done when: running the same dataset with prompt v1 and v2 shows per-case regress
 **Decide before starting:**
 - **Where the baseline lives in CI.** The CI database is empty on every run, so a baseline `runId` from your laptop won't exist there. Options: (a) commit baseline results as a JSON file (`baselines/retention-v1.json`) and compare against the file; (b) run the base branch and the PR branch back to back in the same job; (c) a persistent hosted database. Recommended: (a), with `--baseline` accepting either a run ID or a file.
 
+**Decided (2026-10-12):** Owner approved committed JSON baseline results. File format and export/gate
+implementation come after the CLI scaffold review. Cases in exported files must use stable identifiers across
+fresh CI databases; local database case UUIDs alone cannot identify them.
+
 Tasks:
-- [ ] **Claude** CLI scaffold (`evalflow` bin, argument parsing, API client, polling until the run finishes)
+- [x] **Claude** CLI scaffold (`evalflow` bin, argument parsing, API client, polling until the run finishes); learning review pending. Reports only for this piece; baseline/gate commands follow.
 - [ ] **ME** Gate logic: compare against the baseline, apply the regression threshold, exit codes (0 pass, 1 regression, 2 error)
 - [ ] **Claude** `evalflow baseline export <runId>` to write the baseline file
 - [ ] **Claude** Markdown summary output (table of regressed cases, aggregate deltas)
@@ -190,6 +202,9 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-12 | Owner approved committed JSON baselines for M2 | CI starts with a fresh database, so a laptop run ID is unavailable. A versioned file keeps expected results reviewable without persistent hosting. |
+| 2026-10-12 | CLI scaffold creates a run once, polls sequentially with a total deadline, and separates report stdout from progress stderr | Prevents duplicate run creation after ambiguous failures, avoids overlapping polls and unbounded CI waits, and supports machine-readable output. Exit 0 currently means report retrieved; regression exit codes belong to the next gate piece. |
+| 2026-10-12 | Follow milestone order; retain current parser and leave delayed provider retries in M3 | Sampled v1/v2 responses were valid JSON; observed failures were intermittent provider overload. No parser defect was demonstrated by these samples. M2 baseline strategy is the next design decision. |
 | 2026-10-12 | Owner approved Gemini SDK migration; switched to `GoogleGenAI.models.generateContent` while retaining model configuration, prompts, estimated tokens and zero cost | Limits this piece to the SDK replacement. Missing response text becomes an empty string rejected by the existing JSON validation path; provider errors still propagate for worker retries. Actual usage metadata and parser changes remain separate work. |
 | 2026-10-12 | Owner approved dataset/run listing APIs, run creation with prompt/mock settings, progress/results, and baseline/candidate comparison | Completes the visible dataset evaluation workflow while retaining the Single job view for traces and retry. |
 | 2026-10-12 | Run list defaults to the newest 50 (validated maximum 100), with one batched aggregate query over the selected runs and a latest-eval lateral join | Avoids invoking the multi-query individual report for every list row. One eval per job prevents retries from inflating pass counts; metrics and pass rules match individual reports. |
@@ -214,6 +229,12 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 ## Session log
 
+- **2026-10-12 (M2 CLI scaffold):** Owner approved committed JSON baselines. Created m2-ci-gate branch (Git reference writes required sandbox escalation), carrying the uncommitted PLAN update. Added evalflow binary/development command, Node built-in argument parsing, Zod input/response validation, one-shot run creation, sequential report polling, total timeout, progress stderr and JSON stdout. Added 15 unit cases covering terminal failures, malformed arguments/responses, API errors, no creation retries and stalled polling. Typecheck/server build and unit tests pass (80 passed, 1 expected failure). Live mock smoke checks used only evalflow_test: both prompt versions completed 20 cases with 16 passes; child-process verification confirmed stdout is valid JSON. Temporary API/worker stopped after verification. No production DB or Gemini requests. Updated README; gate/export remain unimplemented pending scaffold review. No commits, pushes or PRs; existing untracked learning files preserved.
+- **2026-10-12 (return to milestone plan):** Owner chose to follow the existing plan rather than move retry work forward. Closed the M1 parser decision with the current behavior retained and leading-prose limitation documented; successful samples do not guarantee all future outputs. Delayed retries remain M3. Read roadmap/plan and identified M2's required first choice: committed JSON baseline, base/PR runs in one CI job, or persistent DB. Recommended the plan's committed JSON option; awaiting owner choice before implementation. Only PLAN changed; no tests, branch changes, commits, pushes or PRs.
+- **2026-10-12 (v2 availability diagnosis):** Owner requested diagnosing v2 before moving on. Used diagnosing-bugs skill and the existing temporary live feedback loop; no CONTEXT/ADR files found by scoped filename search. Unchanged v2 prompt/case succeeded through the SDK (plain JSON, valid schema, correct high label, 5626 ms). Follow-up through production callLlm returned 503 after 706 ms with the explicit message that the model is experiencing high demand. This is an intermittent provider failure; no deterministic prompt defect or parser failure reproduced, so no prompt/parser fix or synthetic regression test added. Read Google's troubleshooting guidance and inspected queue retry path: failed attempts requeue immediately, with no run_after backoff. Proposed agreeing whether to bring that M3 work forward; no queue/schema changes made. Only PLAN updated; temporary diagnostics remain in /private/tmp, all processes ended. No commits, pushes or PRs.
+- **2026-10-12 (two-call dataset retry):** Owner authorized one real dataset case with both prompt versions. Used clear_high_all_signals with existing prompt templates and unchanged parser/schema, through the new SDK with a temporary three-minute request limit and SDK retries disabled. v1 returned plain JSON, parsed successfully, passed schema validation and matched expectedRisk=high. v2 returned provider status 503. No leading-prose issue observed; one successful sample does not guarantee future output format. Parser unchanged; recommendation is to retain its current contract and document the limitation, pending owner agreement. Raw successful response retained only under /private/tmp/evalflow-gemini-parser-results.json. No application changes or additional tests; updated PLAN only. No commits, pushes or PRs.
+- **2026-10-12 (live Gemini parser check):** Owner configured GEMINI_API_KEY locally; checked presence without printing it. Prepared temporary scripts under /private/tmp using existing prompts, dataset cases and parser. Initial production-wrapper request did not return and was stopped. A bounded SDK dataset request timed out (504); a minimal JSON diagnostic succeeded with plain JSON. Retried dataset sampling with a longer limit and SDK retries disabled; provider returned 503 on the first case. No v1/v2 dataset response available, so no evidence yet that real prompts hit the leading-prose limitation. Parser unchanged; M1 parser decision remains open. Temporary processes finished/stopped; no key or env file changes by the agent, no commits. Only PLAN changed in the repo; no tests needed for that documentation update.
+- **2026-10-12 (parser preparation and SDK learning review):** Owner correctly explained that empty text retries because it fails validation, while a valid wrong answer completes with failed evaluation. SDK review completed; working tree confirms migration was committed. Owner approved checking real Gemini output. Read prompts/parser/tests and checked only configuration presence (no secrets printed): server environment has no Gemini API key and resolves to mock. Real-output sampling awaits the owner setting GEMINI_API_KEY locally; no live requests or parser changes made. Existing leading-prose rejection test remains. No additional tests or commits.
 - **2026-10-12 (Gemini SDK migration):** Owner approved the migration. Replaced the legacy dependency with `@google/genai` 2.28.0 and updated the Gemini call/response format using Google's official migration guide. Added four unit tests for prompt/model forwarding and accounting, empty responses, provider errors and mock isolation. Verified typecheck, server build and full suite (109 passed, 1 expected failure); DB tests required sandbox escalation to access local test Postgres. Updated README with the existing token/cost limitations. No live Gemini request made; parser unchanged. Migration learning review pending. No commits, pushes or PRs.
 - **2026-10-12 (dashboard learning review):** Reviewed why comparisons require the same cases and answer keys, why only the latest evaluation counts for each job, and how overlapping polls can return out of order and overwrite newer progress. Owner identified the stale-response problem; explained polling as repeated read-only requests scheduled two seconds after completion. Dashboard review completed. Proposed planning the Gemini SDK migration next, then revisiting JSON parsing with real provider output. No application code changes or additional tests; no commits, pushes or PRs.
 - **2026-10-12 (runs dashboard):** Owner approved the proposed scope. Added GET /datasets with case counts and GET /runs with bounded newest-first reports using batched SQL aggregates. Added Dataset runs / Single job navigation, run creation with optional mock settings, run table, report details, compatible baseline/candidate selection, per-case filters, visible pending/error states and responsive styles. Added 5 DB tests for list/report consistency, latest evals, mixed statuses, limits, empty results and dataset versions. Verified typecheck, frontend lint, server/frontend builds and full suite (105 passed, 1 expected failure). HTTP smoke checks covered list routes and invalid limits. Browser-created v1/v2 runs finished with 16 regressions, 2 improvements and 2 unchanged cases; verified comparison selection/filtering and the 400-pixel layout, with no console runtime errors observed. Used the Sites skill's local-only workflow; no hosting or publication. QA used only the dedicated test DB. Temporary QA servers stopped afterward. Updated README and the stale roadmap mock issue. No commits, pushes or PRs; pre-existing learning files preserved. Dashboard quiz pending.
