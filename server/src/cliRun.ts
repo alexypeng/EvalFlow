@@ -1,15 +1,17 @@
 import { parseArgs } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { CreateRunSchema } from "./types.js";
-import { BaselineSchema } from "./baseline.js";
+import { BaselineSchema, type Baseline } from "./baseline.js";
+import { compareBaselines } from "./gate.js";
 
 export const cliUsage = `Usage: evalflow run --dataset <name> [options]
        evalflow baseline export <runId> [--output <file>] [options]
 
   --dataset-version <number>  Dataset version (default: 1)
   --prompt <version>          Prompt version (default: v1)
+  --baseline <file|runId>     Compare the candidate with a saved file or finished run
   --api-url <url>             API address (default: http://localhost:3000)
   --poll-ms <number>          Wait between completed polls (default: 1000)
   --timeout-ms <number>       Total deadline including creation (default: 120000)
@@ -17,9 +19,10 @@ export const cliUsage = `Usage: evalflow run --dataset <name> [options]
   --help, -h                 Show help
 
 Prints the finished run report as JSON to stdout; progress goes to stderr.
-Exit 0: report retrieved. Exit 2: input, API, or timeout error.
+Exit 0: no regressions (or report retrieved without --baseline).
+Exit 1: at least one regression. Exit 2: input, compatibility, API, or timeout error.
 Baseline export requires a finished run. Existing output files are never overwritten.
-The run command does not yet compare baselines or decide regression exit codes.`;
+With --baseline, stdout contains the report and per-case comparison; warnings do not block.`;
 
 const count = z.number().int().nonnegative();
 const runSchema = z.object({ id: z.uuid() }).passthrough();
@@ -36,7 +39,8 @@ const reportSchema = z.object({
     totalCost: z.number().nonnegative(),
 }).passthrough().refine((report) =>
     report.jobs.total === report.jobs.queued + report.jobs.running + report.jobs.completed + report.jobs.failed
-    && report.passed <= report.jobs.completed
+    // Passes are read after status counts, so they can advance while an in-progress report is being built.
+    && report.passed <= report.jobs.total
     && (report.status === "finished") === (report.jobs.queued + report.jobs.running === 0),
     { message: "Inconsistent run progress" },
 );
@@ -61,6 +65,7 @@ export async function runCli(args: string[], io: CliIo = {
                 dataset: { type: "string" },
                 "dataset-version": { type: "string", default: "1" },
                 prompt: { type: "string", default: "v1" },
+                baseline: { type: "string" },
                 "api-url": { type: "string", default: "http://localhost:3000" },
                 "poll-ms": { type: "string", default: "1000" },
                 "timeout-ms": { type: "string", default: "120000" },
@@ -132,6 +137,17 @@ export async function runCli(args: string[], io: CliIo = {
             return 0;
         }
 
+        let baseline: Baseline | undefined;
+        if (values.baseline !== undefined) {
+            const reference = z.string().min(1).parse(values.baseline);
+            baseline = BaselineSchema.parse(z.uuid().safeParse(reference).success
+                ? await request(`runs/${reference}/baseline`)
+                : JSON.parse(await readFile(reference, { encoding: "utf8", signal })));
+            if (baseline.dataset.name !== input!.datasetName || baseline.dataset.version !== input!.datasetVersion) {
+                throw new Error("Baseline must match the requested dataset name and version");
+            }
+        }
+
         // Never retry creation automatically: a lost response may still have created a run.
         const created = createdSchema.parse(await request("runs", {
             method: "POST",
@@ -147,6 +163,14 @@ export async function runCli(args: string[], io: CliIo = {
             const { completed, failed, total } = report.jobs;
             io.error(`Run ${runId}: ${completed} completed, ${failed} failed, ${total} total`);
             if (report.status === "finished") {
+                if (baseline) {
+                    const candidate = BaselineSchema.parse(await request(`runs/${runId}/baseline`));
+                    const comparison = compareBaselines(baseline, candidate);
+                    io.out(JSON.stringify({ report, comparison }, null, 2));
+                    const { regression, warning } = comparison.summary;
+                    io.error(`Gate: ${regression} regressions, ${warning} warnings`);
+                    return comparison.exitCode;
+                }
                 io.out(JSON.stringify(report, null, 2));
                 return 0;
             }

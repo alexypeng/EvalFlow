@@ -191,9 +191,9 @@ report as JSON to stdout. Progress and the run ID go to stderr. Use `--api-url` 
 After a server build, the compiled entry point is `node server/dist/cli.js`; the server package also declares
 the `evalflow` binary at `dist/cli.js`.
 
-The CLI exits 0 when it retrieves a finished report, including runs with failed cases; input/API/timeout
-errors exit 2. Use the compiled command directly when exact exit codes matter: pnpm can map a child error to exit 1.
-Regression gating is the next M2 task. A timeout stops waiting but does not cancel
+Without `--baseline`, the CLI exits 0 when it retrieves a finished report, including runs with failed cases;
+input/API/timeout errors exit 2. Use the compiled command directly when exact exit codes matter: pnpm can map a child
+error to exit 1. A timeout stops waiting but does not cancel
 the server's jobs. Creation requests are never automatically retried, because a lost response could still have created
 a run.
 
@@ -217,6 +217,30 @@ must have a score. Each case uses its latest evaluation, matching the existing r
 are portable across databases; database run/dataset/case IDs are omitted. This exports stored results and does not
 rerun the model. Saved nonzero mock failure rates still select cases using database case IDs, so the same seed can
 select different failures in a fresh database.
+
+## Check for regressions
+
+After building the server, compare a new dataset run against a saved baseline:
+
+```bash
+node server/dist/cli.js run --dataset retention --dataset-version 1 --prompt v2 \
+  --baseline baselines/retention-v1.json
+```
+
+`--baseline` accepts a JSON file or a finished run UUID from the API's database. File paths that look like UUIDs
+can use a `./` prefix. Baseline contents and dataset name/version are checked before the candidate is created.
+After it finishes, all case names must match exactly: missing, extra or duplicate names are errors.
+
+The compiled CLI exits 0 for no regressions, 1 for any pass-to-fail regression, or 2 for invalid/incompatible data,
+API errors and timeouts. Improvements and lower scores on still-passing cases (warnings) are reported without blocking.
+An existing failed case remaining failed does not block. With `--baseline`, stdout is JSON containing `report` and
+`comparison` (per-case changes, counts, saved settings and exit code); progress goes to stderr. Without the flag,
+the original report-only behavior remains. The dashboard and gate share the case classification rule.
+
+Prompt/provider/model and mock settings are recorded but may differ between the baseline and candidate, so the gate
+can evaluate intentional changes to them. Dataset compatibility currently checks name, version and case names; it
+does not hash the underlying snapshots or labels. Dataset content changes must use a new version.
+Markdown summaries and GitHub Actions integration follow this gate implementation.
 
 ## Architecture
 

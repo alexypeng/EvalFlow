@@ -40,6 +40,78 @@ function baseline() {
     };
 }
 
+describe("evalflow regression gate CLI", () => {
+    async function withFile(body: unknown, callback: (path: string) => Promise<void>) {
+        const directory = await mkdtemp(join(tmpdir(), "evalflow-gate-"));
+        const path = join(directory, "baseline.json");
+        try {
+            await writeFile(path, typeof body === "string" ? body : JSON.stringify(body));
+            await callback(path);
+        } finally {
+            await rm(directory, { recursive: true });
+        }
+    }
+
+    it.each([false, true])("returns the regression exit code and emits case changes (regression=%s)", async (regression) => {
+        await withFile(baseline(), async (path) => {
+            const candidate = baseline();
+            candidate.cases[0] = { caseName: "healthy", outcome: regression ? "fail" : "pass", score: 80 };
+            const io = harness();
+            io.fetch.mockResolvedValueOnce(created()).mockResolvedValueOnce(Response.json(report()))
+                .mockResolvedValueOnce(Response.json(candidate));
+            expect(await runCli([...args, "--baseline", path], io)).toBe(regression ? 1 : 0);
+            const output = JSON.parse(io.out.mock.calls[0][0]);
+            expect(output.comparison.summary).toEqual({
+                regression: regression ? 1 : 0, warning: regression ? 0 : 1, improvement: 0, unchanged: 1,
+            });
+            expect(io.fetch).toHaveBeenCalledTimes(3);
+            expect(String(io.fetch.mock.calls[2][0])).toBe(`http://localhost:3000/runs/${runId}/baseline`);
+        });
+    });
+
+    it.each(["{bad json", {}, { ...baseline(), dataset: { name: "other", version: 1 } }])(
+        "rejects invalid or incompatible files before run creation: %j", async (body) => {
+            await withFile(body, async (path) => {
+                const io = harness();
+                expect(await runCli([...args, "--baseline", path], io)).toBe(2);
+                expect(io.fetch).not.toHaveBeenCalled();
+                expect(io.out).not.toHaveBeenCalled();
+            });
+        },
+    );
+
+    it("returns error 2 for a different case set after the run finishes", async () => {
+        await withFile(baseline(), async (path) => {
+            const candidate = baseline();
+            candidate.cases[0].caseName = "unexpected";
+            const io = harness();
+            io.fetch.mockResolvedValueOnce(created()).mockResolvedValueOnce(Response.json(report()))
+                .mockResolvedValueOnce(Response.json(candidate));
+            expect(await runCli([...args, "--baseline", path], io)).toBe(2);
+            expect(io.out).not.toHaveBeenCalled();
+            expect(io.error.mock.calls.at(-1)![0]).toContain("Case names do not match");
+        });
+    });
+
+    it("loads a baseline run by ID before creating a candidate", async () => {
+        const baselineId = "00000000-0000-4000-8000-000000000002";
+        const io = harness();
+        io.fetch.mockResolvedValueOnce(Response.json(baseline())).mockResolvedValueOnce(created())
+            .mockResolvedValueOnce(Response.json(report())).mockResolvedValueOnce(Response.json(baseline()));
+        expect(await runCli([...args, "--baseline", baselineId], io)).toBe(0);
+        expect(String(io.fetch.mock.calls[0][0])).toBe(`http://localhost:3000/runs/${baselineId}/baseline`);
+        expect(io.fetch.mock.calls[1][1]!.method).toBe("POST");
+    });
+
+    it("does not create a candidate when the baseline run is unfinished", async () => {
+        const io = harness();
+        io.fetch.mockResolvedValue(Response.json({ error: "Unfinished baseline" }, { status: 409 }));
+        expect(await runCli([...args, "--baseline", runId], io)).toBe(2);
+        expect(io.fetch).toHaveBeenCalledTimes(1);
+        expect(io.fetch.mock.calls[0][1]!.method).toBeUndefined();
+    });
+});
+
 describe("evalflow baseline export CLI", () => {
     it("exports validated portable JSON to stdout without creating a run", async () => {
         const io = harness();
@@ -101,6 +173,16 @@ describe("evalflow baseline export CLI", () => {
 });
 
 describe("evalflow run CLI", () => {
+    it("keeps polling when pass counts advance between the API's separate report queries", async () => {
+        const io = harness();
+        const progress = { ...report(false), passed: 2, passRate: 1 };
+        io.fetch.mockResolvedValueOnce(created()).mockResolvedValueOnce(Response.json(progress))
+            .mockResolvedValueOnce(Response.json(report()));
+        expect(await runCli(args, io)).toBe(0);
+        expect(io.fetch).toHaveBeenCalledTimes(3);
+        expect(JSON.parse(io.out.mock.calls[0][0]).status).toBe("finished");
+    });
+
     it("creates once, polls until terminal, and separates report JSON from progress", async () => {
         const io = harness();
         io.fetch.mockResolvedValueOnce(created())
