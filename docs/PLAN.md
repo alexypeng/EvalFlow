@@ -14,10 +14,10 @@ _Last updated: 2026-10-13_
 
 | | |
 |---|---|
-| **Current milestone** | M2 CI regression gate, branch `m2-ci-gate` |
-| **Done** | M0 Foundations (PR #1), M1 datasets and runs (PR #2), both merged |
-| **Waiting on you** | Commit/push README screenshot evidence, then review/merge PR #3 |
-| **Next up** | Verify final docs commit checks and merge M2; plan M3 afterward |
+| **Current milestone** | M3 Reliable workers, branch `m3-reliable-workers` |
+| **Done** | M0 Foundations (PR #1), M1 datasets and runs (PR #2), M2 CI regression gate (PR #3), all merged |
+| **Waiting on you** | Commit/push the reviewed lease schema changes |
+| **Next up** | Wire lease-aware claiming and ownership checks, then heartbeat/reaper recovery |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -123,8 +123,15 @@ The strongest infra material in the project. Every task here is interview-level,
 **Decide before starting:**
 - **What "exactly once" means.** A job can always be *executed* more than once (a worker can die after the LLM call but before writing the result). The achievable guarantee is at-least-once execution with exactly-once *completion*: a fenced, idempotent final write. The chaos test should assert that.
 
+**Agreed (2026-10-13):** Owner approved retrying execution after a crash while accepting final results only
+from the current lease holder. Proposed schema adds locked_by (worker identity), lease_token (fresh per claim),
+lease_expires_at and run_after. Manual retry resets attempts, so attempts alone cannot identify a claim forever.
+Owner approved those fields. Lease fields/migration are implemented; dead-letter status will be added with its
+transition/reporting behavior. Worker claiming and recovery are not wired yet.
+
 Tasks:
-- [ ] **ME** Schema: `lease_expires_at`, `locked_by`, `run_after`, dead-letter status
+- [x] **ME** Lease/scheduling schema: `lease_expires_at`, `locked_by`, fresh-per-claim `lease_token`, `run_after`; migration/client verified, learning review completed.
+- [ ] **ME** Schema: dead-letter status, introduced alongside its transition/reporting behavior
 - [ ] **ME** Lease on claim; heartbeat that extends the lease while a job is running
 - [ ] **ME** Reaper that requeues jobs whose lease expired (fixes known issue: crashed worker leaves jobs `running` forever)
 - [ ] **ME** Fencing: `completeJob` and `failOrRetryJob` only succeed if this worker still holds the lease
@@ -203,6 +210,8 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-13 | Owner approved fresh lease tokens with separate worker identity, lease expiry and delayed scheduling fields | Attempts can reset on manual retry, and worker identity can be reused for another claim. A per-claim UUID distinguishes stale work from a current claim. Ownership/expiry fields start nullable; run_after defaults to DB time so new jobs are initially eligible. Runtime enforcement follows in the next piece. |
+| 2026-10-13 | Owner approved M3 recovery guarantee: repeated execution after crashes is allowed, but final writes require current claim ownership | A crash after an LLM call but before persistence cannot prove whether external work occurred. Recovery must permit another attempt while fencing stale workers from finalizing later claims. |
 | 2026-10-13 | Owner approved default mock v1 baseline (16/20 passes), a read-only evaluation job, and same-repository PR comments from a separate job | Provides a reproducible zero-failure profile with existing judgment mistakes represented honestly. Fork PRs retain summary/artifact without requiring write tokens; Dependabot uses the same read-only reporting behavior. |
 | 2026-10-13 | Workflow publishes summary/artifact after errors and regressions; runner preserves gate code, emits ERROR fallback and cleans up owned processes | A failing check must still explain what happened. Setup failures cannot reuse stale successful reports, and the comment job must run even when evaluation failed. Artifact logs support diagnosis. |
 | 2026-10-13 | Markdown gate summaries are selected with --format markdown; JSON remains default and gate exit codes remain unchanged | Human-readable reporting can feed GitHub checks/comments without breaking existing consumers or turning regressions into successful commands. The summary is emitted before regression exit 1; errors still exit 2 without a summary. |
@@ -239,6 +248,10 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 ## Session log
 
+- **2026-10-13 (lease schema learning review):** Clarified that every claim gets a fresh token even when the worker is the same, because reusing a token makes old/new attempts indistinguishable. Reviewed unowned queued jobs and clearing expired ownership; owner correctly explained that clearing permits the next worker to pick up the job. Explained run_after as the earliest eligible time; owner correctly rejected claiming at 12:00:05 when run_after is 12:00:10. Schema checkpoint completed. Confirmed changes remain uncommitted on m3-reliable-workers with no upstream yet; supplied commit/push commands. No application changes or additional tests; PLAN updated.
+- **2026-10-13 (lease schema):** Owner approved implementing the proposed ownership fields after reviewing crash recovery intuitively. Added nullable UUID locked_by/lease_token, nullable lease_expires_at and non-null run_after defaulting to database time, with status/expiry and status/due/creation indexes. Generated migration 20261013000000_add_job_lease_fields with Prisma migrate diff, then regenerated the client; no generated files edited by hand. Added two DB tests for unowned/immediately eligible defaults and independent identities/timestamp persistence. Typecheck/server build/full suite pass (166 passed, 1 existing expected failure). Migration applied only to evalflow_test; no development DB mutation. Existing queue behavior unchanged; leases, delayed eligibility and stale-write protection are not enforced until wiring work. Dead-letter schema deferred to its handling piece as agreed. Updated PLAN, preserving learning files. No commits, pushes or PRs; schema review next.
+- **2026-10-13 (M3 guarantee and ownership planning):** Owner approved the proposed crash recovery/completion guarantee. Read schema and retryJob: attempts is reset to zero on manual retry, so worker identity plus attempt number can be reused. Proposed a separate fresh lease_token for every claim alongside locked_by, lease_expires_at and run_after; token prevents old attempts writing into later claims, including manual retries. No schema or application changes yet; awaiting field design agreement. PLAN only, uncommitted; no commits, pushes or PRs.
+- **2026-10-13 (M2 merged; M3 preparation):** Confirmed PR #3 merged at 49c0ab646594374c658e85ca53f31d3ece2d44a5. Owner asked to continue. Fetched origin, switched to main, fast-forwarded it and created m3-reliable-workers; preserved untracked learning files. M2 final screenshot/docs commit 773fe98 had successful hosted CI/regression checks. Read M3 tasks and current queue updates: claiming has no expiry, and completion/retry writes identify only job ID. Proposed at-least-once execution with one accepted final completion, enforced by current claim ownership, before selecting schema/recovery details. No M3 application/schema implementation yet; awaiting owner's guarantee decision. Only PLAN changed, uncommitted; no commits, pushes or PRs.
 - **2026-10-13 (README demo evidence):** Owner supplied ../../Screenshots/LWScreenShot 2026-10-13 at 5.54.07 PM.png. Visually inspected it: rendered GitHub bot comment shows FAIL/exit 1, one healthy_power_user regression, 16-to-15 passes, and pass/100-to-fail/80 case detail. Copied unchanged to docs/screenshots/ci-regression-failure.png and added README image/caption with failing and restored workflow links. Demo task completed; M2 awaits final docs commit/push and owner merge. Screenshot and README/PLAN changes left uncommitted. No application changes, tests, commits, pushes or merges.
 - **2026-10-13 (hosted restoration verification):** Owner pushed restoration commit 1e7991fb28abd9b320ed6eebd61846f505b88140 and requested verification. Waited for in-progress checks to finish; PR CI run 38475140907 and regression run 38475140863 both succeeded. Existing bot comment 6154381710 updated back to PASS/exit 0 with 16/20 passes, zero regressions/warnings and 20 unchanged cases. Hosted pass-to-fail-to-pass demonstration is complete. Owner saved a screenshot; README image integration still awaits its file path. Only PLAN updated; no application edits, commits, pushes or merges by the agent.
 - **2026-10-13 (demo restoration):** Owner confirmed the failing-run screenshot was saved and authorized removing the demo. Removed only the marked healthy_power_user/v2 override from llm.ts. Typecheck/full suite pass (164 passed, 1 existing expected failure). Actual CI runner against evalflow_test returned exit 0 with 20 completed jobs, 16 passes, zero regressions/warnings; owned services stopped on exit. Saved restored report under /private/tmp/evalflow-m2-restored. Requested the screenshot's local path to add README evidence; image integration remains pending that path. Restoration and PLAN update left uncommitted for owner commit/push; hosted green verification and merge remain. No commits, pushes or PR changes by the agent.

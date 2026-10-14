@@ -58,6 +58,10 @@ export type JobMinAggregateOutputType = {
   createdAt: Date | null
   startedAt: Date | null
   completedAt: Date | null
+  lockedBy: string | null
+  leaseToken: string | null
+  leaseExpiresAt: Date | null
+  runAfter: Date | null
   latencyMs: number | null
   promptTokens: number | null
   completionTokens: number | null
@@ -78,6 +82,10 @@ export type JobMaxAggregateOutputType = {
   createdAt: Date | null
   startedAt: Date | null
   completedAt: Date | null
+  lockedBy: string | null
+  leaseToken: string | null
+  leaseExpiresAt: Date | null
+  runAfter: Date | null
   latencyMs: number | null
   promptTokens: number | null
   completionTokens: number | null
@@ -100,6 +108,10 @@ export type JobCountAggregateOutputType = {
   createdAt: number
   startedAt: number
   completedAt: number
+  lockedBy: number
+  leaseToken: number
+  leaseExpiresAt: number
+  runAfter: number
   latencyMs: number
   promptTokens: number
   completionTokens: number
@@ -144,6 +156,10 @@ export type JobMinAggregateInputType = {
   createdAt?: true
   startedAt?: true
   completedAt?: true
+  lockedBy?: true
+  leaseToken?: true
+  leaseExpiresAt?: true
+  runAfter?: true
   latencyMs?: true
   promptTokens?: true
   completionTokens?: true
@@ -164,6 +180,10 @@ export type JobMaxAggregateInputType = {
   createdAt?: true
   startedAt?: true
   completedAt?: true
+  lockedBy?: true
+  leaseToken?: true
+  leaseExpiresAt?: true
+  runAfter?: true
   latencyMs?: true
   promptTokens?: true
   completionTokens?: true
@@ -186,6 +206,10 @@ export type JobCountAggregateInputType = {
   createdAt?: true
   startedAt?: true
   completedAt?: true
+  lockedBy?: true
+  leaseToken?: true
+  leaseExpiresAt?: true
+  runAfter?: true
   latencyMs?: true
   promptTokens?: true
   completionTokens?: true
@@ -295,6 +319,10 @@ export type JobGroupByOutputType = {
   createdAt: Date
   startedAt: Date | null
   completedAt: Date | null
+  lockedBy: string | null
+  leaseToken: string | null
+  leaseExpiresAt: Date | null
+  runAfter: Date
   latencyMs: number | null
   promptTokens: number | null
   completionTokens: number | null
@@ -340,6 +368,10 @@ export type JobWhereInput = {
   createdAt?: Prisma.DateTimeFilter<"Job"> | Date | string
   startedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
   completedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
+  lockedBy?: Prisma.UuidNullableFilter<"Job"> | string | null
+  leaseToken?: Prisma.UuidNullableFilter<"Job"> | string | null
+  leaseExpiresAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
+  runAfter?: Prisma.DateTimeFilter<"Job"> | Date | string
   latencyMs?: Prisma.IntNullableFilter<"Job"> | number | null
   promptTokens?: Prisma.IntNullableFilter<"Job"> | number | null
   completionTokens?: Prisma.IntNullableFilter<"Job"> | number | null
@@ -366,6 +398,10 @@ export type JobOrderByWithRelationInput = {
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   completedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  lockedBy?: Prisma.SortOrderInput | Prisma.SortOrder
+  leaseToken?: Prisma.SortOrderInput | Prisma.SortOrder
+  leaseExpiresAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  runAfter?: Prisma.SortOrder
   latencyMs?: Prisma.SortOrderInput | Prisma.SortOrder
   promptTokens?: Prisma.SortOrderInput | Prisma.SortOrder
   completionTokens?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -395,6 +431,10 @@ export type JobWhereUniqueInput = Prisma.AtLeast<{
   createdAt?: Prisma.DateTimeFilter<"Job"> | Date | string
   startedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
   completedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
+  lockedBy?: Prisma.UuidNullableFilter<"Job"> | string | null
+  leaseToken?: Prisma.UuidNullableFilter<"Job"> | string | null
+  leaseExpiresAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
+  runAfter?: Prisma.DateTimeFilter<"Job"> | Date | string
   latencyMs?: Prisma.IntNullableFilter<"Job"> | number | null
   promptTokens?: Prisma.IntNullableFilter<"Job"> | number | null
   completionTokens?: Prisma.IntNullableFilter<"Job"> | number | null
@@ -421,6 +461,10 @@ export type JobOrderByWithAggregationInput = {
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   completedAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  lockedBy?: Prisma.SortOrderInput | Prisma.SortOrder
+  leaseToken?: Prisma.SortOrderInput | Prisma.SortOrder
+  leaseExpiresAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  runAfter?: Prisma.SortOrder
   latencyMs?: Prisma.SortOrderInput | Prisma.SortOrder
   promptTokens?: Prisma.SortOrderInput | Prisma.SortOrder
   completionTokens?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -451,6 +495,10 @@ export type JobScalarWhereWithAggregatesInput = {
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Job"> | Date | string
   startedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Job"> | Date | string | null
   completedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Job"> | Date | string | null
+  lockedBy?: Prisma.UuidNullableWithAggregatesFilter<"Job"> | string | null
+  leaseToken?: Prisma.UuidNullableWithAggregatesFilter<"Job"> | string | null
+  leaseExpiresAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Job"> | Date | string | null
+  runAfter?: Prisma.DateTimeWithAggregatesFilter<"Job"> | Date | string
   latencyMs?: Prisma.IntNullableWithAggregatesFilter<"Job"> | number | null
   promptTokens?: Prisma.IntNullableWithAggregatesFilter<"Job"> | number | null
   completionTokens?: Prisma.IntNullableWithAggregatesFilter<"Job"> | number | null
@@ -473,6 +521,10 @@ export type JobCreateInput = {
   createdAt?: Date | string
   startedAt?: Date | string | null
   completedAt?: Date | string | null
+  lockedBy?: string | null
+  leaseToken?: string | null
+  leaseExpiresAt?: Date | string | null
+  runAfter?: Date | string
   latencyMs?: number | null
   promptTokens?: number | null
   completionTokens?: number | null
@@ -497,6 +549,10 @@ export type JobUncheckedCreateInput = {
   createdAt?: Date | string
   startedAt?: Date | string | null
   completedAt?: Date | string | null
+  lockedBy?: string | null
+  leaseToken?: string | null
+  leaseExpiresAt?: Date | string | null
+  runAfter?: Date | string
   latencyMs?: number | null
   promptTokens?: number | null
   completionTokens?: number | null
@@ -521,6 +577,10 @@ export type JobUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lockedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  runAfter?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -545,6 +605,10 @@ export type JobUncheckedUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lockedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  runAfter?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -569,6 +633,10 @@ export type JobCreateManyInput = {
   createdAt?: Date | string
   startedAt?: Date | string | null
   completedAt?: Date | string | null
+  lockedBy?: string | null
+  leaseToken?: string | null
+  leaseExpiresAt?: Date | string | null
+  runAfter?: Date | string
   latencyMs?: number | null
   promptTokens?: number | null
   completionTokens?: number | null
@@ -591,6 +659,10 @@ export type JobUpdateManyMutationInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lockedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  runAfter?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -611,6 +683,10 @@ export type JobUncheckedUpdateManyInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lockedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  runAfter?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -633,6 +709,10 @@ export type JobCountOrderByAggregateInput = {
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   completedAt?: Prisma.SortOrder
+  lockedBy?: Prisma.SortOrder
+  leaseToken?: Prisma.SortOrder
+  leaseExpiresAt?: Prisma.SortOrder
+  runAfter?: Prisma.SortOrder
   latencyMs?: Prisma.SortOrder
   promptTokens?: Prisma.SortOrder
   completionTokens?: Prisma.SortOrder
@@ -664,6 +744,10 @@ export type JobMaxOrderByAggregateInput = {
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   completedAt?: Prisma.SortOrder
+  lockedBy?: Prisma.SortOrder
+  leaseToken?: Prisma.SortOrder
+  leaseExpiresAt?: Prisma.SortOrder
+  runAfter?: Prisma.SortOrder
   latencyMs?: Prisma.SortOrder
   promptTokens?: Prisma.SortOrder
   completionTokens?: Prisma.SortOrder
@@ -684,6 +768,10 @@ export type JobMinOrderByAggregateInput = {
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   completedAt?: Prisma.SortOrder
+  lockedBy?: Prisma.SortOrder
+  leaseToken?: Prisma.SortOrder
+  leaseExpiresAt?: Prisma.SortOrder
+  runAfter?: Prisma.SortOrder
   latencyMs?: Prisma.SortOrder
   promptTokens?: Prisma.SortOrder
   completionTokens?: Prisma.SortOrder
@@ -888,6 +976,10 @@ export type JobCreateWithoutTracesInput = {
   createdAt?: Date | string
   startedAt?: Date | string | null
   completedAt?: Date | string | null
+  lockedBy?: string | null
+  leaseToken?: string | null
+  leaseExpiresAt?: Date | string | null
+  runAfter?: Date | string
   latencyMs?: number | null
   promptTokens?: number | null
   completionTokens?: number | null
@@ -911,6 +1003,10 @@ export type JobUncheckedCreateWithoutTracesInput = {
   createdAt?: Date | string
   startedAt?: Date | string | null
   completedAt?: Date | string | null
+  lockedBy?: string | null
+  leaseToken?: string | null
+  leaseExpiresAt?: Date | string | null
+  runAfter?: Date | string
   latencyMs?: number | null
   promptTokens?: number | null
   completionTokens?: number | null
@@ -950,6 +1046,10 @@ export type JobUpdateWithoutTracesInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lockedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  runAfter?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -973,6 +1073,10 @@ export type JobUncheckedUpdateWithoutTracesInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lockedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  runAfter?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -996,6 +1100,10 @@ export type JobCreateWithoutEvalsInput = {
   createdAt?: Date | string
   startedAt?: Date | string | null
   completedAt?: Date | string | null
+  lockedBy?: string | null
+  leaseToken?: string | null
+  leaseExpiresAt?: Date | string | null
+  runAfter?: Date | string
   latencyMs?: number | null
   promptTokens?: number | null
   completionTokens?: number | null
@@ -1019,6 +1127,10 @@ export type JobUncheckedCreateWithoutEvalsInput = {
   createdAt?: Date | string
   startedAt?: Date | string | null
   completedAt?: Date | string | null
+  lockedBy?: string | null
+  leaseToken?: string | null
+  leaseExpiresAt?: Date | string | null
+  runAfter?: Date | string
   latencyMs?: number | null
   promptTokens?: number | null
   completionTokens?: number | null
@@ -1058,6 +1170,10 @@ export type JobUpdateWithoutEvalsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lockedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  runAfter?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -1081,6 +1197,10 @@ export type JobUncheckedUpdateWithoutEvalsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lockedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  runAfter?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -1104,6 +1224,10 @@ export type JobCreateWithoutDatasetCaseInput = {
   createdAt?: Date | string
   startedAt?: Date | string | null
   completedAt?: Date | string | null
+  lockedBy?: string | null
+  leaseToken?: string | null
+  leaseExpiresAt?: Date | string | null
+  runAfter?: Date | string
   latencyMs?: number | null
   promptTokens?: number | null
   completionTokens?: number | null
@@ -1127,6 +1251,10 @@ export type JobUncheckedCreateWithoutDatasetCaseInput = {
   createdAt?: Date | string
   startedAt?: Date | string | null
   completedAt?: Date | string | null
+  lockedBy?: string | null
+  leaseToken?: string | null
+  leaseExpiresAt?: Date | string | null
+  runAfter?: Date | string
   latencyMs?: number | null
   promptTokens?: number | null
   completionTokens?: number | null
@@ -1179,6 +1307,10 @@ export type JobScalarWhereInput = {
   createdAt?: Prisma.DateTimeFilter<"Job"> | Date | string
   startedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
   completedAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
+  lockedBy?: Prisma.UuidNullableFilter<"Job"> | string | null
+  leaseToken?: Prisma.UuidNullableFilter<"Job"> | string | null
+  leaseExpiresAt?: Prisma.DateTimeNullableFilter<"Job"> | Date | string | null
+  runAfter?: Prisma.DateTimeFilter<"Job"> | Date | string
   latencyMs?: Prisma.IntNullableFilter<"Job"> | number | null
   promptTokens?: Prisma.IntNullableFilter<"Job"> | number | null
   completionTokens?: Prisma.IntNullableFilter<"Job"> | number | null
@@ -1201,6 +1333,10 @@ export type JobCreateWithoutRunInput = {
   createdAt?: Date | string
   startedAt?: Date | string | null
   completedAt?: Date | string | null
+  lockedBy?: string | null
+  leaseToken?: string | null
+  leaseExpiresAt?: Date | string | null
+  runAfter?: Date | string
   latencyMs?: number | null
   promptTokens?: number | null
   completionTokens?: number | null
@@ -1224,6 +1360,10 @@ export type JobUncheckedCreateWithoutRunInput = {
   createdAt?: Date | string
   startedAt?: Date | string | null
   completedAt?: Date | string | null
+  lockedBy?: string | null
+  leaseToken?: string | null
+  leaseExpiresAt?: Date | string | null
+  runAfter?: Date | string
   latencyMs?: number | null
   promptTokens?: number | null
   completionTokens?: number | null
@@ -1273,6 +1413,10 @@ export type JobCreateManyDatasetCaseInput = {
   createdAt?: Date | string
   startedAt?: Date | string | null
   completedAt?: Date | string | null
+  lockedBy?: string | null
+  leaseToken?: string | null
+  leaseExpiresAt?: Date | string | null
+  runAfter?: Date | string
   latencyMs?: number | null
   promptTokens?: number | null
   completionTokens?: number | null
@@ -1294,6 +1438,10 @@ export type JobUpdateWithoutDatasetCaseInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lockedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  runAfter?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -1317,6 +1465,10 @@ export type JobUncheckedUpdateWithoutDatasetCaseInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lockedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  runAfter?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -1340,6 +1492,10 @@ export type JobUncheckedUpdateManyWithoutDatasetCaseInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lockedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  runAfter?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -1361,6 +1517,10 @@ export type JobCreateManyRunInput = {
   createdAt?: Date | string
   startedAt?: Date | string | null
   completedAt?: Date | string | null
+  lockedBy?: string | null
+  leaseToken?: string | null
+  leaseExpiresAt?: Date | string | null
+  runAfter?: Date | string
   latencyMs?: number | null
   promptTokens?: number | null
   completionTokens?: number | null
@@ -1382,6 +1542,10 @@ export type JobUpdateWithoutRunInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lockedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  runAfter?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -1405,6 +1569,10 @@ export type JobUncheckedUpdateWithoutRunInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lockedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  runAfter?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -1428,6 +1596,10 @@ export type JobUncheckedUpdateManyWithoutRunInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lockedBy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  leaseExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  runAfter?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   latencyMs?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   promptTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   completionTokens?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -1489,6 +1661,10 @@ export type JobSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = ru
   createdAt?: boolean
   startedAt?: boolean
   completedAt?: boolean
+  lockedBy?: boolean
+  leaseToken?: boolean
+  leaseExpiresAt?: boolean
+  runAfter?: boolean
   latencyMs?: boolean
   promptTokens?: boolean
   completionTokens?: boolean
@@ -1516,6 +1692,10 @@ export type JobSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extension
   createdAt?: boolean
   startedAt?: boolean
   completedAt?: boolean
+  lockedBy?: boolean
+  leaseToken?: boolean
+  leaseExpiresAt?: boolean
+  runAfter?: boolean
   latencyMs?: boolean
   promptTokens?: boolean
   completionTokens?: boolean
@@ -1540,6 +1720,10 @@ export type JobSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extension
   createdAt?: boolean
   startedAt?: boolean
   completedAt?: boolean
+  lockedBy?: boolean
+  leaseToken?: boolean
+  leaseExpiresAt?: boolean
+  runAfter?: boolean
   latencyMs?: boolean
   promptTokens?: boolean
   completionTokens?: boolean
@@ -1564,6 +1748,10 @@ export type JobSelectScalar = {
   createdAt?: boolean
   startedAt?: boolean
   completedAt?: boolean
+  lockedBy?: boolean
+  leaseToken?: boolean
+  leaseExpiresAt?: boolean
+  runAfter?: boolean
   latencyMs?: boolean
   promptTokens?: boolean
   completionTokens?: boolean
@@ -1574,7 +1762,7 @@ export type JobSelectScalar = {
   caseId?: boolean
 }
 
-export type JobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "type" | "status" | "input" | "result" | "error" | "attempts" | "maxAttempts" | "createdAt" | "startedAt" | "completedAt" | "latencyMs" | "promptTokens" | "completionTokens" | "totalTokens" | "estimatedCost" | "evalScore" | "runId" | "caseId", ExtArgs["result"]["job"]>
+export type JobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "type" | "status" | "input" | "result" | "error" | "attempts" | "maxAttempts" | "createdAt" | "startedAt" | "completedAt" | "lockedBy" | "leaseToken" | "leaseExpiresAt" | "runAfter" | "latencyMs" | "promptTokens" | "completionTokens" | "totalTokens" | "estimatedCost" | "evalScore" | "runId" | "caseId", ExtArgs["result"]["job"]>
 export type JobInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   traces?: boolean | Prisma.Job$tracesArgs<ExtArgs>
   evals?: boolean | Prisma.Job$evalsArgs<ExtArgs>
@@ -1611,6 +1799,10 @@ export type $JobPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
     createdAt: Date
     startedAt: Date | null
     completedAt: Date | null
+    lockedBy: string | null
+    leaseToken: string | null
+    leaseExpiresAt: Date | null
+    runAfter: Date
     latencyMs: number | null
     promptTokens: number | null
     completionTokens: number | null
@@ -2057,6 +2249,10 @@ export interface JobFieldRefs {
   readonly createdAt: Prisma.FieldRef<"Job", 'DateTime'>
   readonly startedAt: Prisma.FieldRef<"Job", 'DateTime'>
   readonly completedAt: Prisma.FieldRef<"Job", 'DateTime'>
+  readonly lockedBy: Prisma.FieldRef<"Job", 'String'>
+  readonly leaseToken: Prisma.FieldRef<"Job", 'String'>
+  readonly leaseExpiresAt: Prisma.FieldRef<"Job", 'DateTime'>
+  readonly runAfter: Prisma.FieldRef<"Job", 'DateTime'>
   readonly latencyMs: Prisma.FieldRef<"Job", 'Int'>
   readonly promptTokens: Prisma.FieldRef<"Job", 'Int'>
   readonly completionTokens: Prisma.FieldRef<"Job", 'Int'>

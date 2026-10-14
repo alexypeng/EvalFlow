@@ -32,6 +32,10 @@ model Job {
   createdAt        DateTime  @default(now()) @map("created_at")
   startedAt        DateTime? @map("started_at")
   completedAt      DateTime? @map("completed_at")
+  lockedBy         String?   @map("locked_by") @db.Uuid
+  leaseToken       String?   @map("lease_token") @db.Uuid
+  leaseExpiresAt   DateTime? @map("lease_expires_at")
+  runAfter         DateTime  @default(now()) @map("run_after")
   latencyMs        Int?      @map("latency_ms")
   promptTokens     Int?      @map("prompt_tokens")
   completionTokens Int?      @map("completion_tokens")
@@ -48,6 +52,8 @@ model Job {
   datasetCase DatasetCase? @relation(fields: [caseId], references: [id])
 
   @@index([status, createdAt])
+  @@index([status, leaseExpiresAt])
+  @@index([status, runAfter, createdAt])
   @@index([runId])
   @@map("jobs")
 }
