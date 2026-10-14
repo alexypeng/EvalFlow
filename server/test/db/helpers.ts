@@ -10,6 +10,13 @@ export async function resetDatabase() {
     await prisma.$executeRawUnsafe("TRUNCATE TABLE jobs, runs, dataset_cases, datasets CASCADE");
 }
 
+// Advance one fixture's eligibility without sleeping or changing the production backoff policy.
+export async function makeJobDue(id: string) {
+    await prisma.$executeRaw`
+        UPDATE jobs SET run_after = date_trunc('milliseconds', clock_timestamp()) WHERE id = ${id}::uuid
+    `;
+}
+
 // Loads retention v1 (a no-op if already loaded) and starts a run of it.
 export async function startRun(promptVersion = "v1") {
     await loadDataset(await readDatasetFile(retentionV1));

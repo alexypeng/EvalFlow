@@ -406,15 +406,25 @@ EvalFlow includes basic reliability behavior expected in backend AI systems:
 - Failed jobs can be manually retried from the API or dashboard.
 
 The separate reaper checks expiry using database time. It requeues expired running jobs with attempts
-remaining and marks exhausted jobs `failed`, clearing ownership in either case. Recovery does not
-increment attempts; the next claim does. With the default settings, an unrenewed lease expires after
+remaining using the backoff policy below and marks exhausted jobs `failed`, clearing ownership in either
+case. Recovery does not increment attempts; the next claim does. With the default settings, an unrenewed lease expires after
 60 seconds and becomes eligible for the next scan (every 5 seconds, subject to batch backlog and locks).
 If the reaper is offline, expired jobs wait until it returns. SIGTERM/SIGINT stop scans, finish the
 current database operation and disconnect.
 
 Lease loss stops further pipeline steps once detected; an already running model call may
 still finish, but its result is rejected. Traces include the worker identity and claim token so attempt
-history remains distinguishable. Retries are still immediate; delayed backoff follows in M3.
+history remains distinguishable.
+
+Automatic retries from worker errors and expired-lease recovery use exponential backoff with jitter.
+After attempt 1, the wait is 1–2 seconds; after attempt 2, 2–4 seconds; then 4–8, 8–16 and
+15–30 seconds for attempt 5 onward. The exponential ceiling caps at 30 seconds; a random delay
+between half and all of that ceiling spreads retries across jobs. Delays are chosen in whole milliseconds.
+Both paths save `run_after` using Postgres time in the same operation that requeues the job and clears
+ownership. Workers skip future jobs, so waiting consumes no worker slot and survives process restarts.
+Actual execution can start later because of polling or queue backlog. Attempts increment only on claim.
+Exhausted jobs remain `failed`; manually retrying one resets attempts and makes it immediately eligible.
+These delays reduce retry pressure during failures; a shared provider rate limiter remains planned in M3.
 
 EvalFlow also stores observability data for each run:
 

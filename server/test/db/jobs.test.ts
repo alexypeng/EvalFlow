@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeEach } from "vitest";
-import { resetDatabase } from "./helpers.js";
+import { makeJobDue, resetDatabase } from "./helpers.js";
 import { prisma } from "../../src/db.js";
 import { claimNextJob, failOrRetryJob } from "../../src/jobs.js";
 import { Prisma } from "../../src/generated/prisma/client.js";
@@ -106,6 +106,8 @@ describe("failOrRetryJob", () => {
                 expect(failed!.completedAt).toBeInstanceOf(Date);
             } else {
                 expect(failed!.status).toBe("queued");
+                expect(await claim()).toBeNull();
+                await makeJobDue(run!.id);
             }
         }
 
@@ -123,6 +125,7 @@ describe("failOrRetryJob", () => {
             error: "timeout",
         });
 
+        await makeJobDue(claimed!.id);
         claimed = await claim();
         const failed = await failOrRetryJob({
             ...claimed!,

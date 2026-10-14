@@ -3,6 +3,15 @@ import { Prisma } from "./generated/prisma/client.js";
 import { prisma } from "./db.js";
 import { validateLeaseDuration } from "./leaseSettings.js";
 
+// Equal jitter: wait between half and all of the exponential ceiling (2s, 4s, ... up to 30s).
+// Clamp the exponent before calculating it so large attempt counts cannot overflow.
+const automaticRetryAt = Prisma.sql`
+    date_trunc('milliseconds', clock_timestamp()) +
+    CASE WHEN attempts < max_attempts THEN
+        floor(LEAST(30000, 2000 * power(2, LEAST(4, GREATEST(attempts - 1, 0)))) * (0.5 + random() * 0.5))
+    ELSE 0 END * interval '1 millisecond'
+`;
+
 export async function createJob(type: string, input: Prisma.InputJsonValue, maxAttempts = 3) {
     return prisma.job.create({
         data: {
@@ -85,7 +94,7 @@ export async function reapExpiredJobs(batchSize = 100) {
                 THEN 'queued'::"JobStatus" ELSE 'failed'::"JobStatus" END,
             error = 'Worker lease expired',
             completed_at = CASE WHEN job.attempts < job.max_attempts THEN NULL ELSE clock_timestamp() END,
-            run_after = date_trunc('milliseconds', clock_timestamp()),
+            run_after = ${automaticRetryAt},
             locked_by = NULL, lease_token = NULL, lease_expires_at = NULL
         FROM expired WHERE job.id = expired.id
         RETURNING job.id, job.status
@@ -199,7 +208,7 @@ export async function failOrRetryJob(params: JobLease & { error: string }) {
                 THEN 'queued'::"JobStatus" ELSE 'failed'::"JobStatus" END,
                 error = ${params.error},
                 completed_at = CASE WHEN attempts < max_attempts THEN NULL ELSE clock_timestamp() END,
-                run_after = date_trunc('milliseconds', clock_timestamp()),
+                run_after = ${automaticRetryAt},
                 locked_by = NULL, lease_token = NULL, lease_expires_at = NULL
             WHERE id = ${params.id}::uuid
         `;

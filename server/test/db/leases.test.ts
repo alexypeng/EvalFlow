@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { prisma } from "../../src/db.js";
 import { claimNextJob, completeJob, failOrRetryJob, renewJobLease, retryJob } from "../../src/jobs.js";
 import type { JobLease, JobEvaluation } from "../../src/jobs.js";
-import { resetDatabase, startRun } from "./helpers.js";
+import { makeJobDue, resetDatabase, startRun } from "./helpers.js";
 
 beforeEach(resetDatabase);
 const workerId = randomUUID();
@@ -149,6 +149,8 @@ it("accepts one concurrent retry transition and clears ownership before the next
     const results = await Promise.all(Array.from({ length: 10 }, () => failOrRetryJob({ ...old, error: "retry" })));
     expect(results.filter(Boolean)).toHaveLength(1);
     expect(results.find(Boolean)).toMatchObject({ status: "queued", attempts: 1, leaseToken: null, lockedBy: null });
+    expect(await claim()).toBeNull();
+    await makeJobDue(old.id);
     const next = (await claim())!;
     expect(next.attempts).toBe(2);
     expect(next.leaseToken).not.toBe(old.leaseToken);

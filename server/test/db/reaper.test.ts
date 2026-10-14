@@ -5,7 +5,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { beforeEach, expect, it } from "vitest";
 import { prisma } from "../../src/db.js";
 import { claimNextJob, completeJob, failOrRetryJob, reapExpiredJobs, renewJobLease } from "../../src/jobs.js";
-import { resetDatabase } from "./helpers.js";
+import { makeJobDue, resetDatabase } from "./helpers.js";
 
 beforeEach(resetDatabase);
 const workerId = randomUUID();
@@ -19,7 +19,7 @@ async function expire(id: string) {
     `;
 }
 
-it("recovers only expired running jobs, preserves attempt counts and makes retries due", async () => {
+it("recovers only expired running jobs, preserves attempt counts and delays retries", async () => {
     const expired = await claimed();
     const live = await claimed();
     const exhausted = await claimed(1);
@@ -47,6 +47,8 @@ it("recovers only expired running jobs, preserves attempt counts and makes retri
     })).toEqual(untouched);
     expect(await reapExpiredJobs()).toEqual([]);
     await prisma.job.delete({ where: { id: queued.id } });
+    expect(await claimNextJob(workerId, 60_000)).toBeNull();
+    await makeJobDue(expired.id);
     const next = (await claimNextJob(workerId, 60_000))!;
     expect(next).toMatchObject({ id: expired.id, attempts: 2 });
     expect(next.leaseToken).not.toBe(expired.leaseToken);
