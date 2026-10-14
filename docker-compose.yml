@@ -65,6 +65,8 @@ services:
             GEMINI_MODEL: gemini-3.8-flash
             LLM_PROVIDER: mock
             WORKER_CONCURRENCY: 1
+            LEASE_DURATION_MS: ${LEASE_DURATION_MS:-60000}
+            HEARTBEAT_INTERVAL_MS: ${HEARTBEAT_INTERVAL_MS:-20000}
         depends_on:
             migrate:
                 condition: service_completed_successfully

@@ -10,14 +10,14 @@ The working plan and status tracker. [`ROADMAP.md`](ROADMAP.md) is the one-parag
 
 ## Status snapshot
 
-_Last updated: 2026-10-13_
+_Last updated: 2026-10-14_
 
 | | |
 |---|---|
 | **Current milestone** | M3 Reliable workers, branch `m3-reliable-workers` |
 | **Done** | M0 Foundations (PR #1), M1 datasets and runs (PR #2), M2 CI regression gate (PR #3), all merged |
-| **Waiting on you** | Commit/push the reviewed lease schema changes |
-| **Next up** | Wire lease-aware claiming and ownership checks, then heartbeat/reaper recovery |
+| **Waiting on you** | Commit the reviewed lease-aware worker checkpoint |
+| **Next up** | Agree expired-lease reaper recovery design |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -127,15 +127,39 @@ The strongest infra material in the project. Every task here is interview-level,
 from the current lease holder. Proposed schema adds locked_by (worker identity), lease_token (fresh per claim),
 lease_expires_at and run_after. Manual retry resets attempts, so attempts alone cannot identify a claim forever.
 Owner approved those fields. Lease fields/migration are implemented; dead-letter status will be added with its
-transition/reporting behavior. Worker claiming and recovery are not wired yet.
+transition/reporting behavior. Worker claiming, renewal and fenced atomic finalization are wired;
+expired-lease recovery still waits for the reaper. Owner approved configurable 60-second leases and
+20-second heartbeats on 2026-10-14.
+
+Checkpoint files: `.env.example`, `README.md`, `docker-compose.yml`, `docs/PLAN.md`,
+`server/prisma/schema.prisma`, `server/prisma/migrations/20261014000000_use_database_scheduling_time/migration.sql`,
+`server/src/generated/prisma/internal/class.ts` (regenerated), `server/src/jobs.ts`, `server/src/worker.ts`,
+`server/src/heartbeat.ts`, `server/src/leaseSettings.ts`, `server/test/db/helpers.ts`, `server/test/db/jobs.test.ts`,
+`server/test/db/leases.test.ts`, `server/test/db/workerLeases.test.ts`, `server/test/unit/heartbeat.test.ts`.
+
+Suggested checkpoint commit after learning review (owner runs it):
+
+```bash
+git add .env.example README.md docker-compose.yml docs/PLAN.md \
+  server/prisma/schema.prisma \
+  server/prisma/migrations/20261014000000_use_database_scheduling_time/migration.sql \
+  server/src/generated/prisma/internal/class.ts \
+  server/src/jobs.ts server/src/worker.ts server/src/heartbeat.ts server/src/leaseSettings.ts \
+  server/test/db/helpers.ts server/test/db/jobs.test.ts server/test/db/leases.test.ts \
+  server/test/db/workerLeases.test.ts server/test/unit/heartbeat.test.ts
+git commit -m "Add worker leases, heartbeats and fenced finalization"
+```
+
+The new default migration is applied only to `evalflow_test`. Before running the updated worker against
+an existing development DB, apply committed migrations with `pnpm --filter server exec prisma migrate deploy`.
 
 Tasks:
 - [x] **ME** Lease/scheduling schema: `lease_expires_at`, `locked_by`, fresh-per-claim `lease_token`, `run_after`; migration/client verified, learning review completed.
 - [ ] **ME** Schema: dead-letter status, introduced alongside its transition/reporting behavior
-- [ ] **ME** Lease on claim; heartbeat that extends the lease while a job is running
+- [x] **ME** Lease on claim; heartbeat extends the lease while tools/model run (learning review completed)
 - [ ] **ME** Reaper that requeues jobs whose lease expired (fixes known issue: crashed worker leaves jobs `running` forever)
-- [ ] **ME** Fencing: `completeJob` and `failOrRetryJob` only succeed if this worker still holds the lease
-- [ ] **ME** Exponential backoff with jitter via `run_after`; claim query skips jobs not yet due
+- [x] **ME** Fencing: completion/failure/renewal require current unexpired ownership; completion and eval save atomically (learning review completed)
+- [ ] **ME** Exponential backoff with jitter via `run_after` (due-only claiming implemented; delayed retries pending)
 - [ ] **ME** Dead-letter state after `maxAttempts`
 - [ ] **Claude** API and dashboard: list dead-lettered jobs, requeue them
 - [ ] **ME** Graceful SIGTERM shutdown: stop claiming, finish in-flight jobs within a timeout, release leases
@@ -210,6 +234,8 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-14 | Use configurable 60-second leases and 20-second heartbeats; atomically fence result/eval persistence | Renewals run serially during the pipeline. Finalization locks the job, then checks database time, status, worker and claim token so lock waits cannot preserve expired authority. A rejected claim saves no eval; eval persistence failure rolls back the result. Reaper follows separately. |
+| 2026-10-14 | Make run_after explicitly database-generated and truncate immediate scheduling to milliseconds | Query logging showed Prisma sends application time for @default(now()). A dbgenerated SQL default preserves the agreed database-clock scheduling guarantee, including createMany run fan-out. Truncation avoids rounding an immediately eligible timestamp into the next millisecond. Manual/automatic retries use the same database clock. |
 | 2026-10-13 | Owner approved fresh lease tokens with separate worker identity, lease expiry and delayed scheduling fields | Attempts can reset on manual retry, and worker identity can be reused for another claim. A per-claim UUID distinguishes stale work from a current claim. Ownership/expiry fields start nullable; run_after defaults to DB time so new jobs are initially eligible. Runtime enforcement follows in the next piece. |
 | 2026-10-13 | Owner approved M3 recovery guarantee: repeated execution after crashes is allowed, but final writes require current claim ownership | A crash after an LLM call but before persistence cannot prove whether external work occurred. Recovery must permit another attempt while fencing stale workers from finalizing later claims. |
 | 2026-10-13 | Owner approved default mock v1 baseline (16/20 passes), a read-only evaluation job, and same-repository PR comments from a separate job | Provides a reproducible zero-failure profile with existing judgment mistakes represented honestly. Fork PRs retain summary/artifact without requiring write tokens; Dependabot uses the same read-only reporting behavior. |
@@ -248,6 +274,9 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 ## Session log
 
+- **2026-10-14 (worker integration learning review):** Explained that slow model calls retain ownership through independent heartbeats; missed renewal can result from a crash, database connectivity/latency or a paused process. A living worker can receive a model response after losing database ownership, but the result must be discarded. Distinguished a valid recorded evaluation failure (completed job, failed outcome, no retry) from an evaluation persistence failure (atomic rollback, guarded retry/failure path). Owner correctly rejected retrying valid evaluated output. Clarified that sending before expiry does not reserve ownership while waiting for a row lock; owner correctly rejected completion after expiry at lock acquisition. Learning review completed. Updated PLAN only; existing verification remains 184 passed and 1 expected failure, with typecheck/build passing. Checkpoint remains uncommitted; owner commit next, then agree reaper design. No commits, pushes or PRs.
+- **2026-10-14 (lease-aware worker integration):** Owner approved 60-second leases/20-second heartbeats. Claims now skip future/exhausted queued jobs, assign worker identity plus fresh token/DB expiry, and increment attempts safely across concurrent workers. Heartbeat renewals run serially during the pipeline and are stopped/drained on every exit; detected lease loss abandons remaining work, while an already-started LLM call may still finish. Finalization, renewal and failure lock/check current running status, worker/token and unexpired DB time; completion and eval insert share one transaction. Removed separate production eval insertion; report fixtures use direct test-only persistence to support historical eval scenarios. Retry decisions use persisted attempt limits; concurrent manual retries are serialized, reset scheduling and clear ownership. Traces include worker/token metadata. Added validated env settings and Compose wiring, README behavior/remaining limitations, and concurrency/expiry/replacement/rollback/real-worker tests. Initial DB tests exposed a missing enum cast (fixed); combined runs exposed immediate-scheduling failures. Temporary Prisma query logging showed @default(now()) inserts application time. Changed run_after to an explicit database-generated millisecond-truncated default through migration 20261014000000_use_database_scheduling_time, regenerated client, and used truncated DB time for immediate retries. Clock-skew test covers job creation and run fan-out with application time two minutes ahead. Final verification: 184 passed, 1 existing expected failure across 17 files; typecheck, server/frontend build, Compose config and diff check pass. Migration applied only to evalflow_test; temporary diagnostics removed and test worker processes stopped. Reaper, delayed backoff, dead-lettering, graceful shutdown and rate limiting remain pending. Learning review next; all changes uncommitted, learning files preserved. No commits, pushes or PRs.
+- **2026-10-14 (worker integration planning):** Confirmed schema commit e646f82 is pushed on m3-reliable-workers, with no tracked changes pending. Next piece proposes due-only claiming, worker identity/fresh token/expiry assignment, heartbeat renewal, and guarded result/eval persistence together; reaper recovery follows. Recommended configurable 60-second leases renewed every 20 seconds so slow model calls retain ownership while alive. Awaiting timing agreement before implementation. PLAN only; no application edits, tests, commits, pushes or PRs.
 - **2026-10-13 (lease schema learning review):** Clarified that every claim gets a fresh token even when the worker is the same, because reusing a token makes old/new attempts indistinguishable. Reviewed unowned queued jobs and clearing expired ownership; owner correctly explained that clearing permits the next worker to pick up the job. Explained run_after as the earliest eligible time; owner correctly rejected claiming at 12:00:05 when run_after is 12:00:10. Schema checkpoint completed. Confirmed changes remain uncommitted on m3-reliable-workers with no upstream yet; supplied commit/push commands. No application changes or additional tests; PLAN updated.
 - **2026-10-13 (lease schema):** Owner approved implementing the proposed ownership fields after reviewing crash recovery intuitively. Added nullable UUID locked_by/lease_token, nullable lease_expires_at and non-null run_after defaulting to database time, with status/expiry and status/due/creation indexes. Generated migration 20261013000000_add_job_lease_fields with Prisma migrate diff, then regenerated the client; no generated files edited by hand. Added two DB tests for unowned/immediately eligible defaults and independent identities/timestamp persistence. Typecheck/server build/full suite pass (166 passed, 1 existing expected failure). Migration applied only to evalflow_test; no development DB mutation. Existing queue behavior unchanged; leases, delayed eligibility and stale-write protection are not enforced until wiring work. Dead-letter schema deferred to its handling piece as agreed. Updated PLAN, preserving learning files. No commits, pushes or PRs; schema review next.
 - **2026-10-13 (M3 guarantee and ownership planning):** Owner approved the proposed crash recovery/completion guarantee. Read schema and retryJob: attempts is reset to zero on manual retry, so worker identity plus attempt number can be reused. Proposed a separate fresh lease_token for every claim alongside locked_by, lease_expires_at and run_after; token prevents old attempts writing into later claims, including manual retries. No schema or application changes yet; awaiting field design agreement. PLAN only, uncommitted; no commits, pushes or PRs.

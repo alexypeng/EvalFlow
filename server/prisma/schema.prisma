@@ -35,7 +35,7 @@ model Job {
   lockedBy         String?   @map("locked_by") @db.Uuid
   leaseToken       String?   @map("lease_token") @db.Uuid
   leaseExpiresAt   DateTime? @map("lease_expires_at")
-  runAfter         DateTime  @default(now()) @map("run_after")
+  runAfter         DateTime  @default(dbgenerated("date_trunc('milliseconds', CURRENT_TIMESTAMP)")) @map("run_after")
   latencyMs        Int?      @map("latency_ms")
   promptTokens     Int?      @map("prompt_tokens")
   completionTokens Int?      @map("completion_tokens")

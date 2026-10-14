@@ -1,19 +1,28 @@
 import "dotenv/config";
+import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { getFeatureUsage, getRetentionSummary, getSubscriptionHistory, getUserEvents } from "./analyticsTools.js";
-import { addTrace, claimNextJob, completeJob, failOrRetryJob, createEval } from "./jobs.js";
+import { addTrace, claimNextJob, completeJob, failOrRetryJob, renewJobLease } from "./jobs.js";
 import { parseLlmJson, validateRetentionOutput, scoreRetentionAnalysis } from "./evaluator.js";
 import { buildRetentionPrompt, callLlm, defaultPromptVersion } from "./llm.js";
+import { startHeartbeat, LeaseLostError } from "./heartbeat.js";
+import { workerLeaseSettings } from "./leaseSettings.js";
+import type { JobLease } from "./jobs.js";
 import { JobInputSchema } from "./types.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
+const workerId = randomUUID();
+const { leaseDurationMs, heartbeatIntervalMs } = workerLeaseSettings(process.env);
 const concurrency = Number(process.env.WORKER_CONCURRENCY ?? 1);
 
 if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new Error(`WORKER_CONCURRENCY must be a positive integer (got "${process.env.WORKER_CONCURRENCY}")`);
 }
 
-console.log(`Worker running ${concurrency} slot(s), polling every ${pollIntervalMs}ms when idle`);
+console.log(
+    `Worker ${workerId} running ${concurrency} slot(s), polling every ${pollIntervalMs}ms when idle; ` +
+        `lease ${leaseDurationMs}ms, heartbeat ${heartbeatIntervalMs}ms`,
+);
 
 async function timed<T>(fn: () => Promise<T>) {
     const startedAt = Date.now();
@@ -25,14 +34,15 @@ async function timed<T>(fn: () => Promise<T>) {
     };
 }
 
-async function processJob(job: {
-    id: string;
-    caseId: string | null;
-    input: unknown;
-    attempts: number;
-    maxAttempts: number;
-}) {
+async function processJob(
+    job: JobLease & { caseId: string | null; input: unknown },
+    assertActive: () => void,
+) {
     const startedAt = Date.now();
+    const trace: typeof addTrace = (params) => {
+        assertActive();
+        return addTrace({ ...params, input: { ...(params.input as object), workerId, leaseToken: job.leaseToken } });
+    };
 
     const {
         userId,
@@ -47,7 +57,7 @@ async function processJob(job: {
     };
 
     const events = await timed(() => getUserEvents(userId, caseSnapshot));
-    await addTrace({
+    await trace({
         jobId: job.id,
         stepName: "getUserEvents",
         input: toolInput,
@@ -56,7 +66,7 @@ async function processJob(job: {
     });
 
     const featureUsage = await timed(() => getFeatureUsage(userId, caseSnapshot));
-    await addTrace({
+    await trace({
         jobId: job.id,
         stepName: "getFeatureUsage",
         input: toolInput,
@@ -65,7 +75,7 @@ async function processJob(job: {
     });
 
     const subscriptionHistory = await timed(() => getSubscriptionHistory(userId, caseSnapshot));
-    await addTrace({
+    await trace({
         jobId: job.id,
         stepName: "getSubscriptionHistory",
         input: toolInput,
@@ -74,7 +84,7 @@ async function processJob(job: {
     });
 
     const retentionSummary = await timed(() => getRetentionSummary(userId, caseSnapshot));
-    await addTrace({
+    await trace({
         jobId: job.id,
         stepName: "getRetentionSummary",
         input: toolInput,
@@ -91,9 +101,10 @@ async function processJob(job: {
 
     const prompt = await buildRetentionPrompt(userId, snapshot, promptVersion);
 
+    assertActive();
     const llmCall = await timed(() => callLlm(prompt, snapshot, { caseId: job.caseId ?? undefined, mockConfig }));
 
-    await addTrace({
+    await trace({
         jobId: job.id,
         stepName: "llm_call",
         input: {
@@ -133,51 +144,43 @@ async function processJob(job: {
         expectedRisk,
     });
 
-    await createEval({
-        jobId: job.id,
-        validJson: evalResult.validJson,
-        hasRequiredFields: evalResult.hasRequiredFields,
-        evidenceIncluded: evalResult.evidenceIncluded,
-        evidenceSupported: evalResult.evidenceSupported,
-        reasonableRiskLabel: evalResult.reasonableRiskLabel,
-        taskCompletionScore: evalResult.taskCompletionScore,
-        notes: evalResult.notes,
-    });
-
-    await completeJob({
-        id: job.id,
+    assertActive();
+    const completed = await completeJob({
+        ...job,
         result: validation.data,
         latencyMs: Date.now() - startedAt,
         promptTokens: llmCall.output.promptTokens,
         completionTokens: llmCall.output.completionTokens,
         totalTokens: llmCall.output.totalTokens,
         estimatedCost: llmCall.output.estimatedCost,
-        evalScore: evalResult.taskCompletionScore,
+        evaluation: evalResult,
     });
 
+    if (!completed) throw new LeaseLostError();
     console.log(`Completed job ${job.id}`);
 }
 
 async function runOnce() {
-    const job = await claimNextJob();
+    const job = await claimNextJob(workerId, leaseDurationMs);
 
     if (!job) return false;
 
     console.log(`Claimed job ${job.id}`);
 
+    const heartbeat = startHeartbeat(heartbeatIntervalMs, () => renewJobLease(job, leaseDurationMs));
     try {
-        await processJob(job);
+        await processJob(job, heartbeat.assertActive);
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
 
-        await failOrRetryJob({
-            id: job.id,
-            attempts: job.attempts,
-            maxAttempts: job.maxAttempts,
-            error: message,
-        });
-
-        console.error(`Job ${job.id} failed`, error);
+        if (error instanceof LeaseLostError) {
+            console.error(`Job ${job.id}: ${message}`);
+        } else {
+            const updated = await failOrRetryJob({ ...job, error: message });
+            console.error(updated ? `Job ${job.id} failed` : `Job ${job.id} lease lost; failure discarded`, error);
+        }
+    } finally {
+        await heartbeat.stop();
     }
 
     return true;

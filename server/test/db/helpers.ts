@@ -1,7 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { loadDataset, readDatasetFile } from "../../src/datasets.js";
 import { prisma } from "../../src/db.js";
-import { completeJob, createEval } from "../../src/jobs.js";
 import { createRun } from "../../src/runs.js";
 
 export const retentionV1 = fileURLToPath(new URL("../../datasets/retention-v1.json", import.meta.url));
@@ -21,30 +20,36 @@ export async function startRun(promptVersion = "v1") {
     return { run: result.run, jobs };
 }
 
-// Stands in for the worker: grades and completes a job with a chosen outcome.
+// Report fixtures deliberately permit eval history; production workers finalize through the fenced transaction.
 export async function finishJob(
     jobId: string,
     outcome: { labelCorrect: boolean; score: number; latencyMs: number; tokens?: number; cost?: number },
 ) {
-    await createEval({
-        jobId,
-        validJson: true,
-        hasRequiredFields: true,
-        evidenceIncluded: true,
-        evidenceSupported: true,
-        reasonableRiskLabel: outcome.labelCorrect,
-        taskCompletionScore: outcome.score,
-        notes: "test",
+    await prisma.eval.create({
+        data: {
+            jobId,
+            validJson: true,
+            hasRequiredFields: true,
+            evidenceIncluded: true,
+            evidenceSupported: true,
+            reasonableRiskLabel: outcome.labelCorrect,
+            taskCompletionScore: outcome.score,
+            notes: "test",
+        },
     });
-    await completeJob({
-        id: jobId,
-        result: {},
-        latencyMs: outcome.latencyMs,
-        promptTokens: 0,
-        completionTokens: outcome.tokens ?? 0,
-        totalTokens: outcome.tokens ?? 0,
-        estimatedCost: outcome.cost ?? 0,
-        evalScore: outcome.score,
+    await prisma.job.update({
+        where: { id: jobId },
+        data: {
+            status: "completed",
+            completedAt: new Date(),
+            result: {},
+            latencyMs: outcome.latencyMs,
+            promptTokens: 0,
+            completionTokens: outcome.tokens ?? 0,
+            totalTokens: outcome.tokens ?? 0,
+            estimatedCost: outcome.cost ?? 0,
+            evalScore: outcome.score,
+        },
     });
 }
 

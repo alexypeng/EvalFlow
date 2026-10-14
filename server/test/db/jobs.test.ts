@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeEach } from "vitest";
 import { resetDatabase } from "./helpers.js";
 import { prisma } from "../../src/db.js";
@@ -5,6 +6,8 @@ import { claimNextJob, failOrRetryJob } from "../../src/jobs.js";
 import { Prisma } from "../../src/generated/prisma/client.js";
 
 beforeEach(resetDatabase);
+const workerId = randomUUID();
+const claim = () => claimNextJob(workerId, 60_000);
 
 function seedJob(overrides: Partial<Prisma.JobCreateInput> = {}) {
     return prisma.job.create({
@@ -26,7 +29,7 @@ describe("claimNextJob", () => {
         await seedJob({ createdAt: secondsAgo(2) });
         await seedJob({ createdAt: secondsAgo(1) });
 
-        const claimed = await claimNextJob();
+        const claimed = await claim();
 
         expect(claimed!.id).toBe(job1.id);
         expect(claimed!.status).toBe("running");
@@ -38,7 +41,7 @@ describe("claimNextJob", () => {
         await seedJob({ status: "running" });
         await seedJob({ status: "completed" });
         await seedJob({ status: "failed" });
-        const claimed = await claimNextJob();
+        const claimed = await claim();
         expect(claimed).toBeNull();
     });
 
@@ -46,7 +49,7 @@ describe("claimNextJob", () => {
         await seedJob({ status: "running", createdAt: secondsAgo(3) });
         const job = await seedJob({ createdAt: secondsAgo(1) });
 
-        const claimed = await claimNextJob();
+        const claimed = await claim();
         expect(claimed!.id).toBe(job.id);
     });
 
@@ -55,13 +58,15 @@ describe("claimNextJob", () => {
             await seedJob();
         }
 
-        const results = await Promise.all(Array.from({ length: 50 }, () => claimNextJob()));
+        const results = await Promise.all(Array.from({ length: 50 }, () => claimNextJob(randomUUID(), 60_000)));
         const claimed = results.filter((job) => job !== null);
         expect(claimed).toHaveLength(20);
 
         const jobIds = claimed.map((job) => job.id);
         const ids = new Set(jobIds);
         expect(ids.size).toBe(20);
+        expect(new Set(claimed.map((job) => job.leaseToken)).size).toBe(20);
+        expect(new Set(claimed.map((job) => job.lockedBy)).size).toBe(20);
 
         const allJobs = await prisma.job.findMany();
         expect(allJobs).toHaveLength(20);
@@ -74,40 +79,37 @@ describe("claimNextJob", () => {
 
 describe("failOrRetryJob", () => {
     it("requeues when attempts < maxAttempts", async () => {
-        const job = await seedJob({ status: "running", attempts: 1, maxAttempts: 3 });
+        await seedJob({ maxAttempts: 3 });
+        const job = (await claim())!;
 
         const retry = await failOrRetryJob({
-            id: job.id,
-            attempts: job.attempts,
-            maxAttempts: job.maxAttempts,
+            ...job,
             error: "LLM returned invalid JSON",
         });
 
-        expect(retry.status).toBe("queued");
-        expect(retry.error).toBe("LLM returned invalid JSON");
-        expect(retry.completedAt).toBeNull();
-        expect(retry.attempts).toBe(1);
+        expect(retry!.status).toBe("queued");
+        expect(retry!.error).toBe("LLM returned invalid JSON");
+        expect(retry!.completedAt).toBeNull();
+        expect(retry!.attempts).toBe(1);
     });
 
     it("marks the job failed once attempts reach maxAttempts", async () => {
         await seedJob({ maxAttempts: 3 });
         for (let i = 0; i < 3; i++) {
-            const run = await claimNextJob();
+            const run = await claim();
             const failed = await failOrRetryJob({
-                id: run!.id,
-                attempts: run!.attempts,
-                maxAttempts: run!.maxAttempts,
+                ...run!,
                 error: "LLM returned invalid JSON",
             });
             if (i === 2) {
-                expect(failed.status).toBe("failed");
-                expect(failed.completedAt).toBeInstanceOf(Date);
+                expect(failed!.status).toBe("failed");
+                expect(failed!.completedAt).toBeInstanceOf(Date);
             } else {
-                expect(failed.status).toBe("queued");
+                expect(failed!.status).toBe("queued");
             }
         }
 
-        const claimed = await claimNextJob();
+        const claimed = await claim();
 
         expect(claimed).toBeNull();
     });
@@ -115,22 +117,18 @@ describe("failOrRetryJob", () => {
     it("records the most recent error message", async () => {
         await seedJob();
 
-        let claimed = await claimNextJob();
+        let claimed = await claim();
         await failOrRetryJob({
-            id: claimed!.id,
-            attempts: claimed!.attempts,
-            maxAttempts: claimed!.maxAttempts,
+            ...claimed!,
             error: "timeout",
         });
 
-        claimed = await claimNextJob();
+        claimed = await claim();
         const failed = await failOrRetryJob({
-            id: claimed!.id,
-            attempts: claimed!.attempts,
-            maxAttempts: claimed!.maxAttempts,
+            ...claimed!,
             error: "LLM returned invalid JSON",
         });
 
-        expect(failed.error).toBe("LLM returned invalid JSON");
+        expect(failed!.error).toBe("LLM returned invalid JSON");
     });
 });

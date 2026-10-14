@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { Prisma } from "./generated/prisma/client.js";
 import { prisma } from "./db.js";
+import { validateLeaseDuration } from "./leaseSettings.js";
 
 export async function createJob(type: string, input: Prisma.InputJsonValue, maxAttempts = 3) {
     return prisma.job.create({
@@ -59,157 +61,13 @@ export async function getMetrics() {
     };
 }
 
-export async function claimNextJob() {
-    const jobs = await prisma.$queryRaw<
-        Array<{
-            id: string;
-            caseId: string | null;
-            type: string;
-            status: string;
-            input: unknown;
-            result: unknown | null;
-            error: string | null;
-            attempts: number;
-            maxAttempts: number;
-            createdAt: Date;
-            startedAt: Date | null;
-            completedAt: Date | null;
-            latencyMs: number | null;
-            promptTokens: number | null;
-            completionTokens: number | null;
-            totalTokens: number | null;
-            estimatedCost: unknown | null;
-            evalScore: number | null;
-        }>
-    >`
-          UPDATE jobs
-          SET
-              status = 'running',
-              attempts = attempts + 1,
-              started_at = now(),
-              completed_at = NULL,
-              error = NULL
-          WHERE id = (
-              SELECT id
-              FROM jobs
-              WHERE status = 'queued'
-              ORDER BY created_at ASC
-              FOR UPDATE SKIP LOCKED
-              LIMIT 1
-          )
-          RETURNING
-              id,
-              case_id AS "caseId",
-              type,
-              status,
-              input,
-              result,
-              error,
-              attempts,
-              max_attempts AS "maxAttempts",
-              created_at AS "createdAt",
-              started_at AS "startedAt",
-              completed_at AS "completedAt",
-              latency_ms AS "latencyMs",
-              prompt_tokens AS "promptTokens",
-              completion_tokens AS "completionTokens",
-              total_tokens AS "totalTokens",
-              estimated_cost AS "estimatedCost",
-              eval_score AS "evalScore"
-      `;
-
-    return jobs[0] ?? null;
-}
-
-export async function completeJob(params: {
+export interface JobLease {
     id: string;
-    result: Prisma.InputJsonValue;
-    latencyMs: number;
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-    estimatedCost: number;
-    evalScore?: number;
-}) {
-    return prisma.job.update({
-        where: {
-            id: params.id,
-        },
-        data: {
-            status: "completed",
-            result: params.result,
-            completedAt: new Date(),
-            latencyMs: params.latencyMs,
-            promptTokens: params.promptTokens,
-            completionTokens: params.completionTokens,
-            totalTokens: params.totalTokens,
-            estimatedCost: params.estimatedCost,
-            evalScore: params.evalScore,
-        },
-    });
+    lockedBy: string;
+    leaseToken: string;
 }
 
-export async function failOrRetryJob(params: { id: string; attempts: number; maxAttempts: number; error: string }) {
-    const shouldRetry = params.attempts < params.maxAttempts;
-
-    return prisma.job.update({
-        where: {
-            id: params.id,
-        },
-        data: {
-            status: shouldRetry ? "queued" : "failed",
-            error: params.error,
-            completedAt: shouldRetry ? null : new Date(),
-        },
-    });
-}
-
-export async function retryJob(id: string) {
-    const job = await prisma.job.findUnique({
-        where: { id },
-    });
-
-    if (!job) {
-        return {
-            ok: false as const,
-            reason: "not_found" as const,
-        };
-    }
-
-    if (job.status !== "failed") {
-        return {
-            ok: false as const,
-            reason: "not_failed" as const,
-            job,
-        };
-    }
-
-    const retriedJob = await prisma.job.update({
-        where: { id },
-        data: {
-            status: "queued",
-            attempts: 0,
-            error: null,
-            result: Prisma.DbNull,
-            startedAt: null,
-            completedAt: null,
-            latencyMs: null,
-            promptTokens: null,
-            completionTokens: null,
-            totalTokens: null,
-            estimatedCost: null,
-            evalScore: null,
-        },
-    });
-
-    return {
-        ok: true as const,
-        job: retriedJob,
-    };
-}
-
-export async function createEval(params: {
-    jobId: string;
+export interface JobEvaluation {
     validJson: boolean;
     hasRequiredFields: boolean;
     evidenceIncluded: boolean;
@@ -217,18 +75,143 @@ export async function createEval(params: {
     reasonableRiskLabel: boolean;
     taskCompletionScore: number;
     notes: string;
+}
+
+export async function claimNextJob(lockedBy: string, leaseDurationMs: number) {
+    validateLeaseDuration(leaseDurationMs);
+    const leaseToken = randomUUID();
+    const jobs = await prisma.$queryRaw<
+        Array<JobLease & {
+            caseId: string | null;
+            input: unknown;
+            status: string;
+            attempts: number;
+            maxAttempts: number;
+            startedAt: Date;
+            leaseExpiresAt: Date;
+        }>
+    >`
+        UPDATE jobs
+        SET status = 'running', attempts = attempts + 1,
+            started_at = clock_timestamp(), completed_at = NULL, error = NULL,
+            locked_by = ${lockedBy}::uuid, lease_token = ${leaseToken}::uuid,
+            lease_expires_at = clock_timestamp() + ${leaseDurationMs} * interval '1 millisecond'
+        WHERE id = (
+            SELECT id FROM jobs
+            WHERE status = 'queued' AND run_after <= clock_timestamp() AND attempts < max_attempts
+            ORDER BY created_at ASC, id ASC
+            FOR UPDATE SKIP LOCKED LIMIT 1
+        )
+        RETURNING id, case_id AS "caseId", input, status, attempts, max_attempts AS "maxAttempts",
+            started_at AS "startedAt", locked_by AS "lockedBy", lease_token AS "leaseToken",
+            lease_expires_at AS "leaseExpiresAt"
+    `;
+    return jobs[0] ?? null;
+}
+
+// Lock first, then check database time: waiting for a row lock must not keep an expired lease valid.
+async function ownsLease(tx: Prisma.TransactionClient, lease: JobLease) {
+    await tx.$queryRaw`SELECT id FROM jobs WHERE id = ${lease.id}::uuid FOR UPDATE`;
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM jobs WHERE id = ${lease.id}::uuid AND status = 'running'
+            AND locked_by = ${lease.lockedBy}::uuid AND lease_token = ${lease.leaseToken}::uuid
+            AND lease_expires_at > clock_timestamp()
+    `;
+    return rows.length === 1;
+}
+
+export async function renewJobLease(lease: JobLease, leaseDurationMs: number) {
+    validateLeaseDuration(leaseDurationMs);
+    return prisma.$transaction(async (tx) => {
+        if (!(await ownsLease(tx, lease))) return false;
+        await tx.$executeRaw`
+            UPDATE jobs SET lease_expires_at = clock_timestamp() + ${leaseDurationMs} * interval '1 millisecond'
+            WHERE id = ${lease.id}::uuid
+        `;
+        return true;
+    });
+}
+
+export async function completeJob(params: JobLease & {
+    result: Prisma.InputJsonValue;
+    latencyMs: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    estimatedCost: number;
+    evaluation: JobEvaluation;
 }) {
-    return prisma.eval.create({
-        data: {
-            jobId: params.jobId,
-            validJson: params.validJson,
-            hasRequiredFields: params.hasRequiredFields,
-            evidenceIncluded: params.evidenceIncluded,
-            evidenceSupported: params.evidenceSupported,
-            reasonableRiskLabel: params.reasonableRiskLabel,
-            taskCompletionScore: params.taskCompletionScore,
-            notes: params.notes,
-        },
+    return prisma.$transaction(async (tx) => {
+        if (!(await ownsLease(tx, params))) return null;
+        await tx.$executeRaw`UPDATE jobs SET completed_at = clock_timestamp() WHERE id = ${params.id}::uuid`;
+        const job = await tx.job.update({
+            where: { id: params.id },
+            data: {
+                status: "completed",
+                result: params.result,
+                latencyMs: params.latencyMs,
+                promptTokens: params.promptTokens,
+                completionTokens: params.completionTokens,
+                totalTokens: params.totalTokens,
+                estimatedCost: params.estimatedCost,
+                evalScore: params.evaluation.taskCompletionScore,
+                lockedBy: null,
+                leaseToken: null,
+                leaseExpiresAt: null,
+            },
+        });
+        // A rejected claim cannot create an eval; a failed eval insert rolls back the result too.
+        await tx.eval.create({ data: { jobId: params.id, ...params.evaluation } });
+        return job;
+    });
+}
+
+export async function failOrRetryJob(params: JobLease & { error: string }) {
+    return prisma.$transaction(async (tx) => {
+        if (!(await ownsLease(tx, params))) return null;
+        await tx.$executeRaw`
+            UPDATE jobs SET status = CASE WHEN attempts < max_attempts
+                THEN 'queued'::"JobStatus" ELSE 'failed'::"JobStatus" END,
+                error = ${params.error},
+                completed_at = CASE WHEN attempts < max_attempts THEN NULL ELSE clock_timestamp() END,
+                run_after = date_trunc('milliseconds', clock_timestamp()),
+                locked_by = NULL, lease_token = NULL, lease_expires_at = NULL
+            WHERE id = ${params.id}::uuid
+        `;
+        return tx.job.findUniqueOrThrow({ where: { id: params.id } });
+    });
+}
+
+export async function retryJob(id: string) {
+    return prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM jobs WHERE id = ${id}::uuid FOR UPDATE`;
+        const job = await tx.job.findUnique({ where: { id } });
+        if (!job) return { ok: false as const, reason: "not_found" as const };
+        if (job.status !== "failed") return { ok: false as const, reason: "not_failed" as const, job };
+        await tx.$executeRaw`
+            UPDATE jobs SET run_after = date_trunc('milliseconds', clock_timestamp()) WHERE id = ${id}::uuid
+        `;
+        const retriedJob = await tx.job.update({
+            where: { id },
+            data: {
+                status: "queued",
+                attempts: 0,
+                error: null,
+                result: Prisma.DbNull,
+                startedAt: null,
+                completedAt: null,
+                latencyMs: null,
+                promptTokens: null,
+                completionTokens: null,
+                totalTokens: null,
+                estimatedCost: null,
+                evalScore: null,
+                lockedBy: null,
+                leaseToken: null,
+                leaseExpiresAt: null,
+            },
+        });
+        return { ok: true as const, job: retriedJob };
     });
 }
 

@@ -159,6 +159,8 @@ LLM_PROVIDER=mock
 PORT=3000
 TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5433/evalflow_test
 WORKER_CONCURRENCY=1
+LEASE_DURATION_MS=60000
+HEARTBEAT_INTERVAL_MS=20000
 ```
 
 `LLM_PROVIDER=mock` is the default so the project can run locally without an API key. Use `LLM_PROVIDER=gemini` and set `GEMINI_API_KEY` to call Gemini instead of the mock provider. `GEMINI_MODEL` selects the model (see [Gemini models](https://ai.google.dev/gemini-api/docs/models)).
@@ -167,6 +169,11 @@ Gemini calls use `@google/genai`. Token counts currently remain character-based 
 zero; they do not yet use the provider's usage metadata or pricing.
 
 `WORKER_CONCURRENCY` is the number of jobs one worker process runs at once.
+
+`LEASE_DURATION_MS` defaults to 60000; `HEARTBEAT_INTERVAL_MS` defaults to 20000 and must be
+a positive integer smaller than the lease duration. Both are worker settings in milliseconds.
+The worker renews each active claim while waiting for tools or the model. Docker Compose accepts
+these settings from the root `.env`; locally, set them in the worker environment.
 
 `TEST_DATABASE_URL` is the database used by `pnpm test`. Start it locally with `docker compose --profile test up -d postgres-test`. The name must end in `_test`, since tests truncate tables.
 
@@ -378,11 +385,18 @@ EvalFlow includes basic reliability behavior expected in backend AI systems:
 
 - Jobs are persisted in PostgreSQL instead of memory.
 - The API and worker run as separate processes.
-- The worker claims queued jobs with database locking to avoid duplicate processing.
+- The worker claims due queued jobs with database locking, a worker identity and a fresh claim token.
+- Heartbeats extend live leases; expired or replaced claims cannot complete, fail or renew jobs.
+- Completion saves the result and evaluation together in one transaction.
 - Attempts are incremented when work is claimed.
 - Failed jobs are retried until `maxAttempts`.
 - Jobs are marked `failed` after retries are exhausted.
 - Failed jobs can be manually retried from the API or dashboard.
+
+Crash recovery is still pending: until the M3 reaper is implemented, an expired running job stays
+`running`. Lease loss stops further pipeline steps once detected; an already running model call may
+still finish, but its result is rejected. Traces include the worker identity and claim token so attempt
+history remains distinguishable. Retries are still immediate; delayed backoff follows in M3.
 
 EvalFlow also stores observability data for each run:
 
