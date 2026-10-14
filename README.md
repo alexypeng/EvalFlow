@@ -161,6 +161,8 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5433/evalflow_test
 WORKER_CONCURRENCY=1
 LEASE_DURATION_MS=60000
 HEARTBEAT_INTERVAL_MS=20000
+REAPER_INTERVAL_MS=5000
+REAPER_BATCH_SIZE=100
 ```
 
 `LLM_PROVIDER=mock` is the default so the project can run locally without an API key. Use `LLM_PROVIDER=gemini` and set `GEMINI_API_KEY` to call Gemini instead of the mock provider. `GEMINI_MODEL` selects the model (see [Gemini models](https://ai.google.dev/gemini-api/docs/models)).
@@ -174,6 +176,16 @@ zero; they do not yet use the provider's usage metadata or pricing.
 a positive integer smaller than the lease duration. Both are worker settings in milliseconds.
 The worker renews each active claim while waiting for tools or the model. Docker Compose accepts
 these settings from the root `.env`; locally, set them in the worker environment.
+
+The separate reaper recovers jobs after worker crashes. Docker Compose starts it as the `reaper`
+service. For development outside Docker, run `pnpm dev:reaper` in another terminal alongside
+the API and worker, using the same `DATABASE_URL`. For compiled code use
+`pnpm --filter server start:reaper` after building.
+
+`REAPER_INTERVAL_MS` defaults to 5000 (1–2147483647); `REAPER_BATCH_SIZE` defaults to 100
+(1–1000). Each scan handles at most that many expired jobs, then waits for the interval.
+Multiple reapers may run safely: row locks with `SKIP LOCKED` keep them from recovering the same
+claim twice. The reaper needs Postgres access and no LLM API key.
 
 `TEST_DATABASE_URL` is the database used by `pnpm test`. Start it locally with `docker compose --profile test up -d postgres-test`. The name must end in `_test`, since tests truncate tables.
 
@@ -393,8 +405,14 @@ EvalFlow includes basic reliability behavior expected in backend AI systems:
 - Jobs are marked `failed` after retries are exhausted.
 - Failed jobs can be manually retried from the API or dashboard.
 
-Crash recovery is still pending: until the M3 reaper is implemented, an expired running job stays
-`running`. Lease loss stops further pipeline steps once detected; an already running model call may
+The separate reaper checks expiry using database time. It requeues expired running jobs with attempts
+remaining and marks exhausted jobs `failed`, clearing ownership in either case. Recovery does not
+increment attempts; the next claim does. With the default settings, an unrenewed lease expires after
+60 seconds and becomes eligible for the next scan (every 5 seconds, subject to batch backlog and locks).
+If the reaper is offline, expired jobs wait until it returns. SIGTERM/SIGINT stop scans, finish the
+current database operation and disconnect.
+
+Lease loss stops further pipeline steps once detected; an already running model call may
 still finish, but its result is rejected. Traces include the worker identity and claim token so attempt
 history remains distinguishable. Retries are still immediate; delayed backoff follows in M3.
 

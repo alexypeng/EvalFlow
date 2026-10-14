@@ -67,6 +67,31 @@ export interface JobLease {
     leaseToken: string;
 }
 
+export async function reapExpiredJobs(batchSize = 100) {
+    if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 1000) {
+        throw new Error("REAPER_BATCH_SIZE must be an integer between 1 and 1000");
+    }
+    // Lock candidates before changing ownership. Other reapers skip these rows;
+    // heartbeats/finalization serialize on the same locks and recheck ownership.
+    return prisma.$queryRaw<Array<{ id: string; status: "queued" | "failed" }>>`
+        WITH expired AS (
+            SELECT id FROM jobs
+            WHERE status = 'running' AND lease_expires_at <= clock_timestamp()
+            ORDER BY lease_expires_at ASC, id ASC
+            FOR UPDATE SKIP LOCKED LIMIT ${batchSize}
+        )
+        UPDATE jobs AS job
+        SET status = CASE WHEN job.attempts < job.max_attempts
+                THEN 'queued'::"JobStatus" ELSE 'failed'::"JobStatus" END,
+            error = 'Worker lease expired',
+            completed_at = CASE WHEN job.attempts < job.max_attempts THEN NULL ELSE clock_timestamp() END,
+            run_after = date_trunc('milliseconds', clock_timestamp()),
+            locked_by = NULL, lease_token = NULL, lease_expires_at = NULL
+        FROM expired WHERE job.id = expired.id
+        RETURNING job.id, job.status
+    `;
+}
+
 export interface JobEvaluation {
     validJson: boolean;
     hasRequiredFields: boolean;

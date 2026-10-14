@@ -72,6 +72,19 @@ services:
                 condition: service_completed_successfully
         command: ["pnpm", "start:worker"]
 
+    reaper:
+        build:
+            context: .
+            dockerfile: server/Dockerfile
+        environment:
+            DATABASE_URL: postgresql://postgres:postgres@postgres:5432/evalflow
+            REAPER_INTERVAL_MS: ${REAPER_INTERVAL_MS:-5000}
+            REAPER_BATCH_SIZE: ${REAPER_BATCH_SIZE:-100}
+        depends_on:
+            migrate:
+                condition: service_completed_successfully
+        command: ["pnpm", "start:reaper"]
+
     frontend:
         build:
             context: .
