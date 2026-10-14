@@ -16,8 +16,8 @@ _Last updated: 2026-10-14_
 |---|---|
 | **Current milestone** | M3 Reliable workers, branch `m3-reliable-workers` |
 | **Done** | M0 Foundations (PR #1), M1 datasets and runs (PR #2), M2 CI regression gate (PR #3), all merged |
-| **Waiting on you** | Commit the reviewed automatic-backoff checkpoint |
-| **Next up** | Design dead-letter behavior |
+| **Waiting on you** | Commit the reviewed dead-letter checkpoint |
+| **Next up** | Agree graceful worker shutdown design |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -126,13 +126,15 @@ The strongest infra material in the project. Every task here is interview-level,
 **Agreed (2026-10-13):** Owner approved retrying execution after a crash while accepting final results only
 from the current lease holder. Proposed schema adds locked_by (worker identity), lease_token (fresh per claim),
 lease_expires_at and run_after. Manual retry resets attempts, so attempts alone cannot identify a claim forever.
-Owner approved those fields. Lease fields/migration are implemented; dead-letter status will be added with its
-transition/reporting behavior. Worker claiming, renewal and fenced atomic finalization are wired;
+Owner approved those fields. Lease fields/migration and dead-letter transition/reporting behavior are
+implemented. Worker claiming, renewal and fenced atomic finalization are wired;
 expired-lease recovery now runs in a separate local reaper process. Owner approved configurable
 60-second leases and 20-second heartbeats on 2026-10-14. The reaper requeues expired jobs with
 attempts remaining and marks exhausted jobs failed. Automatic retries from worker failures and expired
 leases now share database-clock exponential backoff with jitter; manual retries remain immediate.
-Dead-letter transitions follow separately.
+Exhausted jobs now use dead_letter (renamed in place from failed); API/dashboard filtering and manual
+requeue are implemented. Run reports retain jobs.failed as the terminal failure count. Dead-letter
+learning review is complete.
 
 Lease-aware worker checkpoint committed as `42e41b0` (confirmed 2026-10-14). The file list and
 commands below describe that completed checkpoint; no repeat commit is needed.
@@ -161,13 +163,13 @@ an existing development DB, apply committed migrations with `pnpm --filter serve
 
 Tasks:
 - [x] **ME** Lease/scheduling schema: `lease_expires_at`, `locked_by`, fresh-per-claim `lease_token`, `run_after`; migration/client verified, learning review completed.
-- [ ] **ME** Schema: dead-letter status, introduced alongside its transition/reporting behavior
+- [x] **ME** Schema: dead-letter status renamed from failed through an in-place enum migration; learning review completed
 - [x] **ME** Lease on claim; heartbeat extends the lease while tools/model run (learning review completed)
 - [x] **ME** Separate reaper process requeues expired leases or fails exhausted jobs; concurrency/process tests pass, learning review completed
 - [x] **ME** Fencing: completion/failure/renewal require current unexpired ownership; completion and eval save atomically (learning review completed)
 - [x] **ME** Exponential backoff with jitter via `run_after` for worker failures and expired leases; tests pass, learning review completed
-- [ ] **ME** Dead-letter state after `maxAttempts`
-- [ ] **Claude** API and dashboard: list dead-lettered jobs, requeue them
+- [x] **ME** Dead-letter state after `maxAttempts` in worker failure and expired-lease recovery paths; tests pass, learning review completed
+- [x] **Claude** API and dashboard: filter dead-lettered jobs, inspect errors/traces and requeue; API and browser QA pass, learning review completed
 - [ ] **ME** Graceful SIGTERM shutdown: stop claiming, finish in-flight jobs within a timeout, release leases
 - [ ] **ME** Per-provider rate limiter shared across workers (e.g. token bucket in a Postgres row)
 - [ ] **Claude** Chaos test harness: spawn N worker processes, `kill -9` them at random, restart
@@ -240,6 +242,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-14 | Owner approved replacing failed job status with dead_letter, retaining the same table and existing report/gate outcome contracts | Both names would otherwise describe the same exhausted execution state. PostgreSQL enum rename preserves existing rows/references; worker/reaper exhaustion, retry guards and UI move together. Manual requeue resets attempts and current results but preserves trace/eval history. Reports keep jobs.failed and metrics keep failedJobs as terminal failure counts, so CLI/baseline compatibility is preserved. API/worker/reaper must be stopped, migrated and upgraded together on an existing DB. |
 | 2026-10-14 | Owner approved shared automatic retry backoff for worker errors and expired leases, keeping manual retries immediate | Persist run_after using database time, with jitter of 1–2s, 2–4s, 4–8s, 8–16s, then 15–30s. Increasing delays give dependencies time to recover; independent jitter spreads retry load. A shared SQL expression keeps both transitions consistent and atomic with ownership clearing. Waiting occupies no worker slot, survives restarts and does not increment attempts. Exhausted jobs remain failed until the separate dead-letter piece. |
 | 2026-10-14 | Owner chose a separate local reaper process for infrastructure learning; use existing failed status for exhausted claims | Independent process lifecycle can be explored without hosted services. Bounded database-time scans use row locks with SKIP LOCKED so multiple reapers cooperate. Recovery preserves attempts, clears ownership and schedules immediate retry; backoff/dead-letter behavior stays a later piece. |
 | 2026-10-14 | Use configurable 60-second leases and 20-second heartbeats; atomically fence result/eval persistence | Renewals run serially during the pipeline. Finalization locks the job, then checks database time, status, worker and claim token so lock waits cannot preserve expired authority. A rejected claim saves no eval; eval persistence failure rolls back the result. Reaper follows separately. |
@@ -282,6 +285,32 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 ## Session log
 
+- **2026-10-14 (dead-letter learning review):** Owner correctly distinguished completed execution with an incorrect label from dead-lettered execution, explained that manual requeue does not fix the underlying failure, and selected filtering before limiting to find older dead letters. Clarified the operational use case: newer successful jobs must not hide older exhausted jobs needing intervention. Learning review completed. Confirmed checkpoint remains uncommitted; updated PLAN only. Prior verification remains 225 passed plus 1 existing expected failure, typecheck/lint/builds and browser QA passed. No application changes, tests, commits, pushes or PRs. Owner commit next, then agree graceful worker shutdown design.
+- **2026-10-14 (dead-letter implementation):** Owner approved the status replacement. Added in-place enum rename migration 20261014010000_rename_failed_to_dead_letter, updated schema and regenerated Prisma client (enums.ts/internal/class.ts). Worker failure and reaper exhaustion now emit dead_letter; retry accepts only that state and retains serialized immediate reset behavior. Added Zod-validated GET /jobs?status filter before the 100-row limit, malformed-ID handling on job detail/retry routes, and report mapping back to existing jobs.failed/failedJobs fields. Updated frontend status types/badges, History dead-letter filter, empty state, metrics label and Requeue job action; list polling is sequential and aborts obsolete filter/refresh requests. Updated DB status fixtures and added migration-preservation, older-than-page filtering/metrics, concurrent requeue/history/fresh claim and real HTTP filter/retry tests. Full suite: 225 passed, 1 existing expected failure across 21 files; typecheck, frontend lint and both builds pass. Sandbox DB connection failed initially; approved escalation applied migration only to evalflow_test and ran tests. Native Chrome QA against temporary test-DB API/frontend verified filter, selected error/trace, requeue to queued with attempts 0, cleared error/button, zero dead letters and preserved trace. Temporary services stopped. No dev DB migration, hosted deployment, commits, pushes or PRs; learning files preserved. README documents upgrade ordering and report compatibility. Learning quiz pending; graceful worker shutdown design follows after review.
+
+Dead-letter checkpoint files: `README.md`, `docs/PLAN.md`, `frontend/src/App.tsx`,
+`frontend/src/RunsDashboard.tsx`, `frontend/src/api.ts`, `server/prisma/schema.prisma`,
+`server/prisma/migrations/20261014010000_rename_failed_to_dead_letter/migration.sql`,
+`server/src/api.ts`, `server/src/generated/prisma/enums.ts`, `server/src/generated/prisma/internal/class.ts`,
+`server/src/jobs.ts`, `server/src/reaper.ts`, `server/src/runs.ts`, `server/src/types.ts`, `server/src/worker.ts`,
+`server/test/db/backoff.test.ts`, `server/test/db/baseline.test.ts`, `server/test/db/compare.test.ts`,
+`server/test/db/deadLetters.test.ts`, `server/test/db/jobs.test.ts`, `server/test/db/leases.test.ts`,
+`server/test/db/reaper.test.ts`, `server/test/db/runLists.test.ts`, `server/test/db/runs.test.ts`.
+
+Suggested owner commands after learning review:
+
+```bash
+git add README.md docs/PLAN.md frontend/src/App.tsx frontend/src/RunsDashboard.tsx frontend/src/api.ts \
+  server/prisma/schema.prisma server/prisma/migrations/20261014010000_rename_failed_to_dead_letter/migration.sql \
+  server/src/api.ts server/src/generated/prisma/enums.ts server/src/generated/prisma/internal/class.ts \
+  server/src/jobs.ts server/src/reaper.ts server/src/runs.ts server/src/types.ts server/src/worker.ts \
+  server/test/db/backoff.test.ts server/test/db/baseline.test.ts server/test/db/compare.test.ts \
+  server/test/db/deadLetters.test.ts server/test/db/jobs.test.ts server/test/db/leases.test.ts \
+  server/test/db/reaper.test.ts server/test/db/runLists.test.ts server/test/db/runs.test.ts
+git commit -m "Replace exhausted job status with dead letters and add recovery UI"
+```
+
+- **2026-10-14 (dead-letter planning):** Confirmed backoff checkpoint committed as b3463e3; no tracked changes pending before this update. Inspected status enum and API/report/dashboard consumers. Current failed already means exhausted execution retries, so proposed replacing that status with dead_letter rather than introducing two indistinguishable terminal statuses. Proposal keeps jobs in the same table, migrates existing failed rows, adds a dead-letter listing/filter and manual requeue, preserves terminal failed evaluation outcomes and immediate manual retry with attempts reset. Reports/CLI/dashboard must handle the state consistently. Owner agreement pending; no schema or application changes, tests, commits, pushes or PRs. PLAN only.
 - **2026-10-14 (backoff learning review):** Owner correctly explained that delayed jobs remain queued without occupying a worker slot, that randomness spreads retry traffic to reduce synchronized load, and that the saved database timestamp preserves scheduling across worker restarts. Clarified jitter targets retries and illustrated run_after surviving replacement of a worker process. Backoff learning checkpoint completed. Updated PLAN only; existing verification remains 221 passed and 1 expected failure with typecheck/server build passing. No application changes, new design decisions, tests, commits, pushes or PRs. Owner commit next; dead-letter design follows.
 - **2026-10-14 (automatic retry backoff):** Owner approved the proposed delay policy. Added one shared parameterized Prisma SQL expression for worker failure and reaper scheduling: capped exponential equal jitter, using persisted attempts, per-row Postgres random(), database time and whole milliseconds. Exponent is clamped before exponentiation to support large attempt counts safely. Existing row locking/fencing, terminal failure and immediate manual retry behavior retained. Added 19 DB cases covering both paths' ranges/cap/large counts with application-clock skew, skipping delayed jobs while claiming fresh work, concurrent due retry claims, stale failure rejection, terminal exhaustion/manual retry and independent batch jitter. Updated existing retry/reaper fixtures with a test-only makeJobDue helper so unrelated ownership tests do not sleep through backoff. README explains timing and polling/backlog limits. Full suite passes 221 tests plus 1 existing expected failure across 20 files, including real-worker mock integration with normal retry delays; typecheck/server build and diff check pass. Initial sandbox DB connection failed; approved escalated test run reached evalflow_test with no pending migrations. No schema changes, development DB writes, commits, pushes or PRs; learning files preserved. Learning review pending. Changed files: README.md, docs/PLAN.md, server/src/jobs.ts, server/test/db/backoff.test.ts, server/test/db/helpers.ts, server/test/db/jobs.test.ts, server/test/db/leases.test.ts, server/test/db/reaper.test.ts. Suggested owner commands after learning review: `git add README.md docs/PLAN.md server/src/jobs.ts server/test/db/backoff.test.ts server/test/db/helpers.ts server/test/db/jobs.test.ts server/test/db/leases.test.ts server/test/db/reaper.test.ts` then `git commit -m "Add exponential backoff and jitter for automatic retries"`.
 - **2026-10-14 (backoff planning):** Confirmed reaper checkpoint committed as df4dd62, with no tracked edits pending before this update. Inspected worker failure/reaper recovery/manual retry scheduling and status consumers. Proposed doing delayed retry backoff as the next learning piece before introducing dead-letter status across reports, CLI and dashboard. Proposed shared policy for worker failures and expired-lease recovery: random delays of 1–2 seconds after attempt 1, 2–4 after attempt 2, doubling with an upper bound of 30 seconds; compute run_after from database time, preserve attempts until claiming, leave explicit manual retries immediately eligible and exhausted jobs failed for now. Owner agreement pending; these are proposals, not approved decisions. Updated PLAN only; no implementation, tests, commits, pushes or PRs.

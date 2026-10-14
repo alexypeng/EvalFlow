@@ -71,9 +71,10 @@ export type RunReport = {
     run: Run & { dataset: { name: string; version: number } };
     // "finished" once no job is queued or running (decided: derived, not stored).
     status: "in_progress" | "finished";
+    // Keep the report contract: failed counts dead-lettered jobs, not completed jobs with failed evaluations.
     jobs: { total: number; queued: number; running: number; completed: number; failed: number };
     // A case passes when its job completed and the risk label matched the
-    // answer key (decided 2026-10-01). Failed jobs count as not passed.
+    // answer key (decided 2026-10-01). Dead-lettered jobs count as not passed.
     passed: number;
     passRate: number; // passed / jobs.total, 0..1
     // Over completed jobs only; null when none have completed yet.
@@ -112,7 +113,7 @@ export async function listRuns(limit = 50): Promise<RunReport[]> {
             count(*) FILTER (WHERE j.status = 'queued')::int AS queued,
             count(*) FILTER (WHERE j.status = 'running')::int AS running,
             count(*) FILTER (WHERE j.status = 'completed')::int AS completed,
-            count(*) FILTER (WHERE j.status = 'failed')::int AS failed,
+            count(*) FILTER (WHERE j.status = 'dead_letter')::int AS failed,
             count(*) FILTER (WHERE j.status = 'completed' AND e.reasonable_risk_label)::int AS passed,
             avg(j.eval_score) FILTER (WHERE j.status = 'completed')::float8 AS "meanScore",
             percentile_cont(0.5) WITHIN GROUP (ORDER BY j.latency_ms)
@@ -184,7 +185,7 @@ export async function getRunReport(runId: string): Promise<RunReport | null> {
     const jobs = { total: 0, queued: 0, running: 0, completed: 0, failed: 0 };
 
     for (const entry of statusCounts) {
-        jobs[entry.status] = entry._count;
+        jobs[entry.status === "dead_letter" ? "failed" : entry.status] = entry._count;
         jobs.total += entry._count;
     }
 
@@ -236,7 +237,7 @@ export async function getRunReport(runId: string): Promise<RunReport | null> {
 }
 
 // pass: job completed and its latest eval had the right label. fail: completed
-// with the wrong label, or failed. pending: still queued or running.
+// with the wrong label, or dead-lettered. pending: still queued or running.
 
 // regression: pass -> fail. improvement: fail -> pass. warning: pass -> pass
 // with a lower score. pending: either side not finished. unchanged: otherwise.
@@ -381,7 +382,7 @@ function caseOutcome(job: { status: string; evals: Array<{ reasonableRiskLabel: 
         return "pending";
     }
 
-    // Same rule as the run report: completed with the right label. A failed job
+    // Same rule as the run report: completed with the right label. A dead-lettered job
     // produced no usable answer, so it fails.
     return job.status === "completed" && job.evals[0]?.reasonableRiskLabel === true ? "pass" : "fail";
 }

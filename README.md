@@ -202,7 +202,7 @@ With the API and worker running and the dataset loaded:
 pnpm --silent evalflow run --dataset retention --dataset-version 1 --prompt v2
 ```
 
-The command creates one run, polls its report until all jobs are completed or failed, and prints the finished
+The command creates one run, polls its report until all jobs are completed or dead-lettered, and prints the finished
 report as JSON to stdout. Progress and the run ID go to stderr. Use `--api-url` to choose another API,
 `--poll-ms` to change the delay between polls, and `--timeout-ms` to change the total deadline (default two minutes).
 `pnpm --silent evalflow --help` lists the options. The `--silent` flag suppresses pnpm's script output.
@@ -228,10 +228,10 @@ pnpm --silent evalflow baseline export <runId> --output baselines/retention-v1.j
 Omit `--output` to print JSON to stdout. The output directory must already exist; an existing file is never overwritten.
 The compiled equivalent is `node server/dist/cli.js baseline export <runId> --output <file>`.
 The read-only API route is `GET /runs/:id/baseline`: unknown runs return 404, and unfinished or missing case results return
-409. Queued/running cases cannot be exported; failed jobs are terminal and are exported as failed outcomes.
+409. Queued/running cases cannot be exported; dead-lettered jobs are terminal and exported as failed outcomes.
 
 The versioned format contains `formatVersion: 1`, dataset name/version, saved prompt/provider/model/mock settings,
-and sorted `cases` with `caseName`, `outcome` (`pass` or `fail`) and `score` (nullable for failed jobs). Passing cases
+and sorted `cases` with `caseName`, `outcome` (`pass` or `fail`) and `score` (nullable for dead-lettered jobs). Passing cases
 must have a score. Each case uses its latest evaluation, matching the existing report/comparison rules. Case names
 are portable across databases; database run/dataset/case IDs are omitted. This exports stored results and does not
 rerun the model. Saved nonzero mock failure rates still select cases using database case IDs, so the same seed can
@@ -350,7 +350,7 @@ The worker executes these steps:
 6. Parse and validate structured JSON with Zod.
 7. Score the output with the eval rubric.
 8. Save result, traces, token usage, latency, eval details, and status.
-9. Retry failed jobs until `maxAttempts`, then mark them `failed`.
+9. Retry execution errors until `maxAttempts`, then mark jobs `dead_letter`.
 
 Expected LLM result shape:
 
@@ -368,7 +368,7 @@ Expected LLM result shape:
 `jobs` stores the lifecycle and summary of each run:
 
 - job type and input
-- status: `queued`, `running`, `completed`, `failed`
+- status: `queued`, `running`, `completed`, `dead_letter`
 - attempts and max attempts
 - result or error
 - latency and token usage
@@ -401,12 +401,12 @@ EvalFlow includes basic reliability behavior expected in backend AI systems:
 - Heartbeats extend live leases; expired or replaced claims cannot complete, fail or renew jobs.
 - Completion saves the result and evaluation together in one transaction.
 - Attempts are incremented when work is claimed.
-- Failed jobs are retried until `maxAttempts`.
-- Jobs are marked `failed` after retries are exhausted.
-- Failed jobs can be manually retried from the API or dashboard.
+- Execution errors are retried until `maxAttempts`.
+- Jobs are marked `dead_letter` after retries are exhausted.
+- Dead-lettered jobs can be manually requeued from the API or dashboard.
 
 The separate reaper checks expiry using database time. It requeues expired running jobs with attempts
-remaining using the backoff policy below and marks exhausted jobs `failed`, clearing ownership in either
+remaining using the backoff policy below and marks exhausted jobs `dead_letter`, clearing ownership in either
 case. Recovery does not increment attempts; the next claim does. With the default settings, an unrenewed lease expires after
 60 seconds and becomes eligible for the next scan (every 5 seconds, subject to batch backlog and locks).
 If the reaper is offline, expired jobs wait until it returns. SIGTERM/SIGINT stop scans, finish the
@@ -423,8 +423,25 @@ between half and all of that ceiling spreads retries across jobs. Delays are cho
 Both paths save `run_after` using Postgres time in the same operation that requeues the job and clears
 ownership. Workers skip future jobs, so waiting consumes no worker slot and survives process restarts.
 Actual execution can start later because of polling or queue backlog. Attempts increment only on claim.
-Exhausted jobs remain `failed`; manually retrying one resets attempts and makes it immediately eligible.
+Exhausted jobs remain `dead_letter`; manually retrying one resets attempts and makes it immediately eligible.
 These delays reduce retry pressure during failures; a shared provider rate limiter remains planned in M3.
+
+Dead letters stay in the same `jobs` table, retaining their error and attempt history in traces. In the
+Single job dashboard, open History and choose Dead letters, select a job to inspect its error/traces,
+then choose Requeue job after addressing the cause. Requeue resets attempts, clears the current error
+and execution results, and preserves historical traces and evaluations. It does not fix the original cause.
+
+`GET /jobs?status=dead_letter` returns the latest 100 matching jobs (filtering happens before the limit).
+Other supported filters are `queued`, `running` and `completed`; invalid statuses return 400. The existing
+`POST /jobs/:id/retry` endpoint accepts only dead-lettered jobs (409 for other states, 404 if absent).
+Run reports retain `jobs.failed`, and metrics retain `failedJobs`, as counts of dead-lettered jobs.
+Comparisons/baselines continue treating those jobs as failed outcomes, so the CLI gate contract is unchanged.
+
+The migration renames the old `failed` enum value in place, preserving existing rows and references.
+Before running updated code against an existing development database, stop the old API, workers and
+reaper, run `pnpm --filter server exec prisma migrate deploy`, then restart them with the updated code.
+Old binaries use the previous enum value and must be upgraded together. Docker Compose runs migrations
+before starting its services. The migration was verified on the test database; apply it to your dev DB when ready.
 
 EvalFlow also stores observability data for each run:
 
@@ -519,7 +536,7 @@ Get job details:
 curl http://localhost:3000/jobs/<job_id>
 ```
 
-Retry a failed job:
+Requeue a dead-lettered job:
 
 ```bash
 curl -X POST http://localhost:3000/jobs/<job_id>/retry

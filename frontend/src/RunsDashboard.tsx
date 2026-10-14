@@ -166,7 +166,7 @@ export default function RunsDashboard() {
                                     ))}
                                 </div>
                                 <p className="run-muted">
-                                    Invalid JSON and missing evidence retry, then fail. Changed labels reach evaluation.
+                                    Invalid JSON and missing evidence retry, then become dead letters. Changed labels reach evaluation.
                                     These settings simulate failures; prompt versions alone do not change mock predictions.
                                 </p>
                             </div>

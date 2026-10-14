@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Prisma } from "./generated/prisma/client.js";
+import { Prisma, type JobStatus } from "./generated/prisma/client.js";
 import { prisma } from "./db.js";
 import { validateLeaseDuration } from "./leaseSettings.js";
 
@@ -23,8 +23,9 @@ export async function createJob(type: string, input: Prisma.InputJsonValue, maxA
     });
 }
 
-export async function listJobs() {
+export async function listJobs(status?: JobStatus) {
     return prisma.job.findMany({
+        where: status ? { status } : undefined,
         orderBy: {
             createdAt: "desc",
         },
@@ -47,7 +48,7 @@ export async function getMetrics() {
             where: { status: "completed" },
         }),
         prisma.job.count({
-            where: { status: "failed" },
+            where: { status: "dead_letter" },
         }),
         prisma.job.aggregate({
             _avg: {
@@ -63,6 +64,7 @@ export async function getMetrics() {
     return {
         totalJobs,
         completedJobs,
+        // Retain the metrics contract: this counts terminal execution failures, now called dead_letter.
         failedJobs,
         averageLatencyMs: aggregates._avg.latencyMs,
         averageEvalScore: aggregates._avg.evalScore,
@@ -82,7 +84,7 @@ export async function reapExpiredJobs(batchSize = 100) {
     }
     // Lock candidates before changing ownership. Other reapers skip these rows;
     // heartbeats/finalization serialize on the same locks and recheck ownership.
-    return prisma.$queryRaw<Array<{ id: string; status: "queued" | "failed" }>>`
+    return prisma.$queryRaw<Array<{ id: string; status: "queued" | "dead_letter" }>>`
         WITH expired AS (
             SELECT id FROM jobs
             WHERE status = 'running' AND lease_expires_at <= clock_timestamp()
@@ -91,7 +93,7 @@ export async function reapExpiredJobs(batchSize = 100) {
         )
         UPDATE jobs AS job
         SET status = CASE WHEN job.attempts < job.max_attempts
-                THEN 'queued'::"JobStatus" ELSE 'failed'::"JobStatus" END,
+                THEN 'queued'::"JobStatus" ELSE 'dead_letter'::"JobStatus" END,
             error = 'Worker lease expired',
             completed_at = CASE WHEN job.attempts < job.max_attempts THEN NULL ELSE clock_timestamp() END,
             run_after = ${automaticRetryAt},
@@ -205,7 +207,7 @@ export async function failOrRetryJob(params: JobLease & { error: string }) {
         if (!(await ownsLease(tx, params))) return null;
         await tx.$executeRaw`
             UPDATE jobs SET status = CASE WHEN attempts < max_attempts
-                THEN 'queued'::"JobStatus" ELSE 'failed'::"JobStatus" END,
+                THEN 'queued'::"JobStatus" ELSE 'dead_letter'::"JobStatus" END,
                 error = ${params.error},
                 completed_at = CASE WHEN attempts < max_attempts THEN NULL ELSE clock_timestamp() END,
                 run_after = ${automaticRetryAt},
@@ -221,7 +223,7 @@ export async function retryJob(id: string) {
         await tx.$queryRaw`SELECT id FROM jobs WHERE id = ${id}::uuid FOR UPDATE`;
         const job = await tx.job.findUnique({ where: { id } });
         if (!job) return { ok: false as const, reason: "not_found" as const };
-        if (job.status !== "failed") return { ok: false as const, reason: "not_failed" as const, job };
+        if (job.status !== "dead_letter") return { ok: false as const, reason: "not_dead_letter" as const, job };
         await tx.$executeRaw`
             UPDATE jobs SET run_after = date_trunc('milliseconds', clock_timestamp()) WHERE id = ${id}::uuid
         `;

@@ -10,11 +10,12 @@ import {
     retryJob,
     type Job,
     type JobDetails,
+    type JobStatus,
     type Metrics,
 } from "./api";
 
-async function fetchDashboard() {
-    const [jobs, metrics] = await Promise.all([listJobs(), getMetrics()]);
+async function fetchDashboard(status?: JobStatus, signal?: AbortSignal) {
+    const [jobs, metrics] = await Promise.all([listJobs(status, signal), getMetrics(signal)]);
     return { jobs, metrics };
 }
 
@@ -55,40 +56,35 @@ function SingleJobDashboard() {
     const [showHistory, setShowHistory] = useState(false);
     const [showMetrics, setShowMetrics] = useState(false);
     const [error, setError] = useState<string | null>(null);
-
-    async function refreshDashboard() {
-        try {
-            const { jobs: nextJobs, metrics: nextMetrics } = await fetchDashboard();
-
-            setJobs(nextJobs);
-            setMetrics(nextMetrics);
-            setError(null);
-        } catch (caught) {
-            setError(errorMessage(caught));
-        }
-    }
+    const [statusFilter, setStatusFilter] = useState<"all" | "dead_letter">("all");
+    const [refreshVersion, setRefreshVersion] = useState(0);
 
     useEffect(() => {
+        const controller = new AbortController();
+        let timer: number | undefined;
         async function loadDashboard() {
             try {
-                const { jobs: nextJobs, metrics: nextMetrics } = await fetchDashboard();
-
-                setJobs(nextJobs);
-                setMetrics(nextMetrics);
-                setError(null);
+                const { jobs: nextJobs, metrics: nextMetrics } = await fetchDashboard(
+                    statusFilter === "all" ? undefined : statusFilter, controller.signal,
+                );
+                if (!controller.signal.aborted) {
+                    setJobs(nextJobs);
+                    setMetrics(nextMetrics);
+                    setError(null);
+                }
             } catch (caught) {
-                setError(errorMessage(caught));
+                if (!controller.signal.aborted) setError(errorMessage(caught));
+            } finally {
+                if (!controller.signal.aborted) timer = window.setTimeout(() => void loadDashboard(), 2000);
             }
         }
 
         void loadDashboard();
-
-        const interval = window.setInterval(() => {
-            void loadDashboard();
-        }, 2000);
-
-        return () => window.clearInterval(interval);
-    }, []);
+        return () => {
+            controller.abort();
+            window.clearTimeout(timer);
+        };
+    }, [statusFilter, refreshVersion]);
 
     useEffect(() => {
         if (!selectedJobId) return;
@@ -129,7 +125,7 @@ function SingleJobDashboard() {
             const job = await createJob(userId.trim());
             setJobDetails(null);
             setSelectedJobId(job.id);
-            await refreshDashboard();
+            setRefreshVersion((version) => version + 1);
         } catch (caught) {
             setError(errorMessage(caught));
         } finally {
@@ -138,12 +134,13 @@ function SingleJobDashboard() {
     };
 
     async function handleRetry() {
-        if (!jobDetails || jobDetails.job.status !== "failed") return;
+        if (!jobDetails || jobDetails.job.status !== "dead_letter") return;
 
         try {
             const job = await retryJob(jobDetails.job.id);
+            setJobDetails({ ...jobDetails, job });
             setSelectedJobId(job.id);
-            await refreshDashboard();
+            setRefreshVersion((version) => version + 1);
         } catch (caught) {
             setError(errorMessage(caught));
         }
@@ -156,7 +153,9 @@ function SingleJobDashboard() {
     return (
         <main className="min-h-screen bg-slate-950 px-4 py-5 text-slate-950 sm:px-6 lg:px-8">
             <TopDropdowns
-                jobs={jobs}
+                jobs={statusFilter === "all" ? jobs : jobs.filter((job) => job.status === statusFilter)}
+                statusFilter={statusFilter}
+                onStatusFilterChange={setStatusFilter}
                 metrics={metrics}
                 selectedJobId={selectedJobId}
                 showHistory={showHistory}
@@ -224,6 +223,8 @@ function SingleJobDashboard() {
 
 function TopDropdowns(props: {
     jobs: Job[];
+    statusFilter: "all" | "dead_letter";
+    onStatusFilterChange: (status: "all" | "dead_letter") => void;
     metrics: Metrics | null;
     selectedJobId: string | null;
     showHistory: boolean;
@@ -257,6 +258,8 @@ function TopDropdowns(props: {
                     <div className={`min-h-0 overflow-hidden ${props.showHistory ? "px-3 pb-3" : "px-0 pb-0"}`}>
                         <JobList
                             jobs={props.jobs}
+                            statusFilter={props.statusFilter}
+                            onStatusFilterChange={props.onStatusFilterChange}
                             selectedJobId={props.selectedJobId}
                             onSelectJob={props.onSelectJob}
                         />
@@ -292,7 +295,7 @@ function TopDropdowns(props: {
                     >
                         <Metric label="Total jobs" value={props.metrics?.totalJobs} />
                         <Metric label="Completed" value={props.metrics?.completedJobs} />
-                        <Metric label="Failed" value={props.metrics?.failedJobs} />
+                        <Metric label="Dead letters" value={props.metrics?.failedJobs} />
                         <Metric label="Avg latency" value={props.metrics?.averageLatencyMs} suffix=" ms" />
                         <Metric label="Avg eval" value={props.metrics?.averageEvalScore} />
                         <Metric label="Total tokens" value={props.metrics?.totalTokens} />
@@ -356,23 +359,43 @@ function SubmitJobForm(props: {
     );
 }
 
-function JobList(props: { jobs: Job[]; selectedJobId: string | null; onSelectJob: (id: string) => void }) {
+function JobList(props: {
+    jobs: Job[];
+    statusFilter: "all" | "dead_letter";
+    onStatusFilterChange: (status: "all" | "dead_letter") => void;
+    selectedJobId: string | null;
+    onSelectJob: (id: string) => void;
+}) {
     return (
         <article className="rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                     <h2 className="text-base font-semibold text-white">Jobs</h2>
-                    <p className="mt-1 text-xs text-slate-400">Latest runs from Postgres</p>
+                    <p className="mt-1 text-xs text-slate-400">Latest 100 matching jobs</p>
                 </div>
                 <span className="rounded-full bg-slate-800 px-2 py-1 text-xs font-medium text-slate-300">
-                    {props.jobs.length} total
+                    {props.jobs.length} shown
                 </span>
             </div>
+
+            <label className="mb-4 block text-xs font-semibold text-slate-300">
+                Show jobs
+                <select
+                    value={props.statusFilter}
+                    onChange={(event) => props.onStatusFilterChange(event.target.value as "all" | "dead_letter")}
+                    className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm text-white"
+                >
+                    <option value="all">All jobs</option>
+                    <option value="dead_letter">Dead letters</option>
+                </select>
+            </label>
 
             <div className="grid max-h-[32rem] gap-2 overflow-auto pr-1">
                 {props.jobs.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950 p-4 text-sm text-slate-400">
-                        No jobs yet. Enter a user ID and run an analysis.
+                        {props.statusFilter === "dead_letter"
+                            ? "No dead-lettered jobs."
+                            : "No jobs yet. Enter a user ID and run an analysis."}
                     </div>
                 ) : null}
 
@@ -419,13 +442,13 @@ function JobDetailPanel(props: { details: JobDetails | null; fallbackJob: Job | 
                         Structured output, traces, evals, latency, tokens, and errors for the selected job.
                     </p>
                 </div>
-                {job?.status === "failed" ? (
+                {job?.status === "dead_letter" ? (
                     <button
                         type="button"
                         onClick={props.onRetry}
                         className="w-fit rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
                     >
-                        Retry
+                        Requeue job
                     </button>
                 ) : null}
             </div>
@@ -610,10 +633,12 @@ function StatusBadge(props: { status: Job["status"] }) {
         queued: "bg-amber-50 text-amber-700",
         running: "bg-blue-50 text-blue-700",
         completed: "bg-emerald-50 text-emerald-700",
-        failed: "bg-rose-50 text-rose-700",
+        dead_letter: "bg-rose-50 text-rose-700",
     };
 
-    return <span className={`rounded-full px-2 py-1 text-xs font-bold ${classes[props.status]}`}>{props.status}</span>;
+    return <span className={`rounded-full px-2 py-1 text-xs font-bold ${classes[props.status]}`}>
+        {props.status === "dead_letter" ? "dead letter" : props.status}
+    </span>;
 }
 
 function RiskBadge(props: { risk: RetentionResult["retentionRisk"] }) {

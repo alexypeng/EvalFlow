@@ -177,7 +177,9 @@ async function runOnce() {
             console.error(`Job ${job.id}: ${message}`);
         } else {
             const updated = await failOrRetryJob({ ...job, error: message });
-            console.error(updated ? `Job ${job.id} failed` : `Job ${job.id} lease lost; failure discarded`, error);
+            console.error(
+                updated ? `Job ${job.id}: ${updated.status}` : `Job ${job.id} lease lost; failure discarded`, error,
+            );
         }
     } finally {
         await heartbeat.stop();

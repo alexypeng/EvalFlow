@@ -106,7 +106,7 @@ describe("compareRuns", () => {
         const { run: candidate } = await startRun();
         await settle(baseline.id, "boundary_nps_7", "pass");
         const crashed = await jobForCase(candidate.id, "boundary_nps_7");
-        await prisma.job.update({ where: { id: crashed.id }, data: { status: "failed" } });
+        await prisma.job.update({ where: { id: crashed.id }, data: { status: "dead_letter" } });
 
         const comparison = await compare(baseline.id, candidate.id);
 

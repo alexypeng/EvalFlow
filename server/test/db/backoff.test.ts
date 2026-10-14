@@ -79,7 +79,7 @@ for (const viaReaper of [false, true]) {
         const before = await databaseNow();
         const failed = await recover(lease, viaReaper);
         const after = await databaseNow();
-        expect(failed.status).toBe("failed");
+        expect(failed.status).toBe("dead_letter");
         expect(failed.completedAt!.getTime()).toBeGreaterThanOrEqual(before - 1);
         expect(failed.runAfter.getTime()).toBeLessThanOrEqual(after);
         expect(await claim()).toBeNull();

@@ -24,7 +24,7 @@ it("recovers only expired running jobs, preserves attempt counts and delays retr
     const live = await claimed();
     const exhausted = await claimed(1);
     const queued = await prisma.job.create({ data: { type: "test", input: {} } });
-    const failed = await prisma.job.create({ data: { type: "test", input: {}, status: "failed" } });
+    const failed = await prisma.job.create({ data: { type: "test", input: {}, status: "dead_letter" } });
     const completed = await prisma.job.create({ data: { type: "test", input: {}, status: "completed" } });
     await expire(expired.id);
     await expire(exhausted.id);
@@ -39,7 +39,7 @@ it("recovers only expired running jobs, preserves attempt counts and delays retr
     });
     const terminal = await prisma.job.findUniqueOrThrow({ where: { id: exhausted.id } });
     expect(terminal).toMatchObject({
-        status: "failed", attempts: 1, lockedBy: null, leaseToken: null, leaseExpiresAt: null,
+        status: "dead_letter", attempts: 1, lockedBy: null, leaseToken: null, leaseExpiresAt: null,
     });
     expect(terminal.completedAt).not.toBeNull();
     expect(await prisma.job.findMany({

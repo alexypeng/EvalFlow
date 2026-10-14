@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+export const ListJobsSchema = z.object({
+    status: z.enum(["queued", "running", "completed", "dead_letter"]).optional(),
+});
+
 export const CreateJobSchema = z.object({
     type: z.literal("retention_risk_analysis"),
     input: z.object({

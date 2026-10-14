@@ -40,7 +40,7 @@ describe("claimNextJob", () => {
     it("returns null when nothing is queued", async () => {
         await seedJob({ status: "running" });
         await seedJob({ status: "completed" });
-        await seedJob({ status: "failed" });
+        await seedJob({ status: "dead_letter" });
         const claimed = await claim();
         expect(claimed).toBeNull();
     });
@@ -102,7 +102,7 @@ describe("failOrRetryJob", () => {
                 error: "LLM returned invalid JSON",
             });
             if (i === 2) {
-                expect(failed!.status).toBe("failed");
+                expect(failed!.status).toBe("dead_letter");
                 expect(failed!.completedAt).toBeInstanceOf(Date);
             } else {
                 expect(failed!.status).toBe("queued");

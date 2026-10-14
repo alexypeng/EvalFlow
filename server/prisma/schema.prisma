@@ -11,7 +11,7 @@ enum JobStatus {
   queued
   running
   completed
-  failed
+  dead_letter
 }
 
 enum RiskLevel {

@@ -68,7 +68,7 @@ it("issues a new token after manual retry resets attempts, fencing the old claim
     await seed(1);
     const old = (await claim())!;
     const failed = await failOrRetryJob({ ...old, error: "invalid JSON" });
-    expect(failed).toMatchObject({ status: "failed", lockedBy: null, leaseToken: null, leaseExpiresAt: null });
+    expect(failed).toMatchObject({ status: "dead_letter", lockedBy: null, leaseToken: null, leaseExpiresAt: null });
     expect((await retryJob(old.id)).ok).toBe(true);
     const current = (await claim())!;
     expect(current.attempts).toBe(old.attempts);

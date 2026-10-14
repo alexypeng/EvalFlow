@@ -17,7 +17,8 @@ try {
             if (recovered.length > 0) {
                 const queued = recovered.filter((job) => job.status === "queued").length;
                 console.log(
-                    `Reaper recovered ${recovered.length} jobs: ${queued} queued, ${recovered.length - queued} failed`,
+                    `Reaper recovered ${recovered.length} jobs: ${queued} queued, ` +
+                        `${recovered.length - queued} dead-lettered`,
                 );
             }
         } catch (error) {

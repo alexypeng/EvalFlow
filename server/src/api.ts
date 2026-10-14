@@ -5,7 +5,7 @@ import { checkDatabaseConnection } from "./db.js";
 import { createJob, getJobDetails, getMetrics, listJobs, retryJob } from "./jobs.js";
 import { compareRuns, createRun, getRunBaseline, getRunReport, listRuns } from "./runs.js";
 import { listDatasets } from "./datasets.js";
-import { CreateJobSchema, CreateRunSchema } from "./types.js";
+import { CreateJobSchema, CreateRunSchema, ListJobsSchema } from "./types.js";
 import { z } from "zod";
 
 const app = Fastify({
@@ -30,12 +30,14 @@ app.post("/jobs", async (request, reply) => {
     return reply.code(201).send(job);
 });
 
-app.get("/jobs", async () => {
-    return listJobs();
+app.get("/jobs", async (request, reply) => {
+    const parsed = ListJobsSchema.safeParse(request.query);
+    if (!parsed.success) return reply.code(400).send({ error: "Invalid job status filter" });
+    return listJobs(parsed.data.status);
 });
 
 app.get<{ Params: { id: string } }>("/jobs/:id", async (request, reply) => {
-    const details = await getJobDetails(request.params.id);
+    const details = z.uuid().safeParse(request.params.id).success ? await getJobDetails(request.params.id) : null;
 
     if (!details) {
         return reply.code(404).send({
@@ -47,6 +49,9 @@ app.get<{ Params: { id: string } }>("/jobs/:id", async (request, reply) => {
 });
 
 app.post<{ Params: { id: string } }>("/jobs/:id/retry", async (request, reply) => {
+    if (!z.uuid().safeParse(request.params.id).success) {
+        return reply.code(404).send({ error: "Job not found" });
+    }
     const result = await retryJob(request.params.id);
 
     if (!result.ok && result.reason === "not_found") {
@@ -55,9 +60,9 @@ app.post<{ Params: { id: string } }>("/jobs/:id/retry", async (request, reply) =
         });
     }
 
-    if (!result.ok && result.reason === "not_failed") {
+    if (!result.ok && result.reason === "not_dead_letter") {
         return reply.code(409).send({
-            error: "Only failed jobs can be retried",
+            error: "Only dead-lettered jobs can be retried",
             status: result.job.status,
         });
     }

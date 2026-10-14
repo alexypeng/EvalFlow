@@ -13,7 +13,7 @@ export const JobStatus = {
   queued: 'queued',
   running: 'running',
   completed: 'completed',
-  failed: 'failed'
+  dead_letter: 'dead_letter'
 } as const
 
 export type JobStatus = (typeof JobStatus)[keyof typeof JobStatus]
