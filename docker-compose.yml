@@ -55,6 +55,20 @@ services:
                 condition: service_completed_successfully
         command: ["pnpm", "start:api"]
 
+    prometheus:
+        image: prom/prometheus:v3.15.0
+        command:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=7d
+        ports:
+            - "127.0.0.1:9090:9090"
+        volumes:
+            - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+            - evalflow_prometheus:/prometheus
+        depends_on:
+            - api
+
     worker:
         build:
             context: .
@@ -102,3 +116,4 @@ services:
 
 volumes:
     evalflow_postgres:
+    evalflow_prometheus:

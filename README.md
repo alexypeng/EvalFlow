@@ -49,9 +49,10 @@ docker compose up --build
 Then open:
 
 ```text
-Dashboard: http://localhost:5173
-API:       http://localhost:3000
-Postgres:  localhost:5432
+Dashboard:  http://localhost:5173
+API:        http://localhost:3000
+Prometheus: http://localhost:9090
+Postgres:   localhost:5432
 ```
 
 Stop the stack with:
@@ -60,7 +61,7 @@ Stop the stack with:
 docker compose down
 ```
 
-Remove local database state if you want a clean reset:
+Remove local database state and collected Prometheus history if you want a clean reset:
 
 ```bash
 docker compose down -v
@@ -636,9 +637,56 @@ group different IDs together; unknown URLs share `unmatched`. Raw paths, query s
 are never labels. Scrapes of `/metrics` are excluded from both measurements.
 
 Measurements live in each API process and reset on restart; they do not reconstruct past requests from
-Postgres. Prometheus collection and Grafana charts are not configured yet. Worker and queue measurements
-will follow in later M4 checkpoints. See the [client documentation](https://github.com/prometheus/client_js)
+Postgres. Worker and queue measurements will follow in later M4 checkpoints.
+See the [client documentation](https://github.com/prometheus/client_js)
 for the metric types and exposition format.
+
+### Local Prometheus
+
+Docker Compose includes Prometheus, which scrapes the API every 15 seconds with a 5-second timeout.
+Its target is `http://api:3000/metrics`: `api` is the Compose service name. Inside the Prometheus
+container, `localhost` would refer to Prometheus itself, rather than the API container.
+
+```bash
+docker compose up --build -d api prometheus
+```
+
+This also starts Postgres and applies migrations through the existing API dependencies.
+The API must run in Compose for this target to resolve; an API started with `pnpm dev:api` on the
+host is not the configured target. Configuration lives in `observability/prometheus/prometheus.yml`.
+After editing it, run `docker compose restart prometheus` to load the changes.
+
+Open [Prometheus](http://localhost:9090) and its [targets page](http://localhost:9090/targets).
+The `evalflow-api` target should become **UP** after a scrape. Generate a few read-only requests:
+
+```bash
+curl http://localhost:3000/jobs/not-a-uuid
+curl http://localhost:3000/jobs/another-invalid-id
+```
+
+These return 404 without querying Postgres and still produce request measurements. Wait at least
+15 seconds, then try these expressions in Prometheus's query page:
+
+```promql
+up{job="evalflow-api"}
+evalflow_http_requests_total{job="evalflow-api"}
+sum(rate(evalflow_http_requests_total{job="evalflow-api"}[5m]))
+histogram_quantile(0.95, sum by (le) (rate(evalflow_http_request_duration_seconds_bucket{job="evalflow-api"}[5m])))
+```
+
+`up` is 1 when the latest scrape succeeds and 0 when it fails. The counter shows observed totals
+since each API process started. `rate` estimates requests per second from successive samples;
+it needs at least two samples, so wait for multiple scrapes and generate traffic before expecting
+a useful rate or latency estimate. The histogram query estimates the 95th-percentile response time
+in seconds across all API routes. Empty latency data can display `NaN` until requests are observed.
+
+Prometheus keeps samples for 7 days in the `evalflow_prometheus` named volume. Ordinary restarts
+and `docker compose down` preserve it; `docker compose down -v` removes it along with the database
+volume. API restarts reset API counters, while Prometheus retains collected history and `rate`
+accounts for counter resets. Requests between the last scrape and a crash may never be collected.
+The Prometheus port is published only on the local machine. Grafana is a later M4 checkpoint.
+See the official [configuration](https://prometheus.io/docs/prometheus/latest/configuration/configuration/)
+and [Docker storage](https://prometheus.io/docs/prometheus/latest/installation/) documentation.
 
 Health check:
 
