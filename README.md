@@ -161,6 +161,9 @@ TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5433/evalflow_test
 WORKER_CONCURRENCY=1
 LEASE_DURATION_MS=60000
 HEARTBEAT_INTERVAL_MS=20000
+WORKER_SHUTDOWN_TIMEOUT_MS=30000
+WORKER_SHUTDOWN_CLEANUP_MS=5000
+WORKER_STOP_GRACE_PERIOD=40s
 REAPER_INTERVAL_MS=5000
 REAPER_BATCH_SIZE=100
 ```
@@ -176,6 +179,25 @@ zero; they do not yet use the provider's usage metadata or pricing.
 a positive integer smaller than the lease duration. Both are worker settings in milliseconds.
 The worker renews each active claim while waiting for tools or the model. Docker Compose accepts
 these settings from the root `.env`; locally, set them in the worker environment.
+
+The worker handles SIGTERM and Ctrl+C (SIGINT) by stopping new claims, waking idle polling and
+giving active jobs up to `WORKER_SHUTDOWN_TIMEOUT_MS` (default 30000) to finish. Heartbeats continue
+during this drain period so slow calls retain ownership. A claim already sent before the signal can
+return afterwards; the worker releases it without starting its pipeline, retaining the consumed attempt.
+
+At the deadline, unfinished attempts stop starting further pipeline steps and their heartbeats are
+stopped/drained. A guarded release uses the normal backoff/dead-letter policy without resetting attempts.
+Completion already in progress and release serialize through the same row locks; only one transition wins.
+Release cannot touch another worker's replacement claim. Provider calls may continue remotely even after
+the local process exits, so an interrupted attempt still counts and may have incurred provider cost.
+
+`WORKER_SHUTDOWN_CLEANUP_MS` (default 5000) bounds release/disconnect cleanup after the drain deadline.
+If cleanup stalls, the process exits with code 1; unrenewed leases are recovered by the separate reaper.
+Successful drain or completed deadline cleanup exits with code 0. Repeated signals do not extend the deadline.
+Both worker shutdown settings are positive integer milliseconds, with a maximum of 2147483647.
+Compose runs Node directly to deliver signals to the worker and allows `WORKER_STOP_GRACE_PERIOD`
+(default `40s`) before a forced kill. If you increase shutdown budgets, set this Docker duration longer
+than their combined total. SIGKILL cannot be handled and still relies on lease expiry/reaper recovery.
 
 The separate reaper recovers jobs after worker crashes. Docker Compose starts it as the `reaper`
 service. For development outside Docker, run `pnpm dev:reaper` in another terminal alongside

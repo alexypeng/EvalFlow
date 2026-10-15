@@ -16,3 +16,16 @@ export function workerLeaseSettings(env: NodeJS.ProcessEnv) {
     return { leaseDurationMs, heartbeatIntervalMs };
 }
 
+export function workerShutdownSettings(env: NodeJS.ProcessEnv) {
+    const graceMs = Number(env.WORKER_SHUTDOWN_TIMEOUT_MS ?? 30_000);
+    const cleanupMs = Number(env.WORKER_SHUTDOWN_CLEANUP_MS ?? 5000);
+    for (const [name, value] of [
+        ["WORKER_SHUTDOWN_TIMEOUT_MS", graceMs], ["WORKER_SHUTDOWN_CLEANUP_MS", cleanupMs],
+    ] as const) {
+        if (!Number.isInteger(value) || value < 1 || value > 2_147_483_647) {
+            throw new Error(`${name} must be an integer between 1 and 2147483647`);
+        }
+    }
+    return { graceMs, cleanupMs };
+}
+

@@ -67,10 +67,13 @@ services:
             WORKER_CONCURRENCY: 1
             LEASE_DURATION_MS: ${LEASE_DURATION_MS:-60000}
             HEARTBEAT_INTERVAL_MS: ${HEARTBEAT_INTERVAL_MS:-20000}
+            WORKER_SHUTDOWN_TIMEOUT_MS: ${WORKER_SHUTDOWN_TIMEOUT_MS:-30000}
+            WORKER_SHUTDOWN_CLEANUP_MS: ${WORKER_SHUTDOWN_CLEANUP_MS:-5000}
         depends_on:
             migrate:
                 condition: service_completed_successfully
-        command: ["pnpm", "start:worker"]
+        command: ["node", "dist/worker.js"]
+        stop_grace_period: ${WORKER_STOP_GRACE_PERIOD:-40s}
 
     reaper:
         build:

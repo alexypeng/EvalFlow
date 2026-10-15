@@ -6,18 +6,70 @@ import { addTrace, claimNextJob, completeJob, failOrRetryJob, renewJobLease } fr
 import { parseLlmJson, validateRetentionOutput, scoreRetentionAnalysis } from "./evaluator.js";
 import { buildRetentionPrompt, callLlm, defaultPromptVersion } from "./llm.js";
 import { startHeartbeat, LeaseLostError } from "./heartbeat.js";
-import { workerLeaseSettings } from "./leaseSettings.js";
+import { workerLeaseSettings, workerShutdownSettings } from "./leaseSettings.js";
+import { prisma } from "./db.js";
 import type { JobLease } from "./jobs.js";
 import { JobInputSchema } from "./types.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
 const workerId = randomUUID();
 const { leaseDurationMs, heartbeatIntervalMs } = workerLeaseSettings(process.env);
+const { graceMs, cleanupMs } = workerShutdownSettings(process.env);
 const concurrency = Number(process.env.WORKER_CONCURRENCY ?? 1);
 
 if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new Error(`WORKER_CONCURRENCY must be a positive integer (got "${process.env.WORKER_CONCURRENCY}")`);
 }
+
+const idleSleep = new AbortController();
+const active = new Map<string, { lease: JobLease; heartbeat: ReturnType<typeof startHeartbeat> }>();
+let stopping = false;
+let abandoning = false;
+let graceTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function abandonAndExit() {
+    // Prevent late tool/model responses from starting new pipeline writes before releasing ownership.
+    abandoning = true;
+    console.error(`Worker shutdown deadline reached; abandoning ${active.size} active job(s)`);
+    const hardStop = setTimeout(() => {
+        console.error("Worker shutdown cleanup timed out; remaining leases will expire for the reaper");
+        process.exit(1);
+    }, cleanupMs);
+
+    const outcomes = await Promise.allSettled([...active.values()].map(async ({ lease, heartbeat }) => {
+        // Drain renewals before release, so a queued heartbeat cannot extend a released claim.
+        await heartbeat.stop();
+        const updated = await failOrRetryJob({ ...lease, error: "Worker shutdown deadline exceeded" });
+        console.log(
+            updated ? `Shutdown released job ${lease.id}: ${updated.status}` : `Shutdown no longer owns ${lease.id}`,
+        );
+    }));
+    for (const outcome of outcomes) {
+        if (outcome.status === "rejected") {
+            console.error("Shutdown release failed; lease recovery left to reaper", outcome.reason);
+        }
+    }
+    await prisma.$disconnect();
+    clearTimeout(hardStop);
+    // A provider call or claim query may still be pending; exit even when those handles remain open.
+    process.exit(0);
+}
+
+function requestShutdown(signal: string) {
+    if (stopping) return;
+    stopping = true;
+    idleSleep.abort();
+    console.log(`Worker received ${signal}; stopping claims, draining for up to ${graceMs}ms`);
+    graceTimer = setTimeout(() => {
+        void abandonAndExit().catch((error) => {
+            console.error("Worker shutdown cleanup failed; lease recovery left to reaper", error);
+            process.exit(1);
+        });
+    }, graceMs);
+}
+
+process.on("SIGTERM", () => requestShutdown("SIGTERM"));
+process.on("SIGINT", () => requestShutdown("SIGINT"));
 
 console.log(
     `Worker ${workerId} running ${concurrency} slot(s), polling every ${pollIntervalMs}ms when idle; ` +
@@ -168,12 +220,22 @@ async function runOnce() {
     console.log(`Claimed job ${job.id}`);
 
     const heartbeat = startHeartbeat(heartbeatIntervalMs, () => renewJobLease(job, leaseDurationMs));
+    active.set(job.id, { lease: job, heartbeat });
     try {
-        await processJob(job, heartbeat.assertActive);
+        // A claim already sent before SIGTERM can return afterwards. Release it without starting the pipeline.
+        if (stopping) {
+            await heartbeat.stop();
+            await failOrRetryJob({ ...job, error: "Worker shutdown before execution" });
+        } else {
+            await processJob(job, () => {
+                if (abandoning) throw new LeaseLostError();
+                heartbeat.assertActive();
+            });
+        }
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
 
-        if (error instanceof LeaseLostError) {
+        if (error instanceof LeaseLostError || abandoning) {
             console.error(`Job ${job.id}: ${message}`);
         } else {
             const updated = await failOrRetryJob({ ...job, error: message });
@@ -182,26 +244,41 @@ async function runOnce() {
             );
         }
     } finally {
-        await heartbeat.stop();
+        try {
+            await heartbeat.stop();
+        } finally {
+            active.delete(job.id);
+        }
     }
 
     return true;
 }
 
 async function workerLoop(slot: number) {
-    while (true) {
+    while (!stopping) {
         try {
             const claimed = await runOnce();
 
-            if (!claimed) {
-                await sleep(pollIntervalMs);
+            if (!claimed && !stopping) {
+                await sleep(pollIntervalMs, undefined, { signal: idleSleep.signal });
             }
         } catch (error) {
+            if (stopping) return;
             // Back off instead of spinning, e.g. while the database is down.
             console.error(`Worker slot ${slot} poll failed`, error);
-            await sleep(pollIntervalMs);
+            try {
+                await sleep(pollIntervalMs, undefined, { signal: idleSleep.signal });
+            } catch (sleepError) {
+                if (!stopping) throw sleepError;
+            }
         }
     }
 }
 
 await Promise.all(Array.from({ length: concurrency }, (_, slot) => workerLoop(slot)));
+if (!abandoning) {
+    // Keep the shutdown deadline armed until disconnect finishes; a stuck DB must not hang exit forever.
+    await prisma.$disconnect();
+    clearTimeout(graceTimer);
+    console.log("Worker shutdown complete");
+}

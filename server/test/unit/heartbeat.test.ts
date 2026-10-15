@@ -1,8 +1,19 @@
 import { expect, it, vi } from "vitest";
 import { startHeartbeat, LeaseLostError } from "../../src/heartbeat.js";
-import { workerLeaseSettings } from "../../src/leaseSettings.js";
+import { workerLeaseSettings, workerShutdownSettings } from "../../src/leaseSettings.js";
 
 // Use real timers: the helper uses abortable node:timers/promises.
+
+it("uses bounded shutdown defaults and validates overrides", () => {
+    expect(workerShutdownSettings({})).toEqual({ graceMs: 30_000, cleanupMs: 5000 });
+    expect(workerShutdownSettings({ WORKER_SHUTDOWN_TIMEOUT_MS: "100", WORKER_SHUTDOWN_CLEANUP_MS: "200" }))
+        .toEqual({ graceMs: 100, cleanupMs: 200 });
+    for (const key of ["WORKER_SHUTDOWN_TIMEOUT_MS", "WORKER_SHUTDOWN_CLEANUP_MS"]) {
+        for (const value of ["0", "-1", "1.5", "Infinity", "bad", "", "2147483648"]) {
+            expect(() => workerShutdownSettings({ [key]: value })).toThrow(key);
+        }
+    }
+});
 
 it("uses the agreed defaults and rejects unusable timing settings", () => {
     expect(workerLeaseSettings({})).toEqual({ leaseDurationMs: 60_000, heartbeatIntervalMs: 20_000 });
