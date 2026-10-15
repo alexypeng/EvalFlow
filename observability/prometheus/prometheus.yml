@@ -7,3 +7,11 @@ scrape_configs:
       metrics_path: /metrics
       static_configs:
           - targets: ["api:3000"]
+
+    - job_name: evalflow-worker
+      metrics_path: /metrics
+      dns_sd_configs:
+          - names: ["worker"]
+            type: A
+            port: 9100
+            refresh_interval: 15s

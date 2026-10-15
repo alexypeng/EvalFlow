@@ -644,8 +644,8 @@ for empty statuses. Queued includes jobs waiting for retry backoff; running incl
 expired leases may still await the reaper. Counts include all stored jobs, including dataset runs.
 These are current counts, not lifetime event counters: manual requeue or deletion can reduce terminal
 counts. An API restart reads them again from Postgres. If the database read fails, `/metrics` returns 500
-instead of publishing stale or false zero job counts; Prometheus marks that scrape DOWN. Worker-level
-measurements will follow in later M4 checkpoints.
+instead of publishing stale or false zero job counts; Prometheus marks that scrape DOWN. Worker attempt
+measurements are exposed separately as described below.
 See the [client documentation](https://github.com/prometheus/client_js)
 for the metric types and exposition format.
 
@@ -701,7 +701,8 @@ and [Docker storage](https://prometheus.io/docs/prometheus/latest/installation/)
 Start the API and monitoring services:
 
 ```bash
-docker compose up --build -d api prometheus grafana
+docker compose up --build -d api worker reaper prometheus grafana
+docker compose restart prometheus
 ```
 
 Open [Grafana](http://localhost:3001/d/evalflow-api). The **EvalFlow API** dashboard and its
@@ -719,11 +720,13 @@ The dashboard refreshes every 15 seconds and initially shows the last 15 minutes
 | API response latency | Estimated p50 and p95 HTTP durations. A p95 of 100ms means about 95% of measured requests were faster than 100ms. |
 | Queued and running jobs | Current waiting and claimed job counts. Queued includes delayed retries. |
 | Completed and dead-letter jobs | Current stored terminal job counts, rather than a completion rate. |
+| Worker attempt outcomes | Observed ended claims per second, grouped by outcome across workers. A retry followed by success is two attempts. |
+| Worker attempt duration | Estimated p50/p95 from claim return to outcome observation, including permit waits and processing but excluding queued delay. |
 
 Use the read-only request examples above to produce traffic, then wait for multiple Prometheus scrapes.
 Rates need at least two samples for a series. The 5xx panel shows zero when traffic exists without
 server errors; without traffic, a percentage or latency estimate is undefined and may show no data.
-Missing samples are not filled with zeros. These panels measure API requests, not completed jobs,
+Missing samples are not filled with zeros. The HTTP panels measure API requests, not completed jobs,
 queue wait or the duration of an LLM call. The job panels show database counts sampled every 15 seconds;
 transitions between scrapes may not appear. They use `max by (status)` so future API replicas that read
 the same shared database do not multiply the totals. Grafana chooses its rate window from the chart resolution
@@ -736,6 +739,44 @@ files every 10 seconds; restart Grafana after changing data-source provisioning.
 `evalflow_grafana` preserves its own state across container replacement; measurement history remains
 in Prometheus's separate volume. `docker compose down -v` deletes both and the Postgres volume.
 See Grafana's official [provisioning documentation](https://grafana.com/docs/grafana/latest/administration/provisioning/).
+
+### Worker attempt measurements
+
+Each worker exposes `/metrics` on `WORKER_METRICS_PORT` (default `9100`). Compose makes this port
+available inside its network without publishing a host port. Prometheus's `evalflow-worker` scrape job
+discovers the IPv4 addresses of the Compose `worker` service every 15 seconds and scrapes each instance
+on port 9100. This also supports multiple Compose worker replicas; no Docker socket is mounted into
+Prometheus. After updating the scrape configuration, restart Prometheus as shown above.
+
+The worker exports `evalflow_worker_attempts_total{outcome="..."}` and a matching
+`evalflow_worker_attempt_duration_seconds` histogram. Both use only the bounded `outcome` label:
+
+| Outcome | Meaning |
+| --- | --- |
+| `completed` | The database accepted the fenced result/eval write. A wrong answer can still be a completed execution. |
+| `retried` | The database accepted requeueing this consumed claim, including a graceful shutdown release. |
+| `dead_letter` | The database accepted terminal failure after attempts were exhausted. |
+| `lease_lost` | The worker discarded its attempt after rejected/uncertain ownership. This includes heartbeat failures that prevent safe continuation. |
+| `unconfirmed` | Finalization failed without a confirmed database outcome, such as a database error while releasing a claim. |
+
+Every claim gets its own timer and records at most one outcome and duration. Completion and shutdown
+release writes are serialized within that claim so racing cleanup cannot misclassify an accepted
+completion as lease loss. The existing database fencing still decides whether each write is valid.
+Duration starts when claiming returns and ends when the outcome is observed; it includes tool/model
+time, permit waiting and finalization, but excludes the preceding queue wait and any following retry
+backoff. A claim returned after shutdown starts still consumes an attempt and is counted when released,
+even though its pipeline never ran. In-progress claims have no duration sample yet.
+
+These counters reset on worker restart and are operational measurements, not a durable audit log.
+SIGKILL cannot record its interrupted claim; updates after the last scrape can also be lost on exit,
+including graceful shutdown. Reaper actions do not increment these worker counters. Use stored job
+counts and traces to investigate individual jobs. Worker metrics remain readable during a DB outage,
+but successful scrapes alone do not prove that jobs can be processed. Separate LLM and rate-limit
+duration measurements are a later checkpoint.
+
+For a worker started directly on the host, inspect `http://localhost:9100/metrics`. Give each additional
+host worker its own `WORKER_METRICS_PORT`; Compose discovery does not scrape host processes.
+Tests use port `0` so the OS allocates independent ports for subprocesses.
 
 Health check:
 

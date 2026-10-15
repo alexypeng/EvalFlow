@@ -99,6 +99,7 @@ services:
             GEMINI_MODEL: gemini-3.8-flash
             LLM_PROVIDER: mock
             WORKER_CONCURRENCY: 1
+            WORKER_METRICS_PORT: 9100
             RATE_LIMIT_MOCK: ${RATE_LIMIT_MOCK:-false}
             LEASE_DURATION_MS: ${LEASE_DURATION_MS:-60000}
             HEARTBEAT_INTERVAL_MS: ${HEARTBEAT_INTERVAL_MS:-20000}
@@ -108,6 +109,8 @@ services:
             migrate:
                 condition: service_completed_successfully
         command: ["node", "dist/worker.js"]
+        expose:
+            - "9100"
         stop_grace_period: ${WORKER_STOP_GRACE_PERIOD:-40s}
 
     reaper:

@@ -11,6 +11,7 @@ import { workerLeaseSettings, workerShutdownSettings } from "./leaseSettings.js"
 import { prisma } from "./db.js";
 import type { JobLease } from "./jobs.js";
 import { JobInputSchema } from "./types.js";
+import { createWorkerMetrics, workerMetricsPort } from "./workerMetrics.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
 const workerId = randomUUID();
@@ -18,13 +19,19 @@ const { leaseDurationMs, heartbeatIntervalMs } = workerLeaseSettings(process.env
 const { graceMs, cleanupMs } = workerShutdownSettings(process.env);
 const rateLimitMock = limitMockProvider(process.env);
 const concurrency = Number(process.env.WORKER_CONCURRENCY ?? 1);
+const metricsPort = workerMetricsPort(process.env);
+const metrics = createWorkerMetrics();
 
 if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new Error(`WORKER_CONCURRENCY must be a positive integer (got "${process.env.WORKER_CONCURRENCY}")`);
 }
 
 const idleSleep = new AbortController();
-const active = new Map<string, { lease: JobLease; heartbeat: ReturnType<typeof startHeartbeat> }>();
+const active = new Map<string, {
+    lease: JobLease;
+    heartbeat: ReturnType<typeof startHeartbeat>;
+    release: (error: string) => ReturnType<typeof failOrRetryJob>;
+}>();
 let stopping = false;
 let abandoning = false;
 let graceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -38,10 +45,10 @@ async function abandonAndExit() {
         process.exit(1);
     }, cleanupMs);
 
-    const outcomes = await Promise.allSettled([...active.values()].map(async ({ lease, heartbeat }) => {
+    const outcomes = await Promise.allSettled([...active.values()].map(async ({ lease, heartbeat, release }) => {
         // Drain renewals before release, so a queued heartbeat cannot extend a released claim.
         await heartbeat.stop();
-        const updated = await failOrRetryJob({ ...lease, error: "Worker shutdown deadline exceeded" });
+        const updated = await release("Worker shutdown deadline exceeded");
         console.log(
             updated ? `Shutdown released job ${lease.id}: ${updated.status}` : `Shutdown no longer owns ${lease.id}`,
         );
@@ -51,6 +58,7 @@ async function abandonAndExit() {
             console.error("Shutdown release failed; lease recovery left to reaper", outcome.reason);
         }
     }
+    await metrics.app.close();
     await prisma.$disconnect();
     clearTimeout(hardStop);
     // A provider call or claim query may still be pending; exit even when those handles remain open.
@@ -73,6 +81,10 @@ function requestShutdown(signal: string) {
 process.on("SIGTERM", () => requestShutdown("SIGTERM"));
 process.on("SIGINT", () => requestShutdown("SIGINT"));
 
+await metrics.app.listen({ port: metricsPort, host: "0.0.0.0" });
+const address = metrics.app.server.address();
+console.log(`Worker metrics listening on port ${typeof address === "object" ? address?.port : metricsPort}`);
+
 console.log(
     `Worker ${workerId} running ${concurrency} slot(s), polling every ${pollIntervalMs}ms when idle; ` +
         `lease ${leaseDurationMs}ms, heartbeat ${heartbeatIntervalMs}ms`,
@@ -91,6 +103,7 @@ async function timed<T>(fn: () => Promise<T>) {
 async function processJob(
     job: JobLease & { caseId: string | null; input: unknown },
     assertActive: () => void,
+    complete: typeof completeJob,
 ) {
     const startedAt = Date.now();
     const trace: typeof addTrace = (params) => {
@@ -211,7 +224,7 @@ async function processJob(
     });
 
     assertActive();
-    const completed = await completeJob({
+    const completed = await complete({
         ...job,
         result: validation.data,
         latencyMs: Date.now() - startedAt,
@@ -231,28 +244,45 @@ async function runOnce() {
 
     if (!job) return false;
 
+    const { finish, finalize } = metrics.beginAttempt();
+    const release = (error: string) => finalize(async () => {
+        try {
+            const updated = await failOrRetryJob({ ...job, error });
+            finish(updated ? updated.status === "queued" ? "retried" : "dead_letter" : "lease_lost");
+            return updated;
+        } catch (error) {
+            finish("unconfirmed");
+            throw error;
+        }
+    });
+
     console.log(`Claimed job ${job.id}`);
 
     const heartbeat = startHeartbeat(heartbeatIntervalMs, () => renewJobLease(job, leaseDurationMs));
-    active.set(job.id, { lease: job, heartbeat });
+    active.set(job.id, { lease: job, heartbeat, release });
     try {
         // A claim already sent before SIGTERM can return afterwards. Release it without starting the pipeline.
         if (stopping) {
             await heartbeat.stop();
-            await failOrRetryJob({ ...job, error: "Worker shutdown before execution" });
+            await release("Worker shutdown before execution");
         } else {
             await processJob(job, () => {
                 if (abandoning) throw new LeaseLostError();
                 heartbeat.assertActive();
-            });
+            }, (params) => finalize(async () => {
+                const completed = await completeJob(params);
+                if (completed) finish("completed");
+                return completed;
+            }));
         }
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
 
         if (error instanceof LeaseLostError || abandoning) {
+            if (!abandoning) finish("lease_lost");
             console.error(`Job ${job.id}: ${message}`);
         } else {
-            const updated = await failOrRetryJob({ ...job, error: message });
+            const updated = await release(message);
             console.error(
                 updated ? `Job ${job.id}: ${updated.status}` : `Job ${job.id} lease lost; failure discarded`, error,
             );
@@ -262,6 +292,8 @@ async function runOnce() {
             await heartbeat.stop();
         } finally {
             active.delete(job.id);
+            // Once deadline cleanup starts, it owns outcome recording even if the provider returns late.
+            if (!abandoning) finish("unconfirmed");
         }
     }
 
@@ -292,6 +324,7 @@ async function workerLoop(slot: number) {
 await Promise.all(Array.from({ length: concurrency }, (_, slot) => workerLoop(slot)));
 if (!abandoning) {
     // Keep the shutdown deadline armed until disconnect finishes; a stuck DB must not hang exit forever.
+    await metrics.app.close();
     await prisma.$disconnect();
     clearTimeout(graceTimer);
     console.log("Worker shutdown complete");

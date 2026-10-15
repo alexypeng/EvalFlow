@@ -11,7 +11,10 @@ if (!dbName.endsWith("_test")) {
 
 // Tests must not pick up a real LLM from a developer's .env: results would
 // depend on the machine, and runs would record "gemini" instead of "mock".
-const testLlmEnv = { LLM_PROVIDER: "mock", GEMINI_API_KEY: "", RATE_LIMIT_MOCK: "false" };
+// Ephemeral ports keep real worker subprocesses isolated from each other and local dev workers.
+const testLlmEnv = {
+    LLM_PROVIDER: "mock", GEMINI_API_KEY: "", RATE_LIMIT_MOCK: "false", WORKER_METRICS_PORT: "0",
+};
 
 export default defineConfig({
     test: {
