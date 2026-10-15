@@ -2,7 +2,7 @@
     "id": null,
     "uid": "evalflow-api",
     "title": "EvalFlow API",
-    "description": "Local API health and HTTP measurements collected by Prometheus. Worker and queue measurements follow separately.",
+    "description": "API health, HTTP measurements and stored job status counts collected by Prometheus.",
     "tags": [
         "evalflow",
         "api"
@@ -25,7 +25,7 @@
             "id": 1,
             "title": "API availability",
             "type": "stat",
-            "description": "Latest Prometheus scrape result: UP means /metrics is reachable. This does not verify Postgres or job processing. No data means Prometheus has no sample.",
+            "description": "Latest Prometheus scrape result: UP means /metrics responded, including its Postgres job-count query. This does not prove worker health or every database operation. No data means Prometheus has no sample.",
             "datasource": {
                 "type": "prometheus",
                 "uid": "evalflow-prometheus"
@@ -288,6 +288,132 @@
                 "legend": {
                     "displayMode": "list",
                     "placement": "bottom"
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            }
+        },
+        {
+            "id": 5,
+            "title": "Queued and running jobs",
+            "type": "timeseries",
+            "description": "Current stored jobs waiting or claimed. Queued includes delayed retries; running may include an expired lease awaiting the reaper. These are job counts, not worker-slot counts.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "evalflow-prometheus"
+            },
+            "gridPos": {
+                "h": 9,
+                "w": 12,
+                "x": 0,
+                "y": 18
+            },
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "evalflow-prometheus"
+                    },
+                    "editorMode": "code",
+                    "expr": "max by (status) (evalflow_jobs{job=\"evalflow-api\",status=~\"queued|running\"})",
+                    "legendFormat": "{{status}}",
+                    "refId": "A",
+                    "range": true,
+                    "instant": false
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "min": 0,
+                    "noValue": "No data",
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineInterpolation": "stepAfter",
+                        "lineWidth": 2,
+                        "fillOpacity": 10,
+                        "showPoints": "auto",
+                        "spanNulls": false
+                    },
+                    "decimals": 0
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": [
+                        "lastNotNull"
+                    ]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            }
+        },
+        {
+            "id": 6,
+            "title": "Completed and dead-letter jobs",
+            "type": "timeseries",
+            "description": "Current stored terminal jobs. These are gauges, not lifetime completion counters: deleting jobs or manually requeueing a dead letter can reduce them.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "evalflow-prometheus"
+            },
+            "gridPos": {
+                "h": 9,
+                "w": 12,
+                "x": 12,
+                "y": 18
+            },
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "evalflow-prometheus"
+                    },
+                    "editorMode": "code",
+                    "expr": "max by (status) (evalflow_jobs{job=\"evalflow-api\",status=~\"completed|dead_letter\"})",
+                    "legendFormat": "{{status}}",
+                    "refId": "A",
+                    "range": true,
+                    "instant": false
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "min": 0,
+                    "noValue": "No data",
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineInterpolation": "stepAfter",
+                        "lineWidth": 2,
+                        "fillOpacity": 10,
+                        "showPoints": "auto",
+                        "spanNulls": false
+                    },
+                    "decimals": 0
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": [
+                        "lastNotNull"
+                    ]
                 },
                 "tooltip": {
                     "mode": "multi",

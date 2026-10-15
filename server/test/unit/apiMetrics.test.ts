@@ -1,12 +1,15 @@
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { installApiMetrics } from "../../src/apiMetrics.js";
+import type { JobCounts } from "../../src/jobs.js";
 
 const apps: FastifyInstance[] = [];
 
-function createApp() {
+const emptyCounts: JobCounts = { queued: 0, running: 0, completed: 0, dead_letter: 0 };
+
+function createApp(readJobCounts: () => Promise<JobCounts> = async () => emptyCounts) {
     const app = Fastify();
-    installApiMetrics(app);
+    installApiMetrics(app, readJobCounts);
     apps.push(app);
     return app;
 }
@@ -16,6 +19,43 @@ afterEach(async () => {
 });
 
 describe("API Prometheus measurements", () => {
+    it("reads job counts only when scraped and replaces every status, including zeros", async () => {
+        const readCounts = vi.fn()
+            .mockResolvedValueOnce({ queued: 8, running: 2, completed: 5, dead_letter: 1 })
+            .mockResolvedValueOnce({ queued: 0, running: 0, completed: 15, dead_letter: 1 });
+        const app = createApp(readCounts);
+        app.get("/example", async () => "ok");
+        await app.inject("/example");
+        expect(readCounts).not.toHaveBeenCalled();
+
+        const first = await app.inject("/metrics");
+        expect(first.body).toContain("# TYPE evalflow_jobs gauge");
+        expect(first.body).toContain('evalflow_jobs{status="queued"} 8');
+        expect(first.body).toContain('evalflow_jobs{status="running"} 2');
+        expect(first.body).toContain('evalflow_jobs{status="completed"} 5');
+        expect(first.body).toContain('evalflow_jobs{status="dead_letter"} 1');
+        const next = await app.inject("/metrics");
+        expect(next.body).toContain('evalflow_jobs{status="queued"} 0');
+        expect(next.body).toContain('evalflow_jobs{status="running"} 0');
+        expect(next.body).toContain('evalflow_jobs{status="completed"} 15');
+        expect(readCounts).toHaveBeenCalledTimes(2);
+    });
+
+    it("fails a DB-error scrape instead of returning old counts, and recovers on the next scrape", async () => {
+        const readCounts = vi.fn()
+            .mockResolvedValueOnce({ ...emptyCounts, queued: 8 })
+            .mockRejectedValueOnce(new Error("database unavailable"))
+            .mockResolvedValueOnce(emptyCounts);
+        const app = createApp(readCounts);
+        expect((await app.inject("/metrics")).statusCode).toBe(200);
+        const failed = await app.inject("/metrics");
+        expect(failed.statusCode).toBe(500);
+        expect(failed.body).not.toContain("evalflow_jobs");
+        const recovered = await app.inject("/metrics");
+        expect(recovered.statusCode).toBe(200);
+        expect(recovered.body).toContain('evalflow_jobs{status="queued"} 0');
+    });
+
     it("exposes Prometheus text without counting scrape traffic", async () => {
         const app = createApp();
         app.get("/stats", async () => ({ totalJobs: 3 }));

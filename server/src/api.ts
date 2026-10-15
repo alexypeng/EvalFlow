@@ -2,7 +2,7 @@ import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { checkDatabaseConnection } from "./db.js";
-import { createJob, getJobDetails, getMetrics, listJobs, retryJob } from "./jobs.js";
+import { createJob, getJobCounts, getJobDetails, getMetrics, listJobs, retryJob } from "./jobs.js";
 import { compareRuns, createRun, getRunBaseline, getRunReport, listRuns } from "./runs.js";
 import { listDatasets } from "./datasets.js";
 import { CreateJobSchema, CreateRunSchema, ListJobsSchema } from "./types.js";
@@ -13,7 +13,7 @@ const app = Fastify({
     logger: true,
 });
 
-installApiMetrics(app);
+installApiMetrics(app, getJobCounts);
 
 await app.register(cors, {
     origin: true,

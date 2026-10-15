@@ -41,6 +41,15 @@ export async function getJobById(id: string) {
     });
 }
 
+export type JobCounts = Record<JobStatus, number>;
+
+export async function getJobCounts(): Promise<JobCounts> {
+    const groups = await prisma.job.groupBy({ by: ["status"], _count: { _all: true } });
+    const counts: JobCounts = { queued: 0, running: 0, completed: 0, dead_letter: 0 };
+    for (const group of groups) counts[group.status] = group._count._all;
+    return counts;
+}
+
 export async function getMetrics() {
     const [totalJobs, completedJobs, failedJobs, aggregates] = await Promise.all([
         prisma.job.count(),

@@ -1,11 +1,25 @@
 import type { FastifyInstance } from "fastify";
-import { Counter, Histogram, Registry } from "@prometheus-io/client";
+import { Counter, Gauge, Histogram, Registry } from "@prometheus-io/client";
+import type { JobCounts } from "./jobs.js";
 
 const methods = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"]);
 
-export function installApiMetrics(app: FastifyInstance): void {
+export function installApiMetrics(app: FastifyInstance, readJobCounts: () => Promise<JobCounts>): void {
     // A registry belongs to one API instance; workers and tests must not share its counters.
     const registry = new Registry();
+    new Gauge({
+        name: "evalflow_jobs",
+        help: "Current jobs stored in Postgres by status; queued includes delayed retries.",
+        labelNames: ["status"] as const,
+        registers: [registry],
+        async collect() {
+            // Read the full snapshot before setting values; DB errors fail the scrape instead of publishing stale counts.
+            const counts = await readJobCounts();
+            for (const status of ["queued", "running", "completed", "dead_letter"] as const) {
+                this.set({ status }, counts[status]);
+            }
+        },
+    });
     const labelNames = ["method", "route", "status_code"] as const;
     const requests = new Counter({
         name: "evalflow_http_requests_total",

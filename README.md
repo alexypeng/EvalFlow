@@ -637,8 +637,15 @@ unbounded bucket. Both use `method`, `route` and `status_code` labels. Route pat
 group different IDs together; unknown URLs share `unmatched`. Raw paths, query strings and job IDs
 are never labels. Scrapes of `/metrics` are excluded from both measurements.
 
-Measurements live in each API process and reset on restart; they do not reconstruct past requests from
-Postgres. Worker and queue measurements will follow in later M4 checkpoints.
+HTTP measurements live in each API process and reset on restart; they do not reconstruct past requests from
+Postgres. Job counts use a separate `evalflow_jobs{status="..."}` gauge, read from Postgres on every
+scrape in one grouped query. It always exposes queued, running, completed and dead_letter, including zero
+for empty statuses. Queued includes jobs waiting for retry backoff; running includes claimed jobs whose
+expired leases may still await the reaper. Counts include all stored jobs, including dataset runs.
+These are current counts, not lifetime event counters: manual requeue or deletion can reduce terminal
+counts. An API restart reads them again from Postgres. If the database read fails, `/metrics` returns 500
+instead of publishing stale or false zero job counts; Prometheus marks that scrape DOWN. Worker-level
+measurements will follow in later M4 checkpoints.
 See the [client documentation](https://github.com/prometheus/client_js)
 for the metric types and exposition format.
 
@@ -706,16 +713,20 @@ The dashboard refreshes every 15 seconds and initially shows the last 15 minutes
 
 | Panel | Meaning |
 | --- | --- |
-| API availability | Latest scrape status: UP or DOWN. This checks `/metrics`, not database health or job execution. |
+| API availability | Latest scrape status: UP or DOWN. Success now includes the job-count DB query, but does not prove worker health or every database operation. |
 | API traffic | Completed HTTP responses per second across API routes. Metrics scrapes are excluded. |
 | Server errors (5xx) | Percentage of completed responses returning 5xx. Responses such as 404 contribute to traffic but are not server errors. |
 | API response latency | Estimated p50 and p95 HTTP durations. A p95 of 100ms means about 95% of measured requests were faster than 100ms. |
+| Queued and running jobs | Current waiting and claimed job counts. Queued includes delayed retries. |
+| Completed and dead-letter jobs | Current stored terminal job counts, rather than a completion rate. |
 
 Use the read-only request examples above to produce traffic, then wait for multiple Prometheus scrapes.
 Rates need at least two samples for a series. The 5xx panel shows zero when traffic exists without
 server errors; without traffic, a percentage or latency estimate is undefined and may show no data.
 Missing samples are not filled with zeros. These panels measure API requests, not completed jobs,
-queue wait or the duration of an LLM call. Grafana chooses its rate window from the chart resolution
+queue wait or the duration of an LLM call. The job panels show database counts sampled every 15 seconds;
+transitions between scrapes may not appear. They use `max by (status)` so future API replicas that read
+the same shared database do not multiply the totals. Grafana chooses its rate window from the chart resolution
 and the configured 15-second scrape interval.
 
 This local setup provides anonymous **Viewer** access, disables login and sign-up, and creates no
