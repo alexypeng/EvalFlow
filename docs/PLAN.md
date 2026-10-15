@@ -14,10 +14,10 @@ _Last updated: 2026-10-15_
 
 | | |
 |---|---|
-| **Current milestone** | M3 Reliable workers, branch `m3-reliable-workers` |
-| **Done** | M0 Foundations (PR #1), M1 datasets and runs (PR #2), M2 CI regression gate (PR #3), all merged |
-| **Waiting on you** | Commit/push the reviewed chaos-test checkpoint |
-| **Next up** | Verify hosted chaos/CI run before closing M3 |
+| **Current milestone** | M3 Reliable workers meets acceptance criteria; branch `m3-reliable-workers`, awaiting PR/merge |
+| **Done** | M0 (PR #1), M1 (PR #2), M2 (PR #3) merged; M3 implementation, learning reviews and hosted CI verified |
+| **Waiting on you** | Commit/push verification note, open M3 PR, review checks and merge |
+| **Next up** | M4 Observability planning after M3 merges |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -175,9 +175,14 @@ Tasks:
 - [x] **Claude** Seeded chaos harness: three worker processes, separate reaper, four observed active-call SIGKILLs and replacements; cleanup/deadline diagnostics implemented
 - [x] **ME** Chaos invariants: recoverable jobs complete with one accepted completion/eval each; exhausted crashed attempt dead-letters with no eval; local tests pass, learning review completed
 - [x] **Claude** Include chaos tests in the normal CI suite with a fixed seed and bounded step timeout
-- [ ] **You** Commit/push the checkpoint and verify a hosted CI run with passing chaos tests (required before M3 is complete)
+- [x] **You** Commit/push the checkpoint and verify a hosted CI run with passing chaos tests: head 88899eb, CI run 38695952781 succeeded
 
 Done when: the chaos test passes in CI.
+
+**Acceptance verified (2026-10-15):** [CI run 38695952781](https://github.com/alexypeng/EvalFlow/actions/runs/38695952781)
+passed at `88899eb3d3c484f758a97f59b4b04ff847ea4b90`: both chaos tests, 255 total passed plus 1 existing
+expected failure, typecheck and both Docker image builds. The [regression gate](https://github.com/alexypeng/EvalFlow/actions/runs/38695952720)
+also passed for that exact head. M3 meets its completion criterion; owner PR/review/merge remain.
 
 ## M4 Observability
 
@@ -289,6 +294,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 ## Session log
 
+- **2026-10-15 (M3 hosted verification):** Confirmed owner pushed chaos checkpoint 88899eb and local branch matches origin, with no tracked changes before this note. Read GitHub run results for exact head 88899eb3d3c484f758a97f59b4b04ff847ea4b90. CI 38695952781 succeeded: Typecheck & test, server image and frontend image jobs all green. Hosted test log explicitly shows both chaos scenarios passing (25.829s), 26 files/255 tests passed plus 1 existing expected failure (54.70s total). Regression workflow 38695952720 also succeeded; push-event PR summary job correctly skipped. No M3 PR exists yet (read-only head-branch query). Marked M3 acceptance verified, retaining owner PR/merge as next action; M4 planning follows merge. Updated PLAN only, with linked evidence. GitHub calls required approved escalation after sandbox network failure. No local tests needed for documentation-only update; no application changes, commits, pushes, PR creation, merges or messages posted by the agent. Suggested owner docs commit: `git add docs/PLAN.md` then `git commit -m "Record passing M3 hosted CI verification"` and `git push origin m3-reliable-workers`; owner then opens/reviews the M3 PR.
 - **2026-10-15 (chaos learning review):** Owner explained that SIGTERM permits graceful drain whereas SIGKILL simulates abrupt failure, identified matching current claim tokens as the final-write guard, and correctly classified a crashed maxAttempts=1 job as a dead letter. Explained why recovery and exhaustion use separate scenarios. After a walkthrough of the harness, owner paraphrased testing sudden crashes and eventual completion when attempts remain. Clarified that the fault scope is individual workers, with Postgres/reaper running, and that recovery also requires no duplicate accepted evaluations. Learning checkpoint completed. Updated PLAN only; existing verification remains 255 passed and 1 expected failure, alternate-seed chaos tests/typecheck/CI YAML validation passed. No application changes, tests, commits, pushes or PRs. Owner commit/push and hosted CI verification remain before M3 closure.
 - **2026-10-15 (worker chaos tests):** Owner approved the proposed scope. Added test-only ChaosHarness to launch/track owned worker/reaper processes, collect bounded logs and accepted-completion events, choose/kill active workers and start replacements, enforce internal deadlines and clean up on success/failure. Added main scenario creating a persisted 20-case mock run with 750ms calls, three single-slot workers, shared 1/sec burst-2 admission, 1.5s leases/150ms heartbeats and a real 100ms reaper; inject four seeded SIGKILLs just after observed admissions and verify orphaned rows before replacements. Leave six attempts/job and retain production backoff. Recovery asserts all 20 completed, one saved result/eval and completion log each, cleared ownership, retried claim tokens and at least 24 admissions. Separate maxAttempts=1 crash must end dead_letter with no result/eval. Added test:chaos command; existing CI test step includes the file, fixes seed 20261015 and has a five-minute step timeout. README documents commands, scope, seed limitations and execution-vs-completion semantics. Full suite passes 255 tests plus 1 existing expected failure across 26 files (49.49s); alternate seed 7 passes both chaos scenarios (26.34s, including four crashes/20 completions/20 evals and one dead letter/zero evals). Typecheck and diff check pass; a direct no-process harness check confirms global deadline bounds phase waits. CI YAML/seed/timeout parsed using Ruby's standard YAML library after Python PyYAML was unavailable; no dependency added. Initial sandbox DB access failed; approved escalated tests used evalflow_test only with no pending migrations. All test subprocesses stopped; no application/schema changes, Gemini calls, development DB changes, commits, pushes or PRs. Existing learning files preserved. Learning quiz and hosted CI verification remain before M3 closure.
 
