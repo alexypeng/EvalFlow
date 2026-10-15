@@ -384,6 +384,7 @@ type FieldRefInputType<Model, FieldType> = Model extends never ? never : FieldRe
 
 
 export const ModelName = {
+  ProviderRateLimit: 'ProviderRateLimit',
   Job: 'Job',
   Trace: 'Trace',
   Eval: 'Eval',
@@ -405,10 +406,84 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "job" | "trace" | "eval" | "dataset" | "datasetCase" | "run"
+    modelProps: "providerRateLimit" | "job" | "trace" | "eval" | "dataset" | "datasetCase" | "run"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
+    ProviderRateLimit: {
+      payload: Prisma.$ProviderRateLimitPayload<ExtArgs>
+      fields: Prisma.ProviderRateLimitFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ProviderRateLimitFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProviderRateLimitPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ProviderRateLimitFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProviderRateLimitPayload>
+        }
+        findFirst: {
+          args: Prisma.ProviderRateLimitFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProviderRateLimitPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ProviderRateLimitFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProviderRateLimitPayload>
+        }
+        findMany: {
+          args: Prisma.ProviderRateLimitFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProviderRateLimitPayload>[]
+        }
+        create: {
+          args: Prisma.ProviderRateLimitCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProviderRateLimitPayload>
+        }
+        createMany: {
+          args: Prisma.ProviderRateLimitCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ProviderRateLimitCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProviderRateLimitPayload>[]
+        }
+        delete: {
+          args: Prisma.ProviderRateLimitDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProviderRateLimitPayload>
+        }
+        update: {
+          args: Prisma.ProviderRateLimitUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProviderRateLimitPayload>
+        }
+        deleteMany: {
+          args: Prisma.ProviderRateLimitDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ProviderRateLimitUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ProviderRateLimitUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProviderRateLimitPayload>[]
+        }
+        upsert: {
+          args: Prisma.ProviderRateLimitUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProviderRateLimitPayload>
+        }
+        aggregate: {
+          args: Prisma.ProviderRateLimitAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateProviderRateLimit>
+        }
+        groupBy: {
+          args: Prisma.ProviderRateLimitGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ProviderRateLimitGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ProviderRateLimitCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ProviderRateLimitCountAggregateOutputType> | number
+        }
+      }
+    }
     Job: {
       payload: Prisma.$JobPayload<ExtArgs>
       fields: Prisma.JobFieldRefs
@@ -892,6 +967,17 @@ export const TransactionIsolationLevel = runtime.makeStrictEnum({
 export type TransactionIsolationLevel = (typeof TransactionIsolationLevel)[keyof typeof TransactionIsolationLevel]
 
 
+export const ProviderRateLimitScalarFieldEnum = {
+  provider: 'provider',
+  capacity: 'capacity',
+  refillPerSecond: 'refillPerSecond',
+  tokens: 'tokens',
+  refilledAt: 'refilledAt'
+} as const
+
+export type ProviderRateLimitScalarFieldEnum = (typeof ProviderRateLimitScalarFieldEnum)[keyof typeof ProviderRateLimitScalarFieldEnum]
+
+
 export const JobScalarFieldEnum = {
   id: 'id',
   type: 'type',
@@ -1054,6 +1140,48 @@ export type ListStringFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaMod
 
 
 /**
+ * Reference to a field of type 'Int'
+ */
+export type IntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int'>
+    
+
+
+/**
+ * Reference to a field of type 'Int[]'
+ */
+export type ListIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int[]'>
+    
+
+
+/**
+ * Reference to a field of type 'Float'
+ */
+export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
+    
+
+
+/**
+ * Reference to a field of type 'Float[]'
+ */
+export type ListFloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float[]'>
+    
+
+
+/**
+ * Reference to a field of type 'DateTime'
+ */
+export type DateTimeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'DateTime'>
+    
+
+
+/**
+ * Reference to a field of type 'DateTime[]'
+ */
+export type ListDateTimeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'DateTime[]'>
+    
+
+
+/**
  * Reference to a field of type 'JobStatus'
  */
 export type EnumJobStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'JobStatus'>
@@ -1078,34 +1206,6 @@ export type JsonFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'J
  * Reference to a field of type 'QueryMode'
  */
 export type EnumQueryModeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'QueryMode'>
-    
-
-
-/**
- * Reference to a field of type 'Int'
- */
-export type IntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int'>
-    
-
-
-/**
- * Reference to a field of type 'Int[]'
- */
-export type ListIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Int[]'>
-    
-
-
-/**
- * Reference to a field of type 'DateTime'
- */
-export type DateTimeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'DateTime'>
-    
-
-
-/**
- * Reference to a field of type 'DateTime[]'
- */
-export type ListDateTimeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'DateTime[]'>
     
 
 
@@ -1141,20 +1241,6 @@ export type EnumRiskLevelFieldRefInput<$PrismaModel> = FieldRefInputType<$Prisma
  * Reference to a field of type 'RiskLevel[]'
  */
 export type ListEnumRiskLevelFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'RiskLevel[]'>
-    
-
-
-/**
- * Reference to a field of type 'Float'
- */
-export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
-    
-
-
-/**
- * Reference to a field of type 'Float[]'
- */
-export type ListFloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float[]'>
     
 
 /**
@@ -1267,6 +1353,7 @@ export type PrismaClientOptions = ({
   queryPlanCacheMaxSize?: number
 }
 export type GlobalOmitConfig = {
+  providerRateLimit?: Prisma.ProviderRateLimitOmit
   job?: Prisma.JobOmit
   trace?: Prisma.TraceOmit
   eval?: Prisma.EvalOmit

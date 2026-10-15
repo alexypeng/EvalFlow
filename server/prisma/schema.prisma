@@ -20,6 +20,16 @@ enum RiskLevel {
   high
 }
 
+model ProviderRateLimit {
+  provider        String   @id
+  capacity        Int      @default(2)
+  refillPerSecond Float    @default(1) @map("refill_per_second")
+  tokens          Float    @default(2)
+  refilledAt      DateTime @default(dbgenerated("CURRENT_TIMESTAMP")) @map("refilled_at") @db.Timestamp(6)
+
+  @@map("provider_rate_limits")
+}
+
 model Job {
   id               String    @id @default(uuid()) @db.Uuid
   type             String

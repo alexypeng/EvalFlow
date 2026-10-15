@@ -156,6 +156,7 @@ DOCKER_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/evalflow
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-3.8-flash
 LLM_PROVIDER=mock
+RATE_LIMIT_MOCK=false
 PORT=3000
 TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5433/evalflow_test
 WORKER_CONCURRENCY=1
@@ -446,7 +447,34 @@ Both paths save `run_after` using Postgres time in the same operation that reque
 ownership. Workers skip future jobs, so waiting consumes no worker slot and survives process restarts.
 Actual execution can start later because of polling or queue backlog. Attempts increment only on claim.
 Exhausted jobs remain `dead_letter`; manually retrying one resets attempts and makes it immediately eligible.
-These delays reduce retry pressure during failures; a shared provider rate limiter remains planned in M3.
+These delays reduce retry pressure during failures. The shared provider rate limiter below also paces normal calls.
+
+Worker LLM admission uses a Postgres token bucket per resolved provider. Each permit allows one call;
+these permits are unrelated to prompt/completion text tokens. The initial bucket policy is one permit
+per second and a capacity of two, allowing a short two-call burst followed by gradual refill. Policy
+and balance are stored together in `provider_rate_limits`, shared by every worker using that database;
+restarting workers does not reset the balance. These are demonstration defaults, not Gemini quota values.
+This checkpoint initializes policy in the database and has no policy-editing API; policy changes should
+go through a reviewed migration so workers agree on one policy.
+
+Gemini worker calls always acquire a permit. Mock calls are unlimited by default; to demonstrate the
+same limiter locally, run `RATE_LIMIT_MOCK=true pnpm dev:worker` in each worker terminal, or set
+`RATE_LIMIT_MOCK=true` for the Compose worker. All workers in a mock demonstration should use the
+same setting. Missing Gemini credentials resolve to mock and use the mock policy/setting.
+
+Permit acquisition locks the bucket and checks the current job lease before spending. Refill uses database
+time and caps at capacity. When empty, the transaction ends before sleeping; the job remains running,
+occupies its worker slot and keeps heartbeats. Waiting does not claim again or increment attempts.
+Shutdown interrupts permit waiting and uses the normal retry/dead-letter path; lease loss discards the
+attempt. An acquired but unused permit is not refunded because a paused/crashed worker cannot prove
+whether it sent a request. A `provider_rate_limit` trace records successful admission wait time with zero
+text tokens/cost, separately from `llm_call`. End-to-end job latency includes the wait.
+
+Gemini SDK internal retries are disabled: execution retries return through the queue, backoff and a new
+permit. Database errors do not bypass the limiter. This controls request admission in EvalFlow workers;
+provider token/day quotas, other API clients and strict external request-arrival timing remain separate.
+Before running updated workers on an existing dev database, apply migrations with
+`pnpm --filter server exec prisma migrate deploy`. The new table has been verified in `evalflow_test`.
 
 Dead letters stay in the same `jobs` table, retaining their error and attempt history in traces. In the
 Single job dashboard, open History and choose Dead letters, select a job to inspect its error/traces,

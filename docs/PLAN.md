@@ -10,14 +10,14 @@ The working plan and status tracker. [`ROADMAP.md`](ROADMAP.md) is the one-parag
 
 ## Status snapshot
 
-_Last updated: 2026-10-14_
+_Last updated: 2026-10-15_
 
 | | |
 |---|---|
 | **Current milestone** | M3 Reliable workers, branch `m3-reliable-workers` |
 | **Done** | M0 Foundations (PR #1), M1 datasets and runs (PR #2), M2 CI regression gate (PR #3), all merged |
-| **Waiting on you** | Commit the reviewed graceful-shutdown checkpoint |
-| **Next up** | Agree shared provider rate limiter design |
+| **Waiting on you** | Commit the reviewed shared rate-limiter checkpoint |
+| **Next up** | Agree chaos-test design |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -171,7 +171,7 @@ Tasks:
 - [x] **ME** Dead-letter state after `maxAttempts` in worker failure and expired-lease recovery paths; tests pass, learning review completed
 - [x] **Claude** API and dashboard: filter dead-lettered jobs, inspect errors/traces and requeue; API and browser QA pass, learning review completed
 - [x] **ME** Graceful SIGTERM/SIGINT shutdown: stop claiming, heartbeat/drain within 30s, fenced release with bounded 5s cleanup; tests/container QA pass, learning review completed
-- [ ] **ME** Per-provider rate limiter shared across workers (e.g. token bucket in a Postgres row)
+- [x] **ME** Postgres token bucket per resolved provider, shared worker admission with lease-aware cancellable waits; tests pass, learning review completed
 - [ ] **Claude** Chaos test harness: spawn N worker processes, `kill -9` them at random, restart
 - [ ] **ME** Chaos test invariants: every job ends terminal, exactly one completion and one eval per job
 - [ ] **Claude** Run the chaos test in CI
@@ -242,6 +242,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-14 | Proceed with shared Postgres token bucket: one permit/second, burst capacity two, mock opt-in, wait inside the leased job | Owner accepted the proposal after clarifying Gemini can have free-tier access; demonstration limits are not vendor quotas. Bucket stores policy and balance, serializes spends with a row lock and uses DB-clock refill. Heartbeats retain waiting ownership without extra attempts. Shutdown cancels waits; expired/replaced claims cannot spend. Unused grants are not refunded because external request delivery is uncertain after pauses/crashes. Disable hidden SDK retries so queue retries reacquire permits. Policy tuning/API and token/day quota enforcement are outside this checkpoint. |
 | 2026-10-14 | Owner approved 30-second worker drain, 5-second bounded cleanup and preserving interrupted attempt counts | SIGTERM/SIGINT stop claims and interrupt idle sleeps while active jobs retain heartbeats. Deadline abandonment fences subsequent pipeline steps, drains renewals and uses normal guarded backoff/dead-letter release. External calls may already have incurred work/cost, so attempts are not refunded. Unavailable/stalled DB cleanup falls back to lease expiry/reaper and a hard exit. Compose runs Node directly with a 40-second stop grace; repeated signals do not reset the deadline. |
 | 2026-10-14 | Owner approved replacing failed job status with dead_letter, retaining the same table and existing report/gate outcome contracts | Both names would otherwise describe the same exhausted execution state. PostgreSQL enum rename preserves existing rows/references; worker/reaper exhaustion, retry guards and UI move together. Manual requeue resets attempts and current results but preserves trace/eval history. Reports keep jobs.failed and metrics keep failedJobs as terminal failure counts, so CLI/baseline compatibility is preserved. API/worker/reaper must be stopped, migrated and upgraded together on an existing DB. |
 | 2026-10-14 | Owner approved shared automatic retry backoff for worker errors and expired leases, keeping manual retries immediate | Persist run_after using database time, with jitter of 1–2s, 2–4s, 4–8s, 8–16s, then 15–30s. Increasing delays give dependencies time to recover; independent jitter spreads retry load. A shared SQL expression keeps both transitions consistent and atomic with ownership clearing. Waiting occupies no worker slot, survives restarts and does not increment attempts. Exhausted jobs remain failed until the separate dead-letter piece. |
@@ -286,6 +287,29 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 ## Session log
 
+- **2026-10-15 (rate limiter learning review):** Owner explained why all workers must share one request budget and correctly identified burst capacity two after a long idle period. Clarified request admission versus text-token usage and simultaneous in-flight calls: permits refill with time, not on call completion. Reviewed heartbeat retention during waits and that expired leases require reaper recovery rather than automatically failing. Owner correctly answered that a third call can start after about one second even when earlier calls take ten seconds. Learning checkpoint completed. Confirmed implementation remains uncommitted; updated PLAN only. Previous verification remains 253 passed plus 1 existing expected failure, with typecheck/server build/Compose validation passing. No application changes, tests, commits, pushes or PRs. Owner commit next, then agree chaos-test design.
+- **2026-10-14 (shared provider rate limiter):** Implemented Postgres ProviderRateLimit model/table with default capacity 2, refill 1 permit/sec, persisted balance and microsecond database refill time; added bounds/provider checks through migration 20261014020000_add_provider_rate_limits and regenerated Prisma client without hand edits. Schema SQL based on Prisma migrate diff output, with explicit check constraints and microsecond refill precision. New providerRateLimit module lazily initializes each bucket once, locks bucket then checks current job ownership with shared ownsLease helper, refills/caps/spends atomically and returns wait time. Waits release transactions before sleeping and check lease/shutdown at bounded intervals. Worker limits actual resolved Gemini and optional mock (RATE_LIMIT_MOCK=false default), records successful wait timing/zero token-cost trace, retains heartbeats/attempt counts and prevents canceled waits from calling LLM. Gemini SDK retries explicitly disabled using the installed SDK's HttpRetryOptions.attempts=1 contract, leaving retries to the existing queue/backoff/permit path. Tests pin mock limiting off by default; DB cleanup includes the bucket table. Added unit setting/cancellation tests, DB burst/concurrent spend/cold start/provider independence/DB-clock/cap/stale ownership/lock-wait expiry/policy-bound cases, and real two-worker tests for shared budget, lease retention, shutdown cancellation and replacement fencing. Full suite: 253 passed, 1 existing expected failure across 25 files; typecheck, server build, Compose validation and source diff check pass. Generated Prisma comments contain generator-produced trailing whitespace and were left untouched. Sandbox DB access failed; approved escalated run applied migration only to evalflow_test and passed. No live Gemini requests, development DB migration, commits, pushes or PRs. Worker subprocesses stopped; learning files preserved. README/env/Compose document opt-in demo, database policy source, no permit refunds, lack of vendor token/day quota enforcement and dev migration command. Learning review pending; chaos-test design follows.
+
+Rate limiter checkpoint files: `.env.example`, `README.md`, `docker-compose.yml`, `docs/PLAN.md`,
+`server/prisma/schema.prisma`, `server/prisma/migrations/20261014020000_add_provider_rate_limits/migration.sql`,
+regenerated files under `server/src/generated/prisma/`, `server/src/jobs.ts`, `server/src/llm.ts`,
+`server/src/providerRateLimit.ts`, `server/src/worker.ts`, `server/test/db/helpers.ts`,
+`server/test/db/providerRateLimit.test.ts`, `server/test/db/rateLimitedWorker.test.ts`,
+`server/test/unit/llm.test.ts`, `server/test/unit/providerRateLimit.test.ts`, `server/vitest.config.ts`.
+
+Suggested owner commands after learning review:
+
+```bash
+git add .env.example README.md docker-compose.yml docs/PLAN.md server/prisma/schema.prisma \
+  server/prisma/migrations/20261014020000_add_provider_rate_limits/migration.sql \
+  server/src/generated/prisma server/src/jobs.ts server/src/llm.ts server/src/providerRateLimit.ts \
+  server/src/worker.ts server/test/db/helpers.ts server/test/db/providerRateLimit.test.ts \
+  server/test/db/rateLimitedWorker.test.ts server/test/unit/llm.test.ts \
+  server/test/unit/providerRateLimit.test.ts server/vitest.config.ts
+git commit -m "Add shared Postgres rate limiting for worker LLM calls"
+```
+
+- **2026-10-14 (provider rate-limit planning):** Confirmed shutdown checkpoint committed as 03cca5e, with no tracked edits pending before this update. Inspected provider resolution, callLlm, worker pipeline/heartbeats and schema. Proposed a Postgres-backed token bucket keyed by actual resolved provider, with atomic permit acquisition shared across processes and database-clock refill; illustrative local Gemini policy is one request/second with burst capacity two, not a claim about vendor quotas. Proposed keeping mock unlimited by default with opt-in limiting for local demonstrations/tests. When empty, wait before the LLM call while retaining the running job/heartbeat/slot, without incrementing attempts; shutdown/lease loss must interrupt the wait. This avoids requeue-based rate waiting consuming attempts. Policy and waiting tradeoff await owner agreement; no implementation, schema changes, tests, commits, pushes or PRs. PLAN only.
 - **2026-10-14 (shutdown learning review):** Reviewed keeping ownership alive while draining, retaining interrupted attempt counts because external work/cost may already have occurred, and lease/reaper recovery after DB cleanup failure. Corrected timing confusion: lease is 60 seconds, heartbeats every 20 seconds, drain up to 30 seconds; a lease may already be near expiry when shutdown starts. Owner correctly explained uncertain external outcomes and that lease expiry alone does not change running to queued: the reaper performs that transition once Postgres is reachable. Learning checkpoint completed. Updated PLAN only; prior verification remains 234 passed and 1 existing expected failure, typecheck/server build/Compose validation and container SIGTERM QA passed. No application changes, tests, commits, pushes or PRs. Owner commit next; shared provider rate limiter design follows.
 - **2026-10-14 (graceful worker shutdown):** Owner approved shutdown timings/policy. Added validated WORKER_SHUTDOWN_TIMEOUT_MS=30000 and WORKER_SHUTDOWN_CLEANUP_MS=5000, idempotent SIGTERM/SIGINT handlers, interruptible idle/backoff sleeps, active claim registry and continued heartbeats while draining. Deadline marks work abandoned before stopping/draining renewals and using fenced failure/retry release; stale/replaced claims cannot be changed. Claims returned after shutdown release without starting a pipeline and retain their consumed attempt. Hard cleanup timer exits 1 when release/disconnect stalls; normal drain/deadline cleanup exits 0, even with pending provider handles. Compose command now node dist/worker.js with WORKER_STOP_GRACE_PERIOD=40s; README/env example explain settings, remote-call/attempt semantics, finalization races and SIGKILL fallback. Added config validation plus 8 real-worker DB tests for both idle signals, drain/heartbeat/no successor claim, timeout retry/dead-letter, repeated signals, replacement fencing, a claim blocked across SIGTERM and row-lock-blocked cleanup/reaper recovery. Initial fixture failures exposed missing case IDs for mock latency; corrected fixtures to use dataset cases. Final full suite: 234 passed, 1 existing expected failure across 22 files; typecheck, server build, Compose config and diff check pass. Built worker Docker image and verified Node PID 1, docker stop SIGTERM delivery and clean exit 0 in 0.1s with an unreachable DB address; temporary container removed. Smoke assertion corrected to account for the official image's exec entrypoint before checking /proc/1/cmdline. Sandbox test/build restrictions required approved escalation; test DB only, no development DB changes/migrations, hosted deployment, commits, pushes or PRs. Temporary smoke script retained only in /private/tmp. Existing learning files preserved. Learning review pending before rate limiter work.
 

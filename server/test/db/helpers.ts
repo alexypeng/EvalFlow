@@ -7,7 +7,7 @@ export const retentionV1 = fileURLToPath(new URL("../../datasets/retention-v1.js
 
 // traces and evals cascade from jobs.
 export async function resetDatabase() {
-    await prisma.$executeRawUnsafe("TRUNCATE TABLE jobs, runs, dataset_cases, datasets CASCADE");
+    await prisma.$executeRawUnsafe("TRUNCATE TABLE jobs, runs, dataset_cases, datasets, provider_rate_limits CASCADE");
 }
 
 // Advance one fixture's eligibility without sleeping or changing the production backoff policy.

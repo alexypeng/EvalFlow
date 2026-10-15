@@ -43,7 +43,9 @@ describe("Gemini SDK integration", () => {
 
         const response = await callLlm("exact prompt", snapshot);
 
-        expect(createClient).toHaveBeenCalledWith({ apiKey: "test-key" });
+        expect(createClient).toHaveBeenCalledWith({
+            apiKey: "test-key", httpOptions: { retryOptions: { attempts: 1 } },
+        });
         expect(generateContent).toHaveBeenCalledExactlyOnceWith({ model: geminiModel, contents: "exact prompt" });
         expect(response).toEqual({
             text: '{"retentionRisk":"low"}',

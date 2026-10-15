@@ -8,6 +8,7 @@
  *
  * 🟢 You can import this file directly.
  */
+export type * from './models/ProviderRateLimit.js'
 export type * from './models/Job.js'
 export type * from './models/Trace.js'
 export type * from './models/Eval.js'

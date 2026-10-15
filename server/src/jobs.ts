@@ -146,7 +146,7 @@ export async function claimNextJob(lockedBy: string, leaseDurationMs: number) {
 }
 
 // Lock first, then check database time: waiting for a row lock must not keep an expired lease valid.
-async function ownsLease(tx: Prisma.TransactionClient, lease: JobLease) {
+export async function ownsLease(tx: Prisma.TransactionClient, lease: JobLease) {
     await tx.$queryRaw`SELECT id FROM jobs WHERE id = ${lease.id}::uuid FOR UPDATE`;
     const rows = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id FROM jobs WHERE id = ${lease.id}::uuid AND status = 'running'

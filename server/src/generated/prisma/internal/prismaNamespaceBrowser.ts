@@ -51,6 +51,7 @@ export const AnyNull = runtime.AnyNull
 
 
 export const ModelName = {
+  ProviderRateLimit: 'ProviderRateLimit',
   Job: 'Job',
   Trace: 'Trace',
   Eval: 'Eval',
@@ -73,6 +74,17 @@ export const TransactionIsolationLevel = runtime.makeStrictEnum({
 } as const)
 
 export type TransactionIsolationLevel = (typeof TransactionIsolationLevel)[keyof typeof TransactionIsolationLevel]
+
+
+export const ProviderRateLimitScalarFieldEnum = {
+  provider: 'provider',
+  capacity: 'capacity',
+  refillPerSecond: 'refillPerSecond',
+  tokens: 'tokens',
+  refilledAt: 'refilledAt'
+} as const
+
+export type ProviderRateLimitScalarFieldEnum = (typeof ProviderRateLimitScalarFieldEnum)[keyof typeof ProviderRateLimitScalarFieldEnum]
 
 
 export const JobScalarFieldEnum = {

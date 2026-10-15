@@ -4,7 +4,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { getFeatureUsage, getRetentionSummary, getSubscriptionHistory, getUserEvents } from "./analyticsTools.js";
 import { addTrace, claimNextJob, completeJob, failOrRetryJob, renewJobLease } from "./jobs.js";
 import { parseLlmJson, validateRetentionOutput, scoreRetentionAnalysis } from "./evaluator.js";
-import { buildRetentionPrompt, callLlm, defaultPromptVersion } from "./llm.js";
+import { buildRetentionPrompt, callLlm, defaultPromptVersion, resolveLlm } from "./llm.js";
+import { limitMockProvider, waitForProviderPermit } from "./providerRateLimit.js";
 import { startHeartbeat, LeaseLostError } from "./heartbeat.js";
 import { workerLeaseSettings, workerShutdownSettings } from "./leaseSettings.js";
 import { prisma } from "./db.js";
@@ -15,6 +16,7 @@ const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
 const workerId = randomUUID();
 const { leaseDurationMs, heartbeatIntervalMs } = workerLeaseSettings(process.env);
 const { graceMs, cleanupMs } = workerShutdownSettings(process.env);
+const rateLimitMock = limitMockProvider(process.env);
 const concurrency = Number(process.env.WORKER_CONCURRENCY ?? 1);
 
 if (!Number.isInteger(concurrency) || concurrency < 1) {
@@ -153,6 +155,18 @@ async function processJob(
 
     const prompt = await buildRetentionPrompt(userId, snapshot, promptVersion);
 
+    const { provider } = resolveLlm();
+    if (provider === "gemini" || rateLimitMock) {
+        const permit = await timed(() => waitForProviderPermit(job, provider, {
+            signal: idleSleep.signal, assertActive,
+        }));
+        await trace({
+            jobId: job.id, stepName: "provider_rate_limit", input: { provider },
+            output: { admitted: true, totalTokens: 0, estimatedCost: 0 }, latencyMs: permit.latencyMs,
+        });
+        // Shutdown can arrive while recording the wait trace, after the permit was granted.
+        idleSleep.signal.throwIfAborted();
+    }
     assertActive();
     const llmCall = await timed(() => callLlm(prompt, snapshot, { caseId: job.caseId ?? undefined, mockConfig }));
 
