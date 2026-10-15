@@ -7,10 +7,13 @@ import { compareRuns, createRun, getRunBaseline, getRunReport, listRuns } from "
 import { listDatasets } from "./datasets.js";
 import { CreateJobSchema, CreateRunSchema, ListJobsSchema } from "./types.js";
 import { z } from "zod";
+import { installApiMetrics } from "./apiMetrics.js";
 
 const app = Fastify({
     logger: true,
 });
+
+installApiMetrics(app);
 
 await app.register(cors, {
     origin: true,

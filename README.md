@@ -622,8 +622,23 @@ Get aggregate metrics:
 curl http://localhost:3000/stats
 ```
 
-The dashboard reads these aggregates as JSON. Upcoming Prometheus instrumentation will expose
-`/metrics` in Prometheus format for time-series collection.
+The dashboard reads these database aggregates as JSON. API request measurements are available separately:
+
+```bash
+curl http://localhost:3000/metrics
+```
+
+This endpoint returns Prometheus text using `@prometheus-io/client` (the current name of `prom-client`).
+`evalflow_http_requests_total` counts completed responses, and `evalflow_http_request_duration_seconds`
+records their durations in cumulative histogram buckets from 5 milliseconds to 10 seconds, plus an
+unbounded bucket. Both use `method`, `route` and `status_code` labels. Route patterns such as `/jobs/:id`
+group different IDs together; unknown URLs share `unmatched`. Raw paths, query strings and job IDs
+are never labels. Scrapes of `/metrics` are excluded from both measurements.
+
+Measurements live in each API process and reset on restart; they do not reconstruct past requests from
+Postgres. Prometheus collection and Grafana charts are not configured yet. Worker and queue measurements
+will follow in later M4 checkpoints. See the [client documentation](https://github.com/prometheus/client_js)
+for the metric types and exposition format.
 
 Health check:
 
