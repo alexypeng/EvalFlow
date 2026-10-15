@@ -619,8 +619,11 @@ curl -X POST http://localhost:3000/jobs/<job_id>/retry
 Get aggregate metrics:
 
 ```bash
-curl http://localhost:3000/metrics
+curl http://localhost:3000/stats
 ```
+
+The dashboard reads these aggregates as JSON. Upcoming Prometheus instrumentation will expose
+`/metrics` in Prometheus format for time-series collection.
 
 Health check:
 

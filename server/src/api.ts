@@ -154,7 +154,7 @@ app.get<{ Params: { id: string } }>("/runs/:id/baseline", async (request, reply)
     return reply.code(409).send({ error: "Baseline export requires a finished run with all case results" });
 });
 
-app.get("/metrics", async () => {
+app.get("/stats", async () => {
     return getMetrics();
 });
 
