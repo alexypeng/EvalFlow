@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { attemptOutcomes, createWorkerMetrics, workerMetricsPort } from "../../src/workerMetrics.js";
+import { LeaseLostError } from "../../src/heartbeat.js";
 
 const instances: ReturnType<typeof createWorkerMetrics>[] = [];
 function create(now?: () => number) {
@@ -10,6 +11,41 @@ function create(now?: () => number) {
 afterEach(async () => { await Promise.all(instances.splice(0).map(({ app }) => app.close())); });
 
 describe("worker metrics", () => {
+    it.each(["measureLlm", "measurePermitWait"] as const)(
+        "%s records successful operation time without including later trace work", async (method) => {
+            let now = 1000;
+            const metrics = create(() => now);
+            const result = { text: "result" };
+            expect(await metrics[method]("mock", async () => { now = 1500; return result; })).toBe(result);
+            now = 15000;
+            const { body } = await metrics.app.inject("/metrics");
+            const name = method === "measureLlm" ? "evalflow_llm_call_duration_seconds" :
+                "evalflow_provider_rate_limit_wait_duration_seconds";
+            expect(body).toContain(`${name}_sum{provider="mock",outcome="success"} 0.5`);
+            expect(body).toContain(`${name}_count{provider="mock",outcome="success"} 1`);
+            expect(body).toContain(`${name}_count{provider="gemini",outcome="success"} 0`);
+        },
+    );
+
+    it.each(["measureLlm", "measurePermitWait"] as const)(
+        "%s records failures and interruptions, preserving the original rejection", async (method) => {
+            let now = 0;
+            const metrics = create(() => now);
+            for (const [error, outcome] of [
+                [new Error("provider unavailable"), "error"],
+                [new DOMException("shutdown", "AbortError"), "cancelled"],
+                [new LeaseLostError(), "lease_lost"],
+            ] as const) {
+                await expect(metrics[method]("gemini", async () => { now += 250; throw error; })).rejects.toBe(error);
+                const name = method === "measureLlm" ? "evalflow_llm_call_duration_seconds" :
+                    "evalflow_provider_rate_limit_wait_duration_seconds";
+                const { body } = await metrics.app.inject("/metrics");
+                expect(body).toContain(`${name}_sum{provider="gemini",outcome="${outcome}"} 0.25`);
+                expect(body).toContain(`${name}_count{provider="gemini",outcome="${outcome}"} 1`);
+            }
+        },
+    );
+
     it("exposes zeros for idle workers without counting scrapes as attempts", async () => {
         const { app } = create();
         const first = await app.inject("/metrics");

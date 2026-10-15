@@ -170,9 +170,9 @@ async function processJob(
 
     const { provider } = resolveLlm();
     if (provider === "gemini" || rateLimitMock) {
-        const permit = await timed(() => waitForProviderPermit(job, provider, {
-            signal: idleSleep.signal, assertActive,
-        }));
+        const permit = await metrics.measurePermitWait(provider, () =>
+            timed(() => waitForProviderPermit(job, provider, { signal: idleSleep.signal, assertActive })),
+        );
         await trace({
             jobId: job.id, stepName: "provider_rate_limit", input: { provider },
             output: { admitted: true, totalTokens: 0, estimatedCost: 0 }, latencyMs: permit.latencyMs,
@@ -181,7 +181,9 @@ async function processJob(
         idleSleep.signal.throwIfAborted();
     }
     assertActive();
-    const llmCall = await timed(() => callLlm(prompt, snapshot, { caseId: job.caseId ?? undefined, mockConfig }));
+    const llmCall = await metrics.measureLlm(provider, () =>
+        timed(() => callLlm(prompt, snapshot, { caseId: job.caseId ?? undefined, mockConfig })),
+    );
 
     await trace({
         jobId: job.id,

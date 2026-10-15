@@ -722,6 +722,8 @@ The dashboard refreshes every 15 seconds and initially shows the last 15 minutes
 | Completed and dead-letter jobs | Current stored terminal job counts, rather than a completion rate. |
 | Worker attempt outcomes | Observed ended claims per second, grouped by outcome across workers. A retry followed by success is two attempts. |
 | Worker attempt duration | Estimated p50/p95 from claim return to outcome observation, including permit waits and processing but excluding queued delay. |
+| Provider permit wait | Estimated p50/p95 time acquiring a rate-limit permit, by provider and outcome. |
+| LLM call duration | Estimated p50/p95 time inside the LLM call wrapper, by provider and outcome. |
 
 Use the read-only request examples above to produce traffic, then wait for multiple Prometheus scrapes.
 Rates need at least two samples for a series. The 5xx panel shows zero when traffic exists without
@@ -771,8 +773,27 @@ These counters reset on worker restart and are operational measurements, not a d
 SIGKILL cannot record its interrupted claim; updates after the last scrape can also be lost on exit,
 including graceful shutdown. Reaper actions do not increment these worker counters. Use stored job
 counts and traces to investigate individual jobs. Worker metrics remain readable during a DB outage,
-but successful scrapes alone do not prove that jobs can be processed. Separate LLM and rate-limit
-duration measurements are a later checkpoint.
+but successful scrapes alone do not prove that jobs can be processed.
+
+Workers also export two separate histograms:
+
+- `evalflow_provider_rate_limit_wait_duration_seconds`: time inside permit acquisition.
+- `evalflow_llm_call_duration_seconds`: time inside `callLlm`, including calls that reject.
+
+Both use bounded `provider` (`mock` or `gemini`) and `outcome` labels. `success` means the wrapped
+operation returned, `error` means it rejected, `cancelled` means it raised an abort error, and
+`lease_lost` means ownership could not safely continue. A returned LLM response counts as call success
+even when later JSON/schema validation fails and the attempt retries. Errors raised by the LLM wrapper
+before making a provider request are also call errors, rather than successful requests.
+
+Each measurement ends before the following database trace write. Permit time includes database work,
+polling and sleeping within permit acquisition; it excludes model execution. LLM time includes the
+call wrapper's work and provider/mock response time; it excludes permit waiting, trace writes and
+subsequent output validation. Disabled mock limiting creates no permit-wait observations. Pending calls
+and waits have no finished duration yet; a kill or exit before the next scrape can lose observations.
+The new Grafana panels display p50/p95 estimates by provider and outcome. Unused provider/outcome series
+have zero observations and no finite percentile; they do not imply zero latency. The histograms use
+10ms through 300s finite buckets plus an unbounded bucket.
 
 For a worker started directly on the host, inspect `http://localhost:9100/metrics`. Give each additional
 host worker its own `WORKER_METRICS_PORT`; Compose discovery does not scrape host processes.

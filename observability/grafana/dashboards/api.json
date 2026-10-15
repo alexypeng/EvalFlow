@@ -550,6 +550,148 @@
                     "sort": "none"
                 }
             }
+        },
+        {
+            "id": 9,
+            "title": "Provider permit wait",
+            "type": "timeseries",
+            "description": "Estimated p50/p95 time inside permit acquisition, split by provider and outcome. Includes ended error/cancelled/lease-lost waits and excludes trace writes. Mock waits exist only when RATE_LIMIT_MOCK is enabled; no observation means no estimate.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "evalflow-prometheus"
+            },
+            "gridPos": {
+                "h": 9,
+                "w": 12,
+                "x": 0,
+                "y": 36
+            },
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "evalflow-prometheus"
+                    },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.5, sum by (le, provider, outcome) (rate(evalflow_provider_rate_limit_wait_duration_seconds_bucket{job=\"evalflow-worker\"}[$__rate_interval]))) and on (provider, outcome) (sum by (provider, outcome) (rate(evalflow_provider_rate_limit_wait_duration_seconds_count{job=\"evalflow-worker\"}[$__rate_interval])) > 0)",
+                    "legendFormat": "{{provider}} {{outcome}} p50",
+                    "refId": "A",
+                    "range": true,
+                    "instant": false
+                },
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "evalflow-prometheus"
+                    },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, provider, outcome) (rate(evalflow_provider_rate_limit_wait_duration_seconds_bucket{job=\"evalflow-worker\"}[$__rate_interval]))) and on (provider, outcome) (sum by (provider, outcome) (rate(evalflow_provider_rate_limit_wait_duration_seconds_count{job=\"evalflow-worker\"}[$__rate_interval])) > 0)",
+                    "legendFormat": "{{provider}} {{outcome}} p95",
+                    "refId": "B",
+                    "range": true,
+                    "instant": false
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "min": 0,
+                    "noValue": "No data",
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "fillOpacity": 10,
+                        "showPoints": "auto",
+                        "spanNulls": false
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "list",
+                    "placement": "bottom"
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            }
+        },
+        {
+            "id": 10,
+            "title": "LLM call duration",
+            "type": "timeseries",
+            "description": "Estimated p50/p95 time inside the LLM call wrapper, split by provider and outcome. A returned response is success even if JSON/schema validation later retries the job. Wrapper/provider rejections are errors. Excludes permit waiting, trace writes and subsequent validation.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "evalflow-prometheus"
+            },
+            "gridPos": {
+                "h": 9,
+                "w": 12,
+                "x": 12,
+                "y": 36
+            },
+            "targets": [
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "evalflow-prometheus"
+                    },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.5, sum by (le, provider, outcome) (rate(evalflow_llm_call_duration_seconds_bucket{job=\"evalflow-worker\"}[$__rate_interval]))) and on (provider, outcome) (sum by (provider, outcome) (rate(evalflow_llm_call_duration_seconds_count{job=\"evalflow-worker\"}[$__rate_interval])) > 0)",
+                    "legendFormat": "{{provider}} {{outcome}} p50",
+                    "refId": "A",
+                    "range": true,
+                    "instant": false
+                },
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "evalflow-prometheus"
+                    },
+                    "editorMode": "code",
+                    "expr": "histogram_quantile(0.95, sum by (le, provider, outcome) (rate(evalflow_llm_call_duration_seconds_bucket{job=\"evalflow-worker\"}[$__rate_interval]))) and on (provider, outcome) (sum by (provider, outcome) (rate(evalflow_llm_call_duration_seconds_count{job=\"evalflow-worker\"}[$__rate_interval])) > 0)",
+                    "legendFormat": "{{provider}} {{outcome}} p95",
+                    "refId": "B",
+                    "range": true,
+                    "instant": false
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "min": 0,
+                    "noValue": "No data",
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineInterpolation": "linear",
+                        "lineWidth": 2,
+                        "fillOpacity": 10,
+                        "showPoints": "auto",
+                        "spanNulls": false
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "list",
+                    "placement": "bottom"
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "none"
+                }
+            }
         }
     ],
     "links": [],
