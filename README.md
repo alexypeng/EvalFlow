@@ -62,7 +62,7 @@ Stop the stack with:
 docker compose down
 ```
 
-Remove local database state, collected Prometheus history and Grafana state if you want a clean reset:
+Remove local database state, collected metrics/traces and Grafana state if you want a clean reset:
 
 ```bash
 docker compose down -v
@@ -741,6 +741,41 @@ files every 10 seconds; restart Grafana after changing data-source provisioning.
 `evalflow_grafana` preserves its own state across container replacement; measurement history remains
 in Prometheus's separate volume. `docker compose down -v` deletes both and the Postgres volume.
 See Grafana's official [provisioning documentation](https://grafana.com/docs/grafana/latest/administration/provisioning/).
+
+### Local Tempo
+
+Tempo stores distributed traces; Grafana queries Tempo to display the steps of one operation.
+Prometheus continues to store the aggregate metrics used by the existing dashboard.
+The current checkpoint prepares trace storage and viewing. The API and worker do not yet emit
+OpenTelemetry traces; the existing Postgres `traces` table remains independent.
+
+Start Tempo and refresh Grafana's provisioned data sources:
+
+```bash
+docker compose up -d --no-deps tempo grafana
+docker compose restart grafana
+curl --fail http://localhost:3200/ready
+```
+
+Readiness can take a few seconds after startup. Open [Grafana Explore](http://localhost:3001/explore)
+and select **Tempo**. Once application instrumentation is added, search for traces or select the
+trace-ID query and paste an ID to inspect its steps. An empty result now is expected without a
+test trace or an instrumented application sending data.
+
+The pinned `grafana/tempo:3.1.0` image runs all required components in one process, with local filesystem
+storage suitable for development. Configuration lives in `observability/tempo/tempo.yml`.
+Grafana uses `http://tempo:3200` on the Compose network; the same query/readiness endpoint is exposed
+at `http://localhost:3200`. Trace senders use OTLP over HTTP at `http://tempo:4318/v1/traces`
+inside Compose, or `http://localhost:4318/v1/traces` when running on the host. Port 4318 receives
+traces; port 3200 queries them. Both host ports bind only to loopback.
+
+The `evalflow_tempo` named volume mounts `/var/tempo`, keeping the write-ahead log, trace blocks
+and runtime data across ordinary restarts and container replacement. A seven-day retention override
+lets Tempo periodically remove expired trace blocks; this is not an exact per-trace deletion deadline
+or a disk-size limit. `docker compose down -v` also deletes this volume. Anonymous usage reporting
+is disabled. The provisioned `evalflow-tempo` datasource is read-only, and Prometheus remains the
+default datasource. See the official [local deployment guide](https://grafana.com/docs/tempo/latest/set-up-for-tracing/setup-tempo/deploy/locally/linux/)
+and [Tempo datasource configuration](https://grafana.com/docs/grafana/latest/datasources/tempo/configure-tempo-data-source/).
 
 ### Worker attempt measurements
 

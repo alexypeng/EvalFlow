@@ -16,8 +16,8 @@ _Last updated: 2026-10-15_
 |---|---|
 | **Current milestone** | M4 Observability, branch `m4-observability` |
 | **Done** | M0 (PR #1), M1 (PR #2), M2 (PR #3), M3 (PR #4) merged; M3 learning reviews and hosted CI verified |
-| **Waiting on you** | Owner commit for LLM-call and permit-wait timing; learning review completed |
-| **Next up** | Choose trace backend before OpenTelemetry setup |
+| **Waiting on you** | Owner commit for local Tempo setup; learning review completed |
+| **Next up** | Agree OpenTelemetry application instrumentation scope |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -187,7 +187,7 @@ also passed for that exact head. M3 was subsequently merged through PR #4 as `ba
 ## M4 Observability
 
 **Decide before tracing setup:**
-- **Trace backend:** Jaeger (simplest) or Grafana Tempo (fits with Grafana).
+- **Trace backend:** Owner chose local Grafana Tempo (2026-10-15), viewed through existing Grafana.
 - **Existing `traces` table:** owner approved keeping it for dashboard detail alongside OpenTelemetry (2026-10-15).
 
 Tasks:
@@ -202,7 +202,8 @@ Tasks:
 - [x] **Claude** Queue-depth and job-status gauges collected at scrape time from one grouped DB snapshot, with two Grafana panels; tests pass, learning review completed
 - [x] **Claude** Local Prometheus Compose service and API scrape configuration (15-second interval, 5-second timeout, 7-day named-volume history); learning review completed
 - [x] **Claude** Prometheus and Grafana in compose with provisioned API, job-count and worker attempt panels; worker attempt learning review completed
-- [ ] **Claude** OpenTelemetry SDK setup, auto-instrumentation for Fastify and pg, trace backend in compose
+- [x] **Claude** Local Tempo 3.1.0 service, persistent storage with seven-day retention and provisioned Grafana datasource; learning review completed
+- [ ] **Claude** OpenTelemetry SDK setup and auto-instrumentation for Fastify and pg
 - [ ] **ME** Trace context propagation across the queue: store `traceparent` on the job row, continue the trace in the worker
 - [ ] **ME** Manual spans for pipeline steps and the LLM call (tokens, model as attributes)
 
@@ -254,6 +255,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-15 | Owner chose Tempo and approved local backend setup before application instrumentation | Run a single Tempo process with local named-volume storage, seven-day retention and a provisioned Grafana datasource. Publish query/readiness 3200 and OTLP HTTP 4318 on loopback for host development; Compose clients use tempo service DNS. Synthetic trace checks isolate storage/viewing from future SDK and queue propagation work. Keep existing Postgres traces and Prometheus metrics. |
 | 2026-10-15 | Owner approved keeping database traces alongside OpenTelemetry; begin M4 with the JSON /stats endpoint | Dashboard already uses stored payloads/errors/traces for per-job inspection. OpenTelemetry adds cross-service visibility separately. Moving existing JSON from /metrics to /stats frees the conventional Prometheus path while preserving its dashboard response contract. Trace backend and metric design remain to be agreed before their respective implementation pieces. |
 | 2026-10-15 | Owner chose API-first instrumentation: request counter and duration histogram with method, route pattern and response status labels | Counts support traffic/error rates; cumulative duration buckets support percentile estimates later in Prometheus. Unknown URLs share unmatched, method labels are bounded and scrapes are excluded. Measurements belong to each process and reset on restart. Use the renamed official @prometheus-io/client package (installed 0.16.1); Node 22 is supported. Worker/queue measurements and trace backend remain separate decisions. |
 | 2026-10-15 | Owner approved local Prometheus collection after API learning review | Scrape api:3000/metrics over the Compose network every 15 seconds with a 5-second timeout. Pin Prometheus v3.15.0, keep 7 days of samples in a named volume and publish its UI on loopback port 9090. Persistence lets prior samples survive API/container restarts; it cannot recover requests missed between scrapes. Grafana remains the next separate checkpoint. |
@@ -306,6 +308,22 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
+
+- **2026-10-15 (Tempo learning review):** Owner identified Tempo as trace storage and correctly said the application still needs setup to send traces. Explained spans and Grafana retrieval. Corrected container-storage confusion by explaining named volumes, ordinary down versus down -v, and container replacement; owner correctly confirmed a replacement container can read prior traces when its volume is kept. Learning review completed; revisit volume deletion behavior during later infrastructure work. Updated PLAN/local learning notes only; existing Compose and live integration validation unchanged. Owner commit next, then agree application OpenTelemetry scope. No new code, tests, commits, pushes or PRs.
+
+
+- **2026-10-15 (local Tempo backend):** Owner approved the bounded backend piece. Added pinned Tempo 3.1.0 in single-process mode, read-only configuration, OTLP HTTP reception on 4318, query/readiness on 3200, loopback host bindings, persistent /var/tempo volume and seven-day retention override with usage reporting disabled. Provisioned read-only evalflow-tempo datasource; Prometheus remains default. README explains startup, Grafana Explore, endpoint roles, persistence, retention and lack of application instrumentation at this stage. Compose config and diff checks pass. Isolated Tempo/Grafana integration accepted a synthetic parent/child trace over OTLP HTTP and retrieved both spans directly and through Grafana; confirmed loaded seven-day override and reporting setting, then verified trace retrieval after Tempo restart and replacement of both containers using named volumes. Initial smoke assertions required accepting Tempo's 1w normalization and resolving dynamically reassigned host ports after restart; corrected harness rerun passed. No application code/schema/dependency changes, job submissions, Postgres access, live LLM calls, commits, pushes or PRs. Existing application suite not rerun for configuration-only work. Removed temporary test containers, network and volumes. Learning review pending. Files: docker-compose.yml, observability/tempo/tempo.yml, observability/grafana/provisioning/datasources/tempo.yml, README.md, docs/PLAN.md.
+
+Suggested owner commands after learning review:
+
+```bash
+git add docker-compose.yml observability/tempo/tempo.yml \
+  observability/grafana/provisioning/datasources/tempo.yml README.md docs/PLAN.md
+git commit -m "Add local Tempo trace storage and Grafana datasource"
+```
+
+
+- **2026-10-15 (Tempo choice):** Owner selected Tempo for local trace storage and Grafana visualization. Confirmed timing checkpoint committed and branch synced. Proposed first bounded piece: local single-instance Tempo, persistent named-volume storage, seven-day retention, Grafana datasource provisioning and a synthetic ingestion/query smoke check; application instrumentation and queue propagation follow separately. Scope agreement pending; no infrastructure or application changes yet. Reviewed official Tempo local deployment and Grafana provisioning documentation.
 
 - **2026-10-15 (stage timing learning review):** Clarified that high permit wait means waiting for shared rate-limit admission rather than slow model execution. Owner correctly distinguished a successful call returning invalid JSON from a successful job and explained that zero wait means a measured permit was immediately available, whereas disabled limiting produces no observations because the step did not run. Learning checkpoint completed. Updated PLAN and local learning notes only; prior verification remains 284 passed plus one existing expected failure, typecheck/builds and live query checks passed. No new implementation or tests. Owner commit next; trace-backend design remains undecided.
 
