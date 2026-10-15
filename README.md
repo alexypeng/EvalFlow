@@ -52,6 +52,7 @@ Then open:
 Dashboard:  http://localhost:5173
 API:        http://localhost:3000
 Prometheus: http://localhost:9090
+Grafana:    http://localhost:3001
 Postgres:   localhost:5432
 ```
 
@@ -61,7 +62,7 @@ Stop the stack with:
 docker compose down
 ```
 
-Remove local database state and collected Prometheus history if you want a clean reset:
+Remove local database state, collected Prometheus history and Grafana state if you want a clean reset:
 
 ```bash
 docker compose down -v
@@ -684,9 +685,46 @@ Prometheus keeps samples for 7 days in the `evalflow_prometheus` named volume. O
 and `docker compose down` preserve it; `docker compose down -v` removes it along with the database
 volume. API restarts reset API counters, while Prometheus retains collected history and `rate`
 accounts for counter resets. Requests between the last scrape and a crash may never be collected.
-The Prometheus port is published only on the local machine. Grafana is a later M4 checkpoint.
+The Prometheus port is published only on the local machine.
 See the official [configuration](https://prometheus.io/docs/prometheus/latest/configuration/configuration/)
 and [Docker storage](https://prometheus.io/docs/prometheus/latest/installation/) documentation.
+
+### Local Grafana
+
+Start the API and monitoring services:
+
+```bash
+docker compose up --build -d api prometheus grafana
+```
+
+Open [Grafana](http://localhost:3001/d/evalflow-api). The **EvalFlow API** dashboard and its
+Prometheus connection are configured automatically from `observability/grafana/`. Grafana queries
+`http://prometheus:9090` over the Compose network; the browser does not need to reach that container
+hostname. Grafana displays the history Prometheus collected, rather than scraping the API itself.
+
+The dashboard refreshes every 15 seconds and initially shows the last 15 minutes:
+
+| Panel | Meaning |
+| --- | --- |
+| API availability | Latest scrape status: UP or DOWN. This checks `/metrics`, not database health or job execution. |
+| API traffic | Completed HTTP responses per second across API routes. Metrics scrapes are excluded. |
+| Server errors (5xx) | Percentage of completed responses returning 5xx. Responses such as 404 contribute to traffic but are not server errors. |
+| API response latency | Estimated p50 and p95 HTTP durations. A p95 of 100ms means about 95% of measured requests were faster than 100ms. |
+
+Use the read-only request examples above to produce traffic, then wait for multiple Prometheus scrapes.
+Rates need at least two samples for a series. The 5xx panel shows zero when traffic exists without
+server errors; without traffic, a percentage or latency estimate is undefined and may show no data.
+Missing samples are not filled with zeros. These panels measure API requests, not completed jobs,
+queue wait or the duration of an LLM call. Grafana chooses its rate window from the chart resolution
+and the configured 15-second scrape interval.
+
+This local setup provides anonymous **Viewer** access, disables login and sign-up, and creates no
+initial admin account. Port 3001 is published only on loopback. Dashboard and data-source definitions
+are read-only files; edit them in the repository instead of saving UI edits. Grafana scans dashboard
+files every 10 seconds; restart Grafana after changing data-source provisioning. Its named volume
+`evalflow_grafana` preserves its own state across container replacement; measurement history remains
+in Prometheus's separate volume. `docker compose down -v` deletes both and the Postgres volume.
+See Grafana's official [provisioning documentation](https://grafana.com/docs/grafana/latest/administration/provisioning/).
 
 Health check:
 
