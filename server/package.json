@@ -21,6 +21,7 @@
         "test": "vitest run",
         "test:unit": "vitest run --project unit",
         "test:db": "vitest run --project db",
+        "test:chaos": "vitest run --project db test/db/chaos.test.ts",
         "test:watch": "vitest"
     },
     "keywords": [],

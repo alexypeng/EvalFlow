@@ -212,6 +212,30 @@ claim twice. The reaper needs Postgres access and no LLM API key.
 
 `TEST_DATABASE_URL` is the database used by `pnpm test`. Start it locally with `docker compose --profile test up -d postgres-test`. The name must end in `_test`, since tests truncate tables.
 
+The suite includes worker chaos recovery tests. To run only those tests:
+
+```bash
+pnpm --filter server test:chaos
+CHAOS_SEED=7 pnpm --filter server test:chaos
+```
+
+The main scenario creates 20 valid mock dataset jobs and starts three real workers plus a separate
+reaper. Shared mock rate limiting is enabled. Four times, it chooses an active worker after an observed
+LLM admission, sends SIGKILL and starts a replacement. A fixed seed controls target choices and short
+pauses; OS scheduling and database backoff jitter still vary. The default seed is 20261015, also set in CI.
+Short test leases/heartbeats speed recovery without changing the production retry/backoff code.
+
+After fault injection stops, all 20 jobs must complete with a saved result, exactly one evaluation each,
+cleared ownership and one observed accepted-completion log each. Retried jobs must show fresh claim
+tokens. Jobs get six attempts so four injected crashes cannot legitimately exhaust the main recovery
+batch. A separate one-attempt scenario kills an active worker and asserts dead_letter with no result/eval.
+Execution may repeat after crashes; these tests check one accepted completion, not exactly-once LLM calls.
+
+The harness kills only subprocesses it started and cleans them up on success/failure. Internal phase
+deadlines leave time for cleanup before test timeouts; failures include the seed, job states and bounded
+worker/reaper logs. The normal `pnpm test`/CI server-test step includes both chaos scenarios, with a
+five-minute CI step limit. Tests use only `evalflow_test` and mock calls, with no live Gemini requests.
+
 `DATABASE_URL` differs depending on where the process runs:
 
 - Inside Docker Compose, services use `postgres` as the database host.

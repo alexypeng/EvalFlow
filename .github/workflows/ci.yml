@@ -30,6 +30,7 @@ jobs:
 
         env:
             TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/evalflow_test
+            CHAOS_SEED: "20261015"
 
         steps:
             - uses: actions/checkout@v7
@@ -46,7 +47,8 @@ jobs:
             - name: Typecheck server and frontend
               run: pnpm typecheck
 
-            - name: Test server
+            - name: Test server (including worker chaos recovery)
+              timeout-minutes: 5
               run: pnpm --filter server test
 
     docker:
