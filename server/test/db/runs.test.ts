@@ -221,7 +221,7 @@ describe("getRunReport", () => {
             await finishJob(job.id, { labelCorrect: true, score: 100, latencyMs: 10 });
         }
         await finishJob(jobs[3].id, { labelCorrect: false, score: 80, latencyMs: 10 });
-        await prisma.job.update({ where: { id: jobs[4].id }, data: { status: "failed" } });
+        await prisma.job.update({ where: { id: jobs[4].id }, data: { status: "dead_letter" } });
 
         const report = await getRunReport(run.id);
 
@@ -271,7 +271,7 @@ describe("getRunReport", () => {
 
         expect((await getRunReport(run.id))!.status).toBe("in_progress");
 
-        await prisma.job.update({ where: { id: last.id }, data: { status: "failed" } });
+        await prisma.job.update({ where: { id: last.id }, data: { status: "dead_letter" } });
 
         expect((await getRunReport(run.id))!.status).toBe("finished");
     });

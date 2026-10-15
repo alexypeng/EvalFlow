@@ -16,5 +16,5 @@ Task-level breakdown, owners, status and decisions: [`PLAN.md`](PLAN.md).
 
 ## Known issues
 
-- A worker crash leaves jobs stuck in `running` forever (fix in M3).
+- Worker crashes are recovered by the separate reaper; it must be running to recover expired leases.
 - Mock predictions ignore prompt content; per-run failure settings can simulate regressions, while dataset labels already allow mock mistakes to lose points.

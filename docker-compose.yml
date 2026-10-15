@@ -65,10 +65,29 @@ services:
             GEMINI_MODEL: gemini-3.8-flash
             LLM_PROVIDER: mock
             WORKER_CONCURRENCY: 1
+            RATE_LIMIT_MOCK: ${RATE_LIMIT_MOCK:-false}
+            LEASE_DURATION_MS: ${LEASE_DURATION_MS:-60000}
+            HEARTBEAT_INTERVAL_MS: ${HEARTBEAT_INTERVAL_MS:-20000}
+            WORKER_SHUTDOWN_TIMEOUT_MS: ${WORKER_SHUTDOWN_TIMEOUT_MS:-30000}
+            WORKER_SHUTDOWN_CLEANUP_MS: ${WORKER_SHUTDOWN_CLEANUP_MS:-5000}
         depends_on:
             migrate:
                 condition: service_completed_successfully
-        command: ["pnpm", "start:worker"]
+        command: ["node", "dist/worker.js"]
+        stop_grace_period: ${WORKER_STOP_GRACE_PERIOD:-40s}
+
+    reaper:
+        build:
+            context: .
+            dockerfile: server/Dockerfile
+        environment:
+            DATABASE_URL: postgresql://postgres:postgres@postgres:5432/evalflow
+            REAPER_INTERVAL_MS: ${REAPER_INTERVAL_MS:-5000}
+            REAPER_BATCH_SIZE: ${REAPER_BATCH_SIZE:-100}
+        depends_on:
+            migrate:
+                condition: service_completed_successfully
+        command: ["pnpm", "start:reaper"]
 
     frontend:
         build:

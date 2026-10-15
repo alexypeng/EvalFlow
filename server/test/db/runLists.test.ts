@@ -41,7 +41,7 @@ describe("dashboard lists", () => {
         });
         // Failed/running jobs can retain old metrics or evals; those must not count as completed results.
         await finishJob(jobs[2].id, { labelCorrect: true, score: 100, latencyMs: 900, tokens: 999, cost: 1 });
-        await prisma.job.update({ where: { id: jobs[2].id }, data: { status: "failed" } });
+        await prisma.job.update({ where: { id: jobs[2].id }, data: { status: "dead_letter" } });
         await prisma.job.update({ where: { id: jobs[3].id }, data: { status: "running" } });
         const [listed] = await listRuns();
         expect(listed).toEqual(await getRunReport(run.id));
@@ -67,7 +67,7 @@ describe("dashboard lists", () => {
 
     it("reports terminal-only runs as finished and handles runs with no jobs", async () => {
         const { run } = await startRun();
-        await prisma.job.updateMany({ where: { runId: run.id }, data: { status: "failed" } });
+        await prisma.job.updateMany({ where: { runId: run.id }, data: { status: "dead_letter" } });
         expect((await listRuns())[0]).toEqual(await getRunReport(run.id));
         expect((await listRuns())[0].status).toBe("finished");
         await prisma.job.deleteMany({ where: { runId: run.id } });

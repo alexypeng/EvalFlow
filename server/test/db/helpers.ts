@@ -1,14 +1,20 @@
 import { fileURLToPath } from "node:url";
 import { loadDataset, readDatasetFile } from "../../src/datasets.js";
 import { prisma } from "../../src/db.js";
-import { completeJob, createEval } from "../../src/jobs.js";
 import { createRun } from "../../src/runs.js";
 
 export const retentionV1 = fileURLToPath(new URL("../../datasets/retention-v1.json", import.meta.url));
 
 // traces and evals cascade from jobs.
 export async function resetDatabase() {
-    await prisma.$executeRawUnsafe("TRUNCATE TABLE jobs, runs, dataset_cases, datasets CASCADE");
+    await prisma.$executeRawUnsafe("TRUNCATE TABLE jobs, runs, dataset_cases, datasets, provider_rate_limits CASCADE");
+}
+
+// Advance one fixture's eligibility without sleeping or changing the production backoff policy.
+export async function makeJobDue(id: string) {
+    await prisma.$executeRaw`
+        UPDATE jobs SET run_after = date_trunc('milliseconds', clock_timestamp()) WHERE id = ${id}::uuid
+    `;
 }
 
 // Loads retention v1 (a no-op if already loaded) and starts a run of it.
@@ -21,30 +27,36 @@ export async function startRun(promptVersion = "v1") {
     return { run: result.run, jobs };
 }
 
-// Stands in for the worker: grades and completes a job with a chosen outcome.
+// Report fixtures deliberately permit eval history; production workers finalize through the fenced transaction.
 export async function finishJob(
     jobId: string,
     outcome: { labelCorrect: boolean; score: number; latencyMs: number; tokens?: number; cost?: number },
 ) {
-    await createEval({
-        jobId,
-        validJson: true,
-        hasRequiredFields: true,
-        evidenceIncluded: true,
-        evidenceSupported: true,
-        reasonableRiskLabel: outcome.labelCorrect,
-        taskCompletionScore: outcome.score,
-        notes: "test",
+    await prisma.eval.create({
+        data: {
+            jobId,
+            validJson: true,
+            hasRequiredFields: true,
+            evidenceIncluded: true,
+            evidenceSupported: true,
+            reasonableRiskLabel: outcome.labelCorrect,
+            taskCompletionScore: outcome.score,
+            notes: "test",
+        },
     });
-    await completeJob({
-        id: jobId,
-        result: {},
-        latencyMs: outcome.latencyMs,
-        promptTokens: 0,
-        completionTokens: outcome.tokens ?? 0,
-        totalTokens: outcome.tokens ?? 0,
-        estimatedCost: outcome.cost ?? 0,
-        evalScore: outcome.score,
+    await prisma.job.update({
+        where: { id: jobId },
+        data: {
+            status: "completed",
+            completedAt: new Date(),
+            result: {},
+            latencyMs: outcome.latencyMs,
+            promptTokens: 0,
+            completionTokens: outcome.tokens ?? 0,
+            totalTokens: outcome.tokens ?? 0,
+            estimatedCost: outcome.cost ?? 0,
+            evalScore: outcome.score,
+        },
     });
 }
 

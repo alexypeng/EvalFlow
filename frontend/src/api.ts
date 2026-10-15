@@ -1,6 +1,6 @@
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
-export type JobStatus = "queued" | "running" | "completed" | "failed";
+export type JobStatus = "queued" | "running" | "completed" | "dead_letter";
 
 export type Job = {
     id: string;
@@ -158,8 +158,9 @@ export function createRun(input: CreateRunInput) {
     });
 }
 
-export async function listJobs(): Promise<Job[]> {
-    const response = await fetch(`${API_URL}/jobs`);
+export async function listJobs(status?: JobStatus, signal?: AbortSignal): Promise<Job[]> {
+    const query = status ? `?status=${encodeURIComponent(status)}` : "";
+    const response = await fetch(`${API_URL}/jobs${query}`, { signal });
     if (!response.ok) {
         throw new Error(await parseResponseError(response, "Failed to fetch jobs"));
     }
@@ -174,8 +175,8 @@ export async function getJobDetails(id: string): Promise<JobDetails> {
     return response.json();
 }
 
-export async function getMetrics(): Promise<Metrics> {
-    const response = await fetch(`${API_URL}/metrics`);
+export async function getMetrics(signal?: AbortSignal): Promise<Metrics> {
+    const response = await fetch(`${API_URL}/metrics`, { signal });
     if (!response.ok) {
         throw new Error(await parseResponseError(response, "Failed to fetch metrics"));
     }

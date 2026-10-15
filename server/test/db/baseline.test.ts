@@ -35,7 +35,7 @@ describe("getRunBaseline", () => {
         const { run, jobs } = await startRun("v2");
         await finishAll(jobs.slice(2));
         await finishJob(jobs[0].id, { labelCorrect: false, score: 80, latencyMs: 10 });
-        await prisma.job.update({ where: { id: jobs[1].id }, data: { status: "failed" } });
+        await prisma.job.update({ where: { id: jobs[1].id }, data: { status: "dead_letter" } });
         const baseline = await exported(run.id);
         expect(baseline.dataset).toEqual({ name: "retention", version: 1 });
         expect(baseline.run).toEqual({

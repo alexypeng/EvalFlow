@@ -7,6 +7,7 @@
     "scripts": {
         "dev:api": "pnpm --filter server dev:api",
         "dev:worker": "pnpm --filter server dev:worker",
+        "dev:reaper": "pnpm --filter server dev:reaper",
         "dev:frontend": "pnpm --filter frontend dev",
         "evalflow": "pnpm --filter server exec node --import tsx src/cli.ts",
         "build": "pnpm --filter server build && pnpm --filter frontend build",

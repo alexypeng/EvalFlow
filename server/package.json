@@ -10,15 +10,18 @@
     "scripts": {
         "dev:api": "tsx watch src/api.ts",
         "dev:worker": "tsx watch src/worker.ts",
+        "dev:reaper": "tsx watch src/reaper.ts",
         "build": "tsc",
         "start:api": "node dist/api.js",
         "start:worker": "node dist/worker.js",
+        "start:reaper": "node dist/reaper.js",
         "dataset:load": "tsx src/loadDataset.ts",
         "evalflow": "node --import tsx src/cli.ts",
         "typecheck": "tsc --noEmit -p tsconfig.test.json",
         "test": "vitest run",
         "test:unit": "vitest run --project unit",
         "test:db": "vitest run --project db",
+        "test:chaos": "vitest run --project db test/db/chaos.test.ts",
         "test:watch": "vitest"
     },
     "keywords": [],

@@ -156,9 +156,17 @@ DOCKER_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/evalflow
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-3.8-flash
 LLM_PROVIDER=mock
+RATE_LIMIT_MOCK=false
 PORT=3000
 TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5433/evalflow_test
 WORKER_CONCURRENCY=1
+LEASE_DURATION_MS=60000
+HEARTBEAT_INTERVAL_MS=20000
+WORKER_SHUTDOWN_TIMEOUT_MS=30000
+WORKER_SHUTDOWN_CLEANUP_MS=5000
+WORKER_STOP_GRACE_PERIOD=40s
+REAPER_INTERVAL_MS=5000
+REAPER_BATCH_SIZE=100
 ```
 
 `LLM_PROVIDER=mock` is the default so the project can run locally without an API key. Use `LLM_PROVIDER=gemini` and set `GEMINI_API_KEY` to call Gemini instead of the mock provider. `GEMINI_MODEL` selects the model (see [Gemini models](https://ai.google.dev/gemini-api/docs/models)).
@@ -168,7 +176,65 @@ zero; they do not yet use the provider's usage metadata or pricing.
 
 `WORKER_CONCURRENCY` is the number of jobs one worker process runs at once.
 
+`LEASE_DURATION_MS` defaults to 60000; `HEARTBEAT_INTERVAL_MS` defaults to 20000 and must be
+a positive integer smaller than the lease duration. Both are worker settings in milliseconds.
+The worker renews each active claim while waiting for tools or the model. Docker Compose accepts
+these settings from the root `.env`; locally, set them in the worker environment.
+
+The worker handles SIGTERM and Ctrl+C (SIGINT) by stopping new claims, waking idle polling and
+giving active jobs up to `WORKER_SHUTDOWN_TIMEOUT_MS` (default 30000) to finish. Heartbeats continue
+during this drain period so slow calls retain ownership. A claim already sent before the signal can
+return afterwards; the worker releases it without starting its pipeline, retaining the consumed attempt.
+
+At the deadline, unfinished attempts stop starting further pipeline steps and their heartbeats are
+stopped/drained. A guarded release uses the normal backoff/dead-letter policy without resetting attempts.
+Completion already in progress and release serialize through the same row locks; only one transition wins.
+Release cannot touch another worker's replacement claim. Provider calls may continue remotely even after
+the local process exits, so an interrupted attempt still counts and may have incurred provider cost.
+
+`WORKER_SHUTDOWN_CLEANUP_MS` (default 5000) bounds release/disconnect cleanup after the drain deadline.
+If cleanup stalls, the process exits with code 1; unrenewed leases are recovered by the separate reaper.
+Successful drain or completed deadline cleanup exits with code 0. Repeated signals do not extend the deadline.
+Both worker shutdown settings are positive integer milliseconds, with a maximum of 2147483647.
+Compose runs Node directly to deliver signals to the worker and allows `WORKER_STOP_GRACE_PERIOD`
+(default `40s`) before a forced kill. If you increase shutdown budgets, set this Docker duration longer
+than their combined total. SIGKILL cannot be handled and still relies on lease expiry/reaper recovery.
+
+The separate reaper recovers jobs after worker crashes. Docker Compose starts it as the `reaper`
+service. For development outside Docker, run `pnpm dev:reaper` in another terminal alongside
+the API and worker, using the same `DATABASE_URL`. For compiled code use
+`pnpm --filter server start:reaper` after building.
+
+`REAPER_INTERVAL_MS` defaults to 5000 (1–2147483647); `REAPER_BATCH_SIZE` defaults to 100
+(1–1000). Each scan handles at most that many expired jobs, then waits for the interval.
+Multiple reapers may run safely: row locks with `SKIP LOCKED` keep them from recovering the same
+claim twice. The reaper needs Postgres access and no LLM API key.
+
 `TEST_DATABASE_URL` is the database used by `pnpm test`. Start it locally with `docker compose --profile test up -d postgres-test`. The name must end in `_test`, since tests truncate tables.
+
+The suite includes worker chaos recovery tests. To run only those tests:
+
+```bash
+pnpm --filter server test:chaos
+CHAOS_SEED=7 pnpm --filter server test:chaos
+```
+
+The main scenario creates 20 valid mock dataset jobs and starts three real workers plus a separate
+reaper. Shared mock rate limiting is enabled. Four times, it chooses an active worker after an observed
+LLM admission, sends SIGKILL and starts a replacement. A fixed seed controls target choices and short
+pauses; OS scheduling and database backoff jitter still vary. The default seed is 20261015, also set in CI.
+Short test leases/heartbeats speed recovery without changing the production retry/backoff code.
+
+After fault injection stops, all 20 jobs must complete with a saved result, exactly one evaluation each,
+cleared ownership and one observed accepted-completion log each. Retried jobs must show fresh claim
+tokens. Jobs get six attempts so four injected crashes cannot legitimately exhaust the main recovery
+batch. A separate one-attempt scenario kills an active worker and asserts dead_letter with no result/eval.
+Execution may repeat after crashes; these tests check one accepted completion, not exactly-once LLM calls.
+
+The harness kills only subprocesses it started and cleans them up on success/failure. Internal phase
+deadlines leave time for cleanup before test timeouts; failures include the seed, job states and bounded
+worker/reaper logs. The normal `pnpm test`/CI server-test step includes both chaos scenarios, with a
+five-minute CI step limit. Tests use only `evalflow_test` and mock calls, with no live Gemini requests.
 
 `DATABASE_URL` differs depending on where the process runs:
 
@@ -183,7 +249,7 @@ With the API and worker running and the dataset loaded:
 pnpm --silent evalflow run --dataset retention --dataset-version 1 --prompt v2
 ```
 
-The command creates one run, polls its report until all jobs are completed or failed, and prints the finished
+The command creates one run, polls its report until all jobs are completed or dead-lettered, and prints the finished
 report as JSON to stdout. Progress and the run ID go to stderr. Use `--api-url` to choose another API,
 `--poll-ms` to change the delay between polls, and `--timeout-ms` to change the total deadline (default two minutes).
 `pnpm --silent evalflow --help` lists the options. The `--silent` flag suppresses pnpm's script output.
@@ -209,10 +275,10 @@ pnpm --silent evalflow baseline export <runId> --output baselines/retention-v1.j
 Omit `--output` to print JSON to stdout. The output directory must already exist; an existing file is never overwritten.
 The compiled equivalent is `node server/dist/cli.js baseline export <runId> --output <file>`.
 The read-only API route is `GET /runs/:id/baseline`: unknown runs return 404, and unfinished or missing case results return
-409. Queued/running cases cannot be exported; failed jobs are terminal and are exported as failed outcomes.
+409. Queued/running cases cannot be exported; dead-lettered jobs are terminal and exported as failed outcomes.
 
 The versioned format contains `formatVersion: 1`, dataset name/version, saved prompt/provider/model/mock settings,
-and sorted `cases` with `caseName`, `outcome` (`pass` or `fail`) and `score` (nullable for failed jobs). Passing cases
+and sorted `cases` with `caseName`, `outcome` (`pass` or `fail`) and `score` (nullable for dead-lettered jobs). Passing cases
 must have a score. Each case uses its latest evaluation, matching the existing report/comparison rules. Case names
 are portable across databases; database run/dataset/case IDs are omitted. This exports stored results and does not
 rerun the model. Saved nonzero mock failure rates still select cases using database case IDs, so the same seed can
@@ -331,7 +397,7 @@ The worker executes these steps:
 6. Parse and validate structured JSON with Zod.
 7. Score the output with the eval rubric.
 8. Save result, traces, token usage, latency, eval details, and status.
-9. Retry failed jobs until `maxAttempts`, then mark them `failed`.
+9. Retry execution errors until `maxAttempts`, then mark jobs `dead_letter`.
 
 Expected LLM result shape:
 
@@ -349,7 +415,7 @@ Expected LLM result shape:
 `jobs` stores the lifecycle and summary of each run:
 
 - job type and input
-- status: `queued`, `running`, `completed`, `failed`
+- status: `queued`, `running`, `completed`, `dead_letter`
 - attempts and max attempts
 - result or error
 - latency and token usage
@@ -378,11 +444,78 @@ EvalFlow includes basic reliability behavior expected in backend AI systems:
 
 - Jobs are persisted in PostgreSQL instead of memory.
 - The API and worker run as separate processes.
-- The worker claims queued jobs with database locking to avoid duplicate processing.
+- The worker claims due queued jobs with database locking, a worker identity and a fresh claim token.
+- Heartbeats extend live leases; expired or replaced claims cannot complete, fail or renew jobs.
+- Completion saves the result and evaluation together in one transaction.
 - Attempts are incremented when work is claimed.
-- Failed jobs are retried until `maxAttempts`.
-- Jobs are marked `failed` after retries are exhausted.
-- Failed jobs can be manually retried from the API or dashboard.
+- Execution errors are retried until `maxAttempts`.
+- Jobs are marked `dead_letter` after retries are exhausted.
+- Dead-lettered jobs can be manually requeued from the API or dashboard.
+
+The separate reaper checks expiry using database time. It requeues expired running jobs with attempts
+remaining using the backoff policy below and marks exhausted jobs `dead_letter`, clearing ownership in either
+case. Recovery does not increment attempts; the next claim does. With the default settings, an unrenewed lease expires after
+60 seconds and becomes eligible for the next scan (every 5 seconds, subject to batch backlog and locks).
+If the reaper is offline, expired jobs wait until it returns. SIGTERM/SIGINT stop scans, finish the
+current database operation and disconnect.
+
+Lease loss stops further pipeline steps once detected; an already running model call may
+still finish, but its result is rejected. Traces include the worker identity and claim token so attempt
+history remains distinguishable.
+
+Automatic retries from worker errors and expired-lease recovery use exponential backoff with jitter.
+After attempt 1, the wait is 1–2 seconds; after attempt 2, 2–4 seconds; then 4–8, 8–16 and
+15–30 seconds for attempt 5 onward. The exponential ceiling caps at 30 seconds; a random delay
+between half and all of that ceiling spreads retries across jobs. Delays are chosen in whole milliseconds.
+Both paths save `run_after` using Postgres time in the same operation that requeues the job and clears
+ownership. Workers skip future jobs, so waiting consumes no worker slot and survives process restarts.
+Actual execution can start later because of polling or queue backlog. Attempts increment only on claim.
+Exhausted jobs remain `dead_letter`; manually retrying one resets attempts and makes it immediately eligible.
+These delays reduce retry pressure during failures. The shared provider rate limiter below also paces normal calls.
+
+Worker LLM admission uses a Postgres token bucket per resolved provider. Each permit allows one call;
+these permits are unrelated to prompt/completion text tokens. The initial bucket policy is one permit
+per second and a capacity of two, allowing a short two-call burst followed by gradual refill. Policy
+and balance are stored together in `provider_rate_limits`, shared by every worker using that database;
+restarting workers does not reset the balance. These are demonstration defaults, not Gemini quota values.
+This checkpoint initializes policy in the database and has no policy-editing API; policy changes should
+go through a reviewed migration so workers agree on one policy.
+
+Gemini worker calls always acquire a permit. Mock calls are unlimited by default; to demonstrate the
+same limiter locally, run `RATE_LIMIT_MOCK=true pnpm dev:worker` in each worker terminal, or set
+`RATE_LIMIT_MOCK=true` for the Compose worker. All workers in a mock demonstration should use the
+same setting. Missing Gemini credentials resolve to mock and use the mock policy/setting.
+
+Permit acquisition locks the bucket and checks the current job lease before spending. Refill uses database
+time and caps at capacity. When empty, the transaction ends before sleeping; the job remains running,
+occupies its worker slot and keeps heartbeats. Waiting does not claim again or increment attempts.
+Shutdown interrupts permit waiting and uses the normal retry/dead-letter path; lease loss discards the
+attempt. An acquired but unused permit is not refunded because a paused/crashed worker cannot prove
+whether it sent a request. A `provider_rate_limit` trace records successful admission wait time with zero
+text tokens/cost, separately from `llm_call`. End-to-end job latency includes the wait.
+
+Gemini SDK internal retries are disabled: execution retries return through the queue, backoff and a new
+permit. Database errors do not bypass the limiter. This controls request admission in EvalFlow workers;
+provider token/day quotas, other API clients and strict external request-arrival timing remain separate.
+Before running updated workers on an existing dev database, apply migrations with
+`pnpm --filter server exec prisma migrate deploy`. The new table has been verified in `evalflow_test`.
+
+Dead letters stay in the same `jobs` table, retaining their error and attempt history in traces. In the
+Single job dashboard, open History and choose Dead letters, select a job to inspect its error/traces,
+then choose Requeue job after addressing the cause. Requeue resets attempts, clears the current error
+and execution results, and preserves historical traces and evaluations. It does not fix the original cause.
+
+`GET /jobs?status=dead_letter` returns the latest 100 matching jobs (filtering happens before the limit).
+Other supported filters are `queued`, `running` and `completed`; invalid statuses return 400. The existing
+`POST /jobs/:id/retry` endpoint accepts only dead-lettered jobs (409 for other states, 404 if absent).
+Run reports retain `jobs.failed`, and metrics retain `failedJobs`, as counts of dead-lettered jobs.
+Comparisons/baselines continue treating those jobs as failed outcomes, so the CLI gate contract is unchanged.
+
+The migration renames the old `failed` enum value in place, preserving existing rows and references.
+Before running updated code against an existing development database, stop the old API, workers and
+reaper, run `pnpm --filter server exec prisma migrate deploy`, then restart them with the updated code.
+Old binaries use the previous enum value and must be upgraded together. Docker Compose runs migrations
+before starting its services. The migration was verified on the test database; apply it to your dev DB when ready.
 
 EvalFlow also stores observability data for each run:
 
@@ -477,7 +610,7 @@ Get job details:
 curl http://localhost:3000/jobs/<job_id>
 ```
 
-Retry a failed job:
+Requeue a dead-lettered job:
 
 ```bash
 curl -X POST http://localhost:3000/jobs/<job_id>/retry

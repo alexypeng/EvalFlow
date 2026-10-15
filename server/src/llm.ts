@@ -110,7 +110,10 @@ export async function callLlm(
     }
 
     if (provider === "gemini") {
-        const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+        // Queue retries acquire a new shared permit; hidden SDK retries would bypass admission control.
+        const client = new GoogleGenAI({
+            apiKey: process.env.GEMINI_API_KEY!, httpOptions: { retryOptions: { attempts: 1 } },
+        });
         const result = await client.models.generateContent({
             model: modelName,
             contents: prompt,

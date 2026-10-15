@@ -11,13 +11,23 @@ enum JobStatus {
   queued
   running
   completed
-  failed
+  dead_letter
 }
 
 enum RiskLevel {
   low
   medium
   high
+}
+
+model ProviderRateLimit {
+  provider        String   @id
+  capacity        Int      @default(2)
+  refillPerSecond Float    @default(1) @map("refill_per_second")
+  tokens          Float    @default(2)
+  refilledAt      DateTime @default(dbgenerated("CURRENT_TIMESTAMP")) @map("refilled_at") @db.Timestamp(6)
+
+  @@map("provider_rate_limits")
 }
 
 model Job {
@@ -32,6 +42,10 @@ model Job {
   createdAt        DateTime  @default(now()) @map("created_at")
   startedAt        DateTime? @map("started_at")
   completedAt      DateTime? @map("completed_at")
+  lockedBy         String?   @map("locked_by") @db.Uuid
+  leaseToken       String?   @map("lease_token") @db.Uuid
+  leaseExpiresAt   DateTime? @map("lease_expires_at")
+  runAfter         DateTime  @default(dbgenerated("date_trunc('milliseconds', CURRENT_TIMESTAMP)")) @map("run_after")
   latencyMs        Int?      @map("latency_ms")
   promptTokens     Int?      @map("prompt_tokens")
   completionTokens Int?      @map("completion_tokens")
@@ -48,6 +62,8 @@ model Job {
   datasetCase DatasetCase? @relation(fields: [caseId], references: [id])
 
   @@index([status, createdAt])
+  @@index([status, leaseExpiresAt])
+  @@index([status, runAfter, createdAt])
   @@index([runId])
   @@map("jobs")
 }
