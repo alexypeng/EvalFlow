@@ -54,6 +54,8 @@ model Job {
   evalScore        Int?      @map("eval_score")
   runId            String?   @map("run_id") @db.Uuid
   caseId           String?   @map("case_id") @db.Uuid
+  traceParent      String?   @map("trace_parent")
+  traceState       String?   @map("trace_state")
 
   traces Trace[]
   evals  Eval[]

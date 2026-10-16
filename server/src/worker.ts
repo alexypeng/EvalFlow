@@ -13,6 +13,8 @@ import type { JobLease } from "./jobs.js";
 import { JobInputSchema } from "./types.js";
 import { createWorkerMetrics, workerMetricsPort } from "./workerMetrics.js";
 import { shutdownTelemetry } from "./telemetry.js";
+import { beginJobAttemptTrace } from "./jobTracing.js";
+import type { AttemptOutcome } from "./workerMetrics.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
 const workerId = randomUUID();
@@ -248,60 +250,67 @@ async function runOnce() {
 
     if (!job) return false;
 
-    const { finish, finalize } = metrics.beginAttempt();
-    const release = (error: string) => finalize(async () => {
+    const attemptTrace = beginJobAttemptTrace(job);
+    return attemptTrace.run(async () => {
+        const { finish: finishMetrics, finalize } = metrics.beginAttempt();
+        const finish = (outcome: AttemptOutcome) => {
+            finishMetrics(outcome);
+            attemptTrace.finish(outcome);
+        };
+        const release = (error: string) => attemptTrace.run(() => finalize(async () => {
+            try {
+                const updated = await failOrRetryJob({ ...job, error });
+                finish(updated ? updated.status === "queued" ? "retried" : "dead_letter" : "lease_lost");
+                return updated;
+            } catch (error) {
+                finish("unconfirmed");
+                throw error;
+            }
+        }));
+
+        console.log(`Claimed job ${job.id}`);
+
+        const heartbeat = startHeartbeat(heartbeatIntervalMs, () => renewJobLease(job, leaseDurationMs));
+        active.set(job.id, { lease: job, heartbeat, release });
         try {
-            const updated = await failOrRetryJob({ ...job, error });
-            finish(updated ? updated.status === "queued" ? "retried" : "dead_letter" : "lease_lost");
-            return updated;
+            // A claim already sent before SIGTERM can return afterwards. Release it without starting the pipeline.
+            if (stopping) {
+                await heartbeat.stop();
+                await release("Worker shutdown before execution");
+            } else {
+                await processJob(job, () => {
+                    if (abandoning) throw new LeaseLostError();
+                    heartbeat.assertActive();
+                }, (params) => finalize(async () => {
+                    const completed = await completeJob(params);
+                    if (completed) finish("completed");
+                    return completed;
+                }));
+            }
         } catch (error) {
-            finish("unconfirmed");
-            throw error;
-        }
-    });
+            const message = error instanceof Error ? error.message : String(error);
 
-    console.log(`Claimed job ${job.id}`);
-
-    const heartbeat = startHeartbeat(heartbeatIntervalMs, () => renewJobLease(job, leaseDurationMs));
-    active.set(job.id, { lease: job, heartbeat, release });
-    try {
-        // A claim already sent before SIGTERM can return afterwards. Release it without starting the pipeline.
-        if (stopping) {
-            await heartbeat.stop();
-            await release("Worker shutdown before execution");
-        } else {
-            await processJob(job, () => {
-                if (abandoning) throw new LeaseLostError();
-                heartbeat.assertActive();
-            }, (params) => finalize(async () => {
-                const completed = await completeJob(params);
-                if (completed) finish("completed");
-                return completed;
-            }));
-        }
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-
-        if (error instanceof LeaseLostError || abandoning) {
-            if (!abandoning) finish("lease_lost");
-            console.error(`Job ${job.id}: ${message}`);
-        } else {
-            const updated = await release(message);
-            console.error(
-                updated ? `Job ${job.id}: ${updated.status}` : `Job ${job.id} lease lost; failure discarded`, error,
-            );
-        }
-    } finally {
-        try {
-            await heartbeat.stop();
+            if (error instanceof LeaseLostError || abandoning) {
+                if (!abandoning) finish("lease_lost");
+                console.error(`Job ${job.id}: ${message}`);
+            } else {
+                const updated = await release(message);
+                console.error(
+                    updated ? `Job ${job.id}: ${updated.status}` : `Job ${job.id} lease lost; failure discarded`, error,
+                );
+            }
         } finally {
-            active.delete(job.id);
-            // Once deadline cleanup starts, it owns outcome recording even if the provider returns late.
-            if (!abandoning) finish("unconfirmed");
+            try {
+                await heartbeat.stop();
+            } finally {
+                active.delete(job.id);
+                // Once deadline cleanup starts, it owns outcome recording even if the provider returns late.
+                if (!abandoning) finish("unconfirmed");
+            }
         }
-    }
 
-    return true;
+        return true;
+    });
 }
 
 async function workerLoop(slot: number) {

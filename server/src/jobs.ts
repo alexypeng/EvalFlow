@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma, type JobStatus } from "./generated/prisma/client.js";
 import { prisma } from "./db.js";
 import { validateLeaseDuration } from "./leaseSettings.js";
+import { captureJobTrace, type JobTraceContext } from "./jobTracing.js";
 
 // Equal jitter: wait between half and all of the exponential ceiling (2s, 4s, ... up to 30s).
 // Clamp the exponent before calculating it so large attempt counts cannot overflow.
@@ -19,6 +20,7 @@ export async function createJob(type: string, input: Prisma.InputJsonValue, maxA
             input,
             maxAttempts,
             status: "queued",
+            ...captureJobTrace(),
         },
     });
 }
@@ -126,7 +128,7 @@ export async function claimNextJob(lockedBy: string, leaseDurationMs: number) {
     validateLeaseDuration(leaseDurationMs);
     const leaseToken = randomUUID();
     const jobs = await prisma.$queryRaw<
-        Array<JobLease & {
+        Array<JobLease & JobTraceContext & {
             caseId: string | null;
             input: unknown;
             status: string;
@@ -149,7 +151,7 @@ export async function claimNextJob(lockedBy: string, leaseDurationMs: number) {
         )
         RETURNING id, case_id AS "caseId", input, status, attempts, max_attempts AS "maxAttempts",
             started_at AS "startedAt", locked_by AS "lockedBy", lease_token AS "leaseToken",
-            lease_expires_at AS "leaseExpiresAt"
+            lease_expires_at AS "leaseExpiresAt", trace_parent AS "traceParent", trace_state AS "traceState"
     `;
     return jobs[0] ?? null;
 }
@@ -254,6 +256,7 @@ export async function retryJob(id: string) {
                 lockedBy: null,
                 leaseToken: null,
                 leaseExpiresAt: null,
+                ...captureJobTrace(),
             },
         });
         return { ok: true as const, job: retriedJob };

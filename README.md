@@ -746,9 +746,9 @@ See Grafana's official [provisioning documentation](https://grafana.com/docs/gra
 
 Tempo stores distributed traces; Grafana queries Tempo to display the steps of one operation.
 Prometheus continues to store the aggregate metrics used by the existing dashboard.
-The API now emits HTTP/Fastify spans and child Postgres query spans. The worker SDK is initialized,
-but job spans and trace-context propagation across the queue are the next checkpoint. The existing
-Postgres `traces` table remains independent.
+The API emits HTTP/Fastify spans and child Postgres query spans. Jobs carry that context through
+Postgres so worker-attempt spans join the request trace. Per-step and LLM spans are the next
+checkpoint. The existing Postgres `traces` table remains independent.
 
 Start Tempo and refresh Grafana's provisioned data sources:
 
@@ -805,7 +805,7 @@ active trace. Query parameters/results and request bodies/authorization headers 
 captured; standard HTTP and SQL query-text metadata are collected by the instrumentation.
 `GET /health` and `/metrics` (including query strings) are excluded. Postgres requires a parent span,
 so idle polling and heartbeats outside traced operations do not create standalone traces.
-There are no worker job/LLM spans yet, so the worker service may have no searchable traces.
+Worker attempts now emit `job.process` spans; individual pipeline/LLM spans are still pending.
 
 Completed spans are batched in memory and exported about once per second. Export has a one-second
 timeout, and shutdown flush is bounded to two seconds and idempotent. A failed export does not fail
@@ -814,6 +814,50 @@ kills. API SIGTERM/SIGINT drains requests, disconnects Postgres and flushes tele
 ten-second shutdown bound. Worker flushing stays inside its existing shutdown deadlines; the
 hard-stop path can still exit before export completes. Prometheus measurements remain unchanged;
 OpenTelemetry metrics/log exporters are disabled in this setup.
+
+### Trace context across the job queue
+
+Apply the additive migration before running the updated API/worker. For the Compose stack:
+
+```bash
+docker compose up --build -d tempo grafana api worker
+```
+
+The existing migration service applies pending migrations before the API/worker start. Existing
+jobs get null context fields and keep their status, attempts, input and results. Host development
+also needs the migration applied to its database with `pnpm --filter server exec prisma migrate deploy`.
+
+When a traced API request creates a job, `trace_parent` and `trace_state` store its W3C trace context
+alongside the job input. No baggage is persisted. Claims return those fields with the lease.
+The worker restores the saved context and creates a new `job.process` span for that consumed attempt;
+it does not reopen an ended API span. Postgres work and heartbeats started inside the attempt inherit
+its context. Each concurrent attempt uses a separate async context.
+
+```text
+API request trace
+├── API handler and job insert
+├── job.process (job A, attempt 1, retried)
+└── job.process (job A, attempt 2, completed)
+```
+
+Each attempt span has `job.id`, `job.attempt` and its final `job.outcome`, using the same outcome
+definitions as worker metrics. Outcomes are recorded once, after guarded completion/requeue/failure
+acceptance where applicable; lease loss and unconfirmed writes remain distinct. Non-completed outcomes
+are marked as span errors. Span duration covers the observed attempt, including processing and
+finalization, while the gap between attempts shows retry delay. Dedicated queue-wait spans and
+pipeline-step spans are not yet implemented.
+
+Automatic worker retries and reaper recovery retain the original context. A manual retry replaces it
+atomically with the current retry request's context, so it normally starts a new request trace rather
+than appending to the old job trace. An untraced manual retry clears the old context. Dataset runs
+create many jobs from one request; those jobs share that request trace and are distinguished by job ID.
+
+Missing or malformed saved context starts a fresh worker trace instead of inheriting another job's
+context. Legacy/untraced jobs still execute, and their null context remains null; separate attempts
+of such jobs may therefore produce separate root traces. Unsampled context is preserved without
+exporting spans. Disabled tracing needs no collector and does not change queue behavior. SIGKILL
+cannot end/export an in-progress span, so recovery can appear without its crashed predecessor's
+span. Postgres remains the source of truth for accepted job outcomes.
 
 ### Worker attempt measurements
 

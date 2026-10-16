@@ -16,8 +16,8 @@ _Last updated: 2026-10-15_
 |---|---|
 | **Current milestone** | M4 Observability, branch `m4-observability` |
 | **Done** | M0 (PR #1), M1 (PR #2), M2 (PR #3), M3 (PR #4) merged; M3 learning reviews and hosted CI verified |
-| **Waiting on you** | Owner commit for OpenTelemetry SDK; learning review completed |
-| **Next up** | Agree queue trace-context propagation and worker span design |
+| **Waiting on you** | Owner commit for queue trace propagation; learning review completed |
+| **Next up** | Agree pipeline/LLM spans and queue-wait presentation |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -204,7 +204,7 @@ Tasks:
 - [x] **Claude** Prometheus and Grafana in compose with provisioned API, job-count and worker attempt panels; worker attempt learning review completed
 - [x] **Claude** Local Tempo 3.1.0 service, persistent storage with seven-day retention and provisioned Grafana datasource; learning review completed
 - [x] **Claude** OpenTelemetry SDK setup and HTTP/Fastify/pg instrumentation; API traces verified through Tempo/Grafana, worker initialized, learning review completed
-- [ ] **ME** Trace context propagation across the queue: store `traceparent` on the job row, continue the trace in the worker
+- [x] **ME** Queue trace context persisted as nullable W3C traceparent/tracestate; worker attempt spans continue it, automatic retries retain it and manual retries replace it; learning review completed
 - [ ] **ME** Manual spans for pipeline steps and the LLM call (tokens, model as attributes)
 
 Done when: one trace in the UI spans API request → queue wait → worker → LLM call, and Grafana shows throughput, latency and queue depth.
@@ -255,6 +255,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-15 | Owner approved one trace across automatic retries with a separate span per attempt; manual retry uses a new retry request trace | Persist W3C traceparent/tracestate on the job, return them with claims, and restore from a clean root context before each consumer span. Automatic failure/reaper/completion keep the saved parent; manual requeue atomically captures its current request or clears old context when untraced. Attempts share the guarded metric outcome lifecycle and serialized finalization, including shutdown releases. Dataset fan-out shares its API request trace with job IDs distinguishing jobs. No baggage is stored; absent/malformed context falls back safely. |
 | 2026-10-15 | Owner authorized application OpenTelemetry setup after Tempo review; implement SDK plumbing before queue propagation | Start SDK before dynamic application imports with the documented ESM loader. Export HTTP/protobuf directly to Tempo under separate API/worker service names; local roots sampled and upstream sampling respected. Exclude health/metrics and require a parent for Postgres spans to avoid idle polling noise. Explicit endpoint enables tracing; tests disable it except isolated tracing tests. Batch export and bounded best-effort shutdown preserve application behavior during Tempo outages. Queue context and pipeline spans remain the next learning piece. |
 | 2026-10-15 | Owner chose Tempo and approved local backend setup before application instrumentation | Run a single Tempo process with local named-volume storage, seven-day retention and a provisioned Grafana datasource. Publish query/readiness 3200 and OTLP HTTP 4318 on loopback for host development; Compose clients use tempo service DNS. Synthetic trace checks isolate storage/viewing from future SDK and queue propagation work. Keep existing Postgres traces and Prometheus metrics. |
 | 2026-10-15 | Owner approved keeping database traces alongside OpenTelemetry; begin M4 with the JSON /stats endpoint | Dashboard already uses stored payloads/errors/traces for per-job inspection. OpenTelemetry adds cross-service visibility separately. Moving existing JSON from /metrics to /stats frees the conventional Prometheus path while preserving its dashboard response contract. Trace backend and metric design remain to be agreed before their respective implementation pieces. |
@@ -309,6 +310,34 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
+
+- **2026-10-15 (queue propagation learning review):** Owner explained that persisting context survives API crashes and correctly identified shared trace IDs with different span IDs across attempts. Clarified trace context as trace ID, parent span ID and sampling information, and distinguished keeping the old trace in Tempo from replacing the context on the job row during manual retry. Owner confirmed that new attempts use the new request trace/context. Learning review completed. Updated PLAN/local learning notes only; prior 312 passing tests plus one existing expected failure and build/live checks unchanged. Owner commit next, then agree pipeline/LLM spans and queue-wait presentation. No new code, tests, commits, pushes or PRs.
+
+
+- **2026-10-15 (queue trace propagation):** Implemented the approved retry grouping and bounded queue-context piece. Added nullable trace_parent/trace_state through Prisma migration 20261016020305_add_job_trace_context and regenerated the client. Trimmed unrelated equivalent-default rewrites emitted by Prisma; recreated only evalflow_test from migrations after trimming. Single-job creation and dataset-run fan-out capture current W3C context, claims return it, automatic failure/reaper/completion preserve it and the winning manual retry replaces/clears it under the existing row lock. Added jobTracing.ts for clean-root extraction and context-scoped consumer spans with job ID, attempt and guarded outcome. Worker spans share metric finalization/cleanup lifecycle; concurrent jobs and shutdown releases keep their contexts. No LLM/step or dedicated queue-wait spans yet. Seven unit and seven DB cases cover context/sampling/isolation, legacy migration, fan-out, retry/reaper/exhaustion/stale writes and concurrent manual retry; two added subprocess integration cases cover actual API persistence and traced worker attempts. Tests caught a misplaced capture on completion rather than manual retry; corrected it and asserted successful completion retains context. Full suite passes 312 tests plus one existing expected failure across 34 files; typecheck, server/frontend builds, Compose config and diff checks pass. Isolated two-worker Tempo/Grafana smoke verified exact parent IDs, two distinct automatic attempts with retried/dead_letter outcomes under the original trace, separate concurrent job trace, new manual retry trace with attempt reset, worker SQL spans, unsampled completion without export and clean shutdown. Corrected only the temporary smoke's empty JSON manual-retry request and reran after resetting its own fixtures. API/worker images build. Removed temporary smoke containers, network and volumes. Test-only database work; no development DB migration, live LLM calls, commits, pushes or PRs. Learning review pending.
+
+Propagation checkpoint files: `README.md`, `docs/PLAN.md`, `server/prisma/schema.prisma`,
+`server/prisma/migrations/20261016020305_add_job_trace_context/migration.sql`,
+`server/src/generated/prisma/internal/class.ts`, `server/src/generated/prisma/internal/prismaNamespace.ts`,
+`server/src/generated/prisma/internal/prismaNamespaceBrowser.ts`, `server/src/generated/prisma/models/Job.ts`,
+`server/src/jobTracing.ts`, `server/src/jobs.ts`, `server/src/runs.ts`, `server/src/worker.ts`,
+`server/test/unit/jobTracing.test.ts`, `server/test/db/jobTracing.test.ts`, `server/test/db/telemetry.test.ts`,
+`server/test/fixtures/inMemoryTracing.ts`.
+
+Suggested owner commands after learning review:
+
+```bash
+git add README.md docs/PLAN.md server/prisma/schema.prisma \
+  server/prisma/migrations/20261016020305_add_job_trace_context/migration.sql server/src/generated/prisma \
+  server/src/jobTracing.ts server/src/jobs.ts server/src/runs.ts server/src/worker.ts \
+  server/test/unit/jobTracing.test.ts server/test/db/jobTracing.test.ts server/test/db/telemetry.test.ts \
+  server/test/fixtures/inMemoryTracing.ts
+git commit -m "Propagate job trace context to worker attempts"
+```
+
+
+- **2026-10-15 (queue tracing planning):** Confirmed SDK checkpoint committed and branch synced. Inspected single-job creation, dataset-run fan-out, claim SQL, retry/reaper paths, worker completion/lease handling and SDK context behavior. Next piece requires nullable persisted trace context, claimed context return and separate worker-attempt spans. First unresolved design question: keep automatic retry attempts in the same job trace or create separate traces per attempt. Owner reasoning/choice pending; no schema or application edits, tests, commits, pushes or PRs.
+
 
 - **2026-10-15 (SDK learning review):** Owner explained that tracing must start before Fastify/Postgres and that API instrumentation does not automatically connect to a separately polling worker. Explained automatic wrappers and why saved context connects newly created worker spans rather than resuming ended API spans. Owner described a trace as the umbrella for timed spans and correctly rejected failing jobs during Tempo outages because tracing is observational. Learning review completed. Updated PLAN/local learning notes only; existing 296 passed plus one expected failure, typecheck/build and live checks unchanged. Owner commit next, then agree queue propagation/worker span design. No code changes, additional tests, commits, pushes or PRs.
 

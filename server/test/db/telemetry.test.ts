@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { setTimeout as sleep } from "node:timers/promises";
 import { beforeEach, expect, it } from "vitest";
 import { resetDatabase } from "./helpers.js";
+import { prisma } from "../../src/db.js";
 
 beforeEach(resetDatabase);
 
@@ -25,12 +26,12 @@ async function collector() {
     };
 }
 
-function child(entry: string, endpoint: string, disabled = "false") {
+function child(entry: string, endpoint: string, disabled = "false", env: NodeJS.ProcessEnv = {}) {
     const process = spawn(globalThis.process.execPath, [
         "--experimental-loader=@opentelemetry/instrumentation/hook.mjs", "--import", "tsx", entry,
     ], {
         env: { ...globalThis.process.env, PORT: "0", POLL_INTERVAL_MS: "20", OTEL_SDK_DISABLED: disabled,
-            OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: endpoint },
+            OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: endpoint, ...env },
         stdio: ["ignore", "pipe", "pipe"],
     });
     let logs = "";
@@ -41,9 +42,9 @@ function child(entry: string, endpoint: string, disabled = "false") {
     void closed.then(() => clearTimeout(deadline));
     return {
         process, closed, logs: () => logs,
-        async until(predicate: () => boolean) {
+        async until(predicate: () => boolean | Promise<boolean>) {
             const deadline = Date.now() + 10000;
-            while (!predicate()) {
+            while (!(await predicate())) {
                 if (process.exitCode !== null || Date.now() > deadline) throw new Error(logs);
                 await sleep(20);
             }
@@ -88,6 +89,73 @@ it("exports actual HTTP, Fastify and Postgres spans with the supplied trace ID, 
         await run.stop();
         await target.close();
     }
+}, 20000);
+
+it("saves HTTP trace context on enqueue and replaces it from the manual-retry request", async () => {
+    const target = await collector();
+    const run = child("src/startApi.ts", target.endpoint);
+    try {
+        await run.until(() => /http:\/\/127\.0\.0\.1:\d+/.test(run.logs()));
+        const url = run.logs().match(/http:\/\/127\.0\.0\.1:\d+/)![0];
+        const original = "1".repeat(32), replacement = "2".repeat(32);
+        const response = await fetch(url + "/jobs", {
+            method: "POST", headers: { "Content-Type": "application/json",
+                traceparent: `00-${original}-1122334455667788-01`, tracestate: "vendor=original" },
+            body: JSON.stringify({ type: "retention_risk_analysis", input: { userId: "user_123" } }),
+        });
+        expect(response.status).toBe(201);
+        const job = await response.json() as { id: string; traceParent: string; traceState: string };
+        expect(job.traceParent).toMatch(new RegExp(`^00-${original}-[a-f0-9]{16}-01$`));
+        expect(job.traceState).toBe("vendor=original");
+        await prisma.job.update({ where: { id: job.id }, data: { status: "dead_letter", attempts: 3 } });
+        const retried = await fetch(url + `/jobs/${job.id}/retry`, { method: "POST", headers: {
+            traceparent: `00-${replacement}-1122334455667788-01`, tracestate: "vendor=replacement",
+        } });
+        expect(retried.status).toBe(200);
+        const saved = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+        expect(saved.traceParent).toMatch(new RegExp(`^00-${replacement}-[a-f0-9]{16}-01$`));
+        expect(saved.traceState).toBe("vendor=replacement");
+        expect(saved.attempts).toBe(0);
+        run.process.kill("SIGTERM");
+        expect(await run.closed).toEqual([0, null]);
+    } finally { await run.stop(); await target.close(); }
+}, 20000);
+
+it("exports one span per real worker attempt for retries, concurrent jobs and missing context", async () => {
+    const target = await collector();
+    const original = "3".repeat(32), other = "4".repeat(32);
+    const failing = await prisma.job.create({ data: {
+        type: "retention_risk_analysis", input: { userId: "user_123", mockConfig: {} }, maxAttempts: 2,
+        traceParent: `00-${original}-1122334455667788-01`, traceState: "vendor=original",
+    } });
+    const successful = await prisma.job.create({ data: {
+        type: "retention_risk_analysis", input: { userId: "user_healthy" },
+        traceParent: `00-${other}-1122334455667788-01`,
+    } });
+    const legacy = await prisma.job.create({ data: { type: "retention_risk_analysis", input: { userId: "legacy" } } });
+    const run = child("src/startWorker.ts", target.endpoint, "false", { WORKER_CONCURRENCY: "2" });
+    try {
+        await run.until(async () => (await prisma.job.findMany()).every((job) =>
+            ["completed", "dead_letter"].includes(job.status),
+        ));
+        expect(await prisma.job.findUniqueOrThrow({ where: { id: failing.id } })).toMatchObject({
+            status: "dead_letter", attempts: 2, traceParent: failing.traceParent, traceState: failing.traceState,
+        });
+        expect(await prisma.job.findUniqueOrThrow({ where: { id: successful.id } })).toMatchObject({
+            status: "completed", traceParent: successful.traceParent, traceState: null,
+        });
+        expect(await prisma.job.findUniqueOrThrow({ where: { id: legacy.id } })).toMatchObject({
+            status: "completed", traceParent: null, traceState: null,
+        });
+        run.process.kill("SIGTERM");
+        expect(await run.closed).toEqual([0, null]);
+        const payload = Buffer.concat(target.bodies);
+        expect(payload.includes(Buffer.from(original, "hex"))).toBe(true);
+        expect(payload.includes(Buffer.from(other, "hex"))).toBe(true);
+        for (const id of [failing.id, successful.id, legacy.id]) expect(payload.includes(Buffer.from(id))).toBe(true);
+        expect(payload.toString("latin1").match(/job\.process/g)).toHaveLength(4);
+        expect(payload.includes(Buffer.from("evalflow-worker"))).toBe(true);
+    } finally { await run.stop(); await target.close(); }
 }, 20000);
 
 it("flushes a pending span on shutdown exactly once", async () => {
