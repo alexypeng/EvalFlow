@@ -15,6 +15,7 @@ import { createWorkerMetrics, workerMetricsPort } from "./workerMetrics.js";
 import { shutdownTelemetry } from "./telemetry.js";
 import { beginJobAttemptTrace } from "./jobTracing.js";
 import type { AttemptOutcome } from "./workerMetrics.js";
+import { tracePipelineStep } from "./pipelineTracing.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
 const workerId = randomUUID();
@@ -127,7 +128,9 @@ async function processJob(
         source: caseSnapshot ? "dataset_case" : "built_in_mock",
     };
 
-    const events = await timed(() => getUserEvents(userId, caseSnapshot));
+    const events = await tracePipelineStep("tool.get_user_events", {}, () =>
+        timed(() => getUserEvents(userId, caseSnapshot)),
+    );
     await trace({
         jobId: job.id,
         stepName: "getUserEvents",
@@ -136,7 +139,9 @@ async function processJob(
         latencyMs: events.latencyMs,
     });
 
-    const featureUsage = await timed(() => getFeatureUsage(userId, caseSnapshot));
+    const featureUsage = await tracePipelineStep("tool.get_feature_usage", {}, () =>
+        timed(() => getFeatureUsage(userId, caseSnapshot)),
+    );
     await trace({
         jobId: job.id,
         stepName: "getFeatureUsage",
@@ -145,7 +150,9 @@ async function processJob(
         latencyMs: featureUsage.latencyMs,
     });
 
-    const subscriptionHistory = await timed(() => getSubscriptionHistory(userId, caseSnapshot));
+    const subscriptionHistory = await tracePipelineStep("tool.get_subscription_history", {}, () =>
+        timed(() => getSubscriptionHistory(userId, caseSnapshot)),
+    );
     await trace({
         jobId: job.id,
         stepName: "getSubscriptionHistory",
@@ -154,7 +161,9 @@ async function processJob(
         latencyMs: subscriptionHistory.latencyMs,
     });
 
-    const retentionSummary = await timed(() => getRetentionSummary(userId, caseSnapshot));
+    const retentionSummary = await tracePipelineStep("tool.get_retention_summary", {}, () =>
+        timed(() => getRetentionSummary(userId, caseSnapshot)),
+    );
     await trace({
         jobId: job.id,
         stepName: "getRetentionSummary",
@@ -170,12 +179,16 @@ async function processJob(
         retentionSummary: retentionSummary.output,
     };
 
-    const prompt = await buildRetentionPrompt(userId, snapshot, promptVersion);
+    const prompt = await tracePipelineStep("prompt.build", { "evalflow.prompt.version": promptVersion }, () =>
+        buildRetentionPrompt(userId, snapshot, promptVersion),
+    );
 
-    const { provider } = resolveLlm();
+    const { provider, model } = resolveLlm();
     if (provider === "gemini" || rateLimitMock) {
-        const permit = await metrics.measurePermitWait(provider, () =>
-            timed(() => waitForProviderPermit(job, provider, { signal: idleSleep.signal, assertActive })),
+        const permit = await tracePipelineStep("provider.permit_wait", { "evalflow.provider": provider }, () =>
+            metrics.measurePermitWait(provider, () =>
+                timed(() => waitForProviderPermit(job, provider, { signal: idleSleep.signal, assertActive })),
+            ),
         );
         await trace({
             jobId: job.id, stepName: "provider_rate_limit", input: { provider },
@@ -185,9 +198,24 @@ async function processJob(
         idleSleep.signal.throwIfAborted();
     }
     assertActive();
-    const llmCall = await metrics.measureLlm(provider, () =>
-        timed(() => callLlm(prompt, snapshot, { caseId: job.caseId ?? undefined, mockConfig })),
-    );
+    const llmCall = await tracePipelineStep("llm.call", {
+        "gen_ai.operation.name": "generate_content",
+        "gen_ai.provider.name": provider === "gemini" ? "gcp.gemini" : "mock",
+        "gen_ai.request.model": model,
+        "evalflow.prompt.version": promptVersion,
+    }, async (span) => {
+        const result = await metrics.measureLlm(provider, () =>
+            timed(() => callLlm(prompt, snapshot, { caseId: job.caseId ?? undefined, mockConfig })),
+        );
+        span.setAttributes({
+            "gen_ai.usage.input_tokens": result.output.promptTokens,
+            "gen_ai.usage.output_tokens": result.output.completionTokens,
+            "evalflow.usage.total_tokens": result.output.totalTokens,
+            "evalflow.usage.estimated": true,
+            "evalflow.estimated_cost": result.output.estimatedCost,
+        });
+        return result;
+    });
 
     await trace({
         jobId: job.id,
@@ -209,24 +237,33 @@ async function processJob(
         latencyMs: llmCall.latencyMs,
     });
 
-    const parsed = parseLlmJson(llmCall.output.text);
+    const parsed = await tracePipelineStep("output.parse", {}, () => {
+        const parsed = parseLlmJson(llmCall.output.text);
+        if (!parsed.validJson) throw new Error("LLM returned invalid JSON");
+        return parsed;
+    });
 
-    if (!parsed.validJson) {
-        throw new Error("LLM returned invalid JSON");
-    }
+    const validation = await tracePipelineStep("output.validate", {}, () => {
+        const validation = validateRetentionOutput(parsed.parsed);
+        if (!validation.success) {
+            throw new Error(`LLM output failed schema validation: ${validation.error.message}`);
+        }
+        return validation;
+    });
 
-    const validation = validateRetentionOutput(parsed.parsed);
-
-    if (!validation.success) {
-        throw new Error(`LLM output failed schema validation: ${validation.error.message}`);
-    }
-
-    const evalResult = scoreRetentionAnalysis({
-        output: validation.data,
-        snapshot,
-        validJson: parsed.validJson,
-        hasRequiredFields: validation.success,
-        expectedRisk,
+    const evalResult = await tracePipelineStep("evaluation.score", {}, (span) => {
+        const result = scoreRetentionAnalysis({
+            output: validation.data,
+            snapshot,
+            validJson: parsed.validJson,
+            hasRequiredFields: validation.success,
+            expectedRisk,
+        });
+        span.setAttributes({
+            "evalflow.eval.score": result.taskCompletionScore,
+            "evalflow.eval.label_correct": result.reasonableRiskLabel,
+        });
+        return result;
     });
 
     assertActive();

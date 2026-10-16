@@ -2,9 +2,11 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { setTimeout as sleep } from "node:timers/promises";
+import { randomUUID } from "node:crypto";
 import { beforeEach, expect, it } from "vitest";
-import { resetDatabase } from "./helpers.js";
+import { resetDatabase, retentionV1 } from "./helpers.js";
 import { prisma } from "../../src/db.js";
+import { loadDataset, readDatasetFile } from "../../src/datasets.js";
 
 beforeEach(resetDatabase);
 
@@ -157,6 +159,94 @@ it("exports one span per real worker attempt for retries, concurrent jobs and mi
         expect(payload.includes(Buffer.from("evalflow-worker"))).toBe(true);
     } finally { await run.stop(); await target.close(); }
 }, 20000);
+
+it.each([
+    { label: "successful pipeline", mockConfig: { latencyMs: 30 },
+        status: "completed", parse: 1, validate: 1, eval: 1 },
+    { label: "invalid JSON", mockConfig: { invalidJsonRate: 1 },
+        status: "dead_letter", parse: 1, validate: 0, eval: 0 },
+    { label: "invalid schema", mockConfig: { missingEvidenceRate: 1 },
+        status: "dead_letter", parse: 1, validate: 1, eval: 0 },
+    { label: "wrong label", mockConfig: { wrongLabelRate: 1 }, status: "completed", parse: 1, validate: 1, eval: 1 },
+    { label: "rejected call", mockConfig: {}, status: "dead_letter", parse: 0, validate: 0, eval: 0 },
+    { label: "enabled permit", mockConfig: {}, status: "completed", parse: 1, validate: 1, eval: 1 },
+])("exports operation spans for $label without capturing prompt/output payloads", async (scenario) => {
+    await loadDataset(await readDatasetFile(retentionV1));
+    const datasetCase = await prisma.datasetCase.findFirstOrThrow({ where: { name: "clear_high_all_signals" } });
+    const job = await prisma.job.create({ data: {
+        type: "retention_risk_analysis", maxAttempts: 1,
+        caseId: scenario.label === "rejected call" ? null : datasetCase.id,
+        input: { userId: "pipeline-private-payload-sentinel", snapshot: datasetCase.snapshot,
+            expectedRisk: datasetCase.expectedRisk, mockConfig: scenario.mockConfig },
+    } });
+    const target = await collector();
+    const run = child("src/startWorker.ts", target.endpoint, "false", {
+        RATE_LIMIT_MOCK: scenario.label === "enabled permit" ? "true" : "false",
+    });
+    try {
+        await run.until(async () =>
+            (await prisma.job.findUniqueOrThrow({ where: { id: job.id } })).status === scenario.status,
+        );
+        run.process.kill("SIGTERM");
+        expect(await run.closed).toEqual([0, null]);
+        const payload = Buffer.concat(target.bodies).toString("latin1");
+        const count = (name: string) => payload.split(name).length - 1;
+        for (const name of ["tool.get_user_events", "tool.get_feature_usage", "tool.get_subscription_history",
+            "tool.get_retention_summary", "prompt.build", "llm.call"]) expect(count(name)).toBe(1);
+        expect(count("output.parse")).toBe(scenario.parse);
+        expect(count("output.validate")).toBe(scenario.validate);
+        expect(count("evaluation.score")).toBe(scenario.eval);
+        expect(count("provider.permit_wait")).toBe(scenario.label === "enabled permit" ? 1 : 0);
+        expect(payload).toContain("gen_ai.request.model");
+        expect(payload).toContain("mock-rule-based");
+        expect(payload.includes("gen_ai.usage.input_tokens")).toBe(scenario.label !== "rejected call");
+        expect(payload).not.toContain("pipeline-private-payload-sentinel");
+        if (scenario.label === "wrong label") {
+            expect((await prisma.job.findUniqueOrThrow({ where: { id: job.id } })).evalScore).toBeLessThan(100);
+        }
+    } finally { await run.stop(); await target.close(); }
+}, 15000);
+
+it.each(["lease_lost", "cancelled"] as const)(
+    "records an interrupted permit span as %s without starting the LLM", async (outcome) => {
+        const job = await prisma.job.create({ data: {
+            type: "retention_risk_analysis", input: { userId: "user_123" },
+        } });
+        await prisma.$executeRaw`
+            INSERT INTO provider_rate_limits (provider, tokens, refilled_at)
+            VALUES ('mock', 0, clock_timestamp() + interval '1 hour')
+        `;
+        const bucketVersion = async () => {
+            const [row] = await prisma.$queryRaw<Array<{ version: string }>>`
+                SELECT xmin::text AS version FROM provider_rate_limits WHERE provider = 'mock'
+            `;
+            return row.version;
+        };
+        const originalVersion = await bucketVersion();
+        const target = await collector();
+        const run = child("src/startWorker.ts", target.endpoint, "false", {
+            RATE_LIMIT_MOCK: "true", LEASE_DURATION_MS: "600", HEARTBEAT_INTERVAL_MS: "50",
+        });
+        try {
+            await run.until(async () => await prisma.trace.count({ where: { jobId: job.id } }) === 4);
+            await run.until(async () => await bucketVersion() !== originalVersion);
+            if (outcome === "lease_lost") {
+                await prisma.job.update({ where: { id: job.id }, data: {
+                    lockedBy: randomUUID(), leaseToken: randomUUID(), leaseExpiresAt: new Date(Date.now() + 60000),
+                } });
+                await run.until(() => run.logs().includes("Job lease lost"));
+            }
+            run.process.kill("SIGTERM");
+            expect(await run.closed).toEqual([0, null]);
+            const payload = Buffer.concat(target.bodies).toString("latin1");
+            expect(payload.split("provider.permit_wait")).toHaveLength(2);
+            expect(payload).toContain(outcome);
+            expect(payload).not.toContain("llm.call");
+            expect((await prisma.job.findUniqueOrThrow({ where: { id: job.id } })).status)
+                .toBe(outcome === "lease_lost" ? "running" : "queued");
+        } finally { await run.stop(); await target.close(); }
+    }, 15000,
+);
 
 it("flushes a pending span on shutdown exactly once", async () => {
     const target = await collector();

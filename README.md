@@ -747,8 +747,8 @@ See Grafana's official [provisioning documentation](https://grafana.com/docs/gra
 Tempo stores distributed traces; Grafana queries Tempo to display the steps of one operation.
 Prometheus continues to store the aggregate metrics used by the existing dashboard.
 The API emits HTTP/Fastify spans and child Postgres query spans. Jobs carry that context through
-Postgres so worker-attempt spans join the request trace. Per-step and LLM spans are the next
-checkpoint. The existing Postgres `traces` table remains independent.
+Postgres so worker-attempt spans join the request trace. Each attempt includes pipeline and LLM
+child spans. The existing Postgres `traces` table remains independent.
 
 Start Tempo and refresh Grafana's provisioned data sources:
 
@@ -805,7 +805,7 @@ active trace. Query parameters/results and request bodies/authorization headers 
 captured; standard HTTP and SQL query-text metadata are collected by the instrumentation.
 `GET /health` and `/metrics` (including query strings) are excluded. Postgres requires a parent span,
 so idle polling and heartbeats outside traced operations do not create standalone traces.
-Worker attempts now emit `job.process` spans; individual pipeline/LLM spans are still pending.
+Worker attempts emit `job.process` spans with child spans for the operations described below.
 
 Completed spans are batched in memory and exported about once per second. Export has a one-second
 timeout, and shutdown flush is bounded to two seconds and idempotent. A failed export does not fail
@@ -844,8 +844,8 @@ Each attempt span has `job.id`, `job.attempt` and its final `job.outcome`, using
 definitions as worker metrics. Outcomes are recorded once, after guarded completion/requeue/failure
 acceptance where applicable; lease loss and unconfirmed writes remain distinct. Non-completed outcomes
 are marked as span errors. Span duration covers the observed attempt, including processing and
-finalization, while the gap between attempts shows retry delay. Dedicated queue-wait spans and
-pipeline-step spans are not yet implemented.
+finalization, while the gap between attempts shows retry delay. Dedicated queue-wait spans are
+not yet implemented.
 
 Automatic worker retries and reaper recovery retain the original context. A manual retry replaces it
 atomically with the current retry request's context, so it normally starts a new request trace rather
@@ -858,6 +858,57 @@ of such jobs may therefore produce separate root traces. Unsampled context is pr
 exporting spans. Disabled tracing needs no collector and does not change queue behavior. SIGKILL
 cannot end/export an in-progress span, so recovery can appear without its crashed predecessor's
 span. Postgres remains the source of truth for accepted job outcomes.
+
+### Pipeline child spans
+
+Each `job.process` attempt creates operation spans under the same trace:
+
+```text
+job.process
+├── tool.get_user_events
+├── tool.get_feature_usage
+├── tool.get_subscription_history
+├── tool.get_retention_summary
+├── prompt.build
+├── provider.permit_wait          (when limiting is enabled)
+├── llm.call
+├── output.parse
+├── output.validate
+└── evaluation.score
+```
+
+The four tools, prompt construction, permit wait and LLM call finish their spans before the subsequent
+Postgres detail-trace write. Those writes remain visible as automatic database spans under the attempt.
+Database work performed as part of permit acquisition belongs inside the permit span. Disabled mock
+limiting skips the permit span entirely. Steps that are never reached produce no spans.
+
+`step.outcome` is `success`, `error`, `cancelled` or `lease_lost`. Fulfilled operations are marked OK;
+rejected operations are marked ERROR with `error.type`, and the original error still reaches the
+existing retry/fencing logic. These spans do not capture exception messages/stacks or operation
+input/output payloads. Existing Postgres detail traces still hold the prompt, model response and
+tool payloads, and job errors keep their existing behavior.
+
+An LLM response containing invalid JSON is a successful `llm.call`, then a failed `output.parse`;
+schema validation and evaluation are skipped. Valid JSON with the wrong shape fails `output.validate`.
+A rejected provider/wrapper call fails `llm.call` and has no later validation spans. Evaluation that
+returns a low score is still a successful `evaluation.score` operation: `evalflow.eval.score` and
+`evalflow.eval.label_correct` describe quality, while the attempt can complete normally.
+
+The LLM span records `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`,
+`gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`. Gemini maps to `gcp.gemini`; the local
+mock uses `mock`. Additional attributes are `evalflow.prompt.version`, `evalflow.usage.total_tokens`,
+`evalflow.usage.estimated` and `evalflow.estimated_cost`. Usage/cost values are copied from the
+existing pipeline response rather than recalculated; token counts are currently estimates and
+the existing cost estimate is currently zero. Calls that reject before returning do not fabricate
+usage/cost values. The span name stays `llm.call`, with client kind, and other operation spans use
+internal kind. Attribute naming references the official
+[GenAI conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-spans.md).
+
+For inspection, rebuild the API/worker, submit a mock job and select its trace in Grafana Explore.
+The span list shows operation durations and status; selecting `llm.call` shows model/usage metadata.
+An in-progress call has no exported ended span yet. Shutdown or SIGKILL can still lose unfinished
+spans, and an LLM operation may succeed even if the attempt later loses its lease or its result
+cannot be persisted.
 
 ### Worker attempt measurements
 

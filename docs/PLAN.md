@@ -10,14 +10,14 @@ The working plan and status tracker. [`ROADMAP.md`](ROADMAP.md) is the one-parag
 
 ## Status snapshot
 
-_Last updated: 2026-10-15_
+_Last updated: 2026-10-16_
 
 | | |
 |---|---|
 | **Current milestone** | M4 Observability, branch `m4-observability` |
 | **Done** | M0 (PR #1), M1 (PR #2), M2 (PR #3), M3 (PR #4) merged; M3 learning reviews and hosted CI verified |
-| **Waiting on you** | Owner commit for queue trace propagation; learning review completed |
-| **Next up** | Agree pipeline/LLM spans and queue-wait presentation |
+| **Waiting on you** | Owner commit for pipeline child spans; learning review completed |
+| **Next up** | Agree queue-wait presentation, then finish M4 verification |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -205,7 +205,8 @@ Tasks:
 - [x] **Claude** Local Tempo 3.1.0 service, persistent storage with seven-day retention and provisioned Grafana datasource; learning review completed
 - [x] **Claude** OpenTelemetry SDK setup and HTTP/Fastify/pg instrumentation; API traces verified through Tempo/Grafana, worker initialized, learning review completed
 - [x] **ME** Queue trace context persisted as nullable W3C traceparent/tracestate; worker attempt spans continue it, automatic retries retain it and manual retries replace it; learning review completed
-- [ ] **ME** Manual spans for pipeline steps and the LLM call (tokens, model as attributes)
+- [x] **ME** Pipeline child spans for tools, prompt, permit wait, LLM, parse/schema validation and evaluation, with model/usage/cost metadata; learning review completed
+- [ ] **ME** Agree and implement explicit queue-wait visibility before final M4 acceptance
 
 Done when: one trace in the UI spans API request → queue wait → worker → LLM call, and Grafana shows throughput, latency and queue depth.
 
@@ -255,6 +256,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-15 | Owner approved pipeline operation spans under each worker attempt | Bound spans to the operation, ending before subsequent Postgres detail writes. Keep returned-call success distinct from invalid JSON/schema errors and evaluation quality. Record provider/model/estimated token/cost metadata without copying prompts, outputs or exception payloads into these spans. Preserve original errors and mark error/cancelled/lease_lost outcomes. Disabled mock limiting skips its span. Queue-wait presentation remains a separate decision. |
 | 2026-10-15 | Owner approved one trace across automatic retries with a separate span per attempt; manual retry uses a new retry request trace | Persist W3C traceparent/tracestate on the job, return them with claims, and restore from a clean root context before each consumer span. Automatic failure/reaper/completion keep the saved parent; manual requeue atomically captures its current request or clears old context when untraced. Attempts share the guarded metric outcome lifecycle and serialized finalization, including shutdown releases. Dataset fan-out shares its API request trace with job IDs distinguishing jobs. No baggage is stored; absent/malformed context falls back safely. |
 | 2026-10-15 | Owner authorized application OpenTelemetry setup after Tempo review; implement SDK plumbing before queue propagation | Start SDK before dynamic application imports with the documented ESM loader. Export HTTP/protobuf directly to Tempo under separate API/worker service names; local roots sampled and upstream sampling respected. Exclude health/metrics and require a parent for Postgres spans to avoid idle polling noise. Explicit endpoint enables tracing; tests disable it except isolated tracing tests. Batch export and bounded best-effort shutdown preserve application behavior during Tempo outages. Queue context and pipeline spans remain the next learning piece. |
 | 2026-10-15 | Owner chose Tempo and approved local backend setup before application instrumentation | Run a single Tempo process with local named-volume storage, seven-day retention and a provisioned Grafana datasource. Publish query/readiness 3200 and OTLP HTTP 4318 on loopback for host development; Compose clients use tempo service DNS. Synthetic trace checks isolate storage/viewing from future SDK and queue propagation work. Keep existing Postgres traces and Prometheus metrics. |
@@ -310,6 +312,26 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
+
+- **2026-10-16 (pipeline learning review):** Clarified invalid JSON versus valid JSON with missing fields; owner correctly selected output.validate for {} after the distinction was explained. Owner correctly identified low-score evaluation as successfully finding a poor result and excluded subsequent database trace persistence from llm.call duration. Learning checkpoint completed. Updated PLAN/local learning notes only; prior verification remains 329 passed plus one existing expected failure, typecheck/builds and live Tempo/Grafana checks passed. Owner commit next; queue-wait design and final M4 verification remain. No application changes, additional tests, commits, pushes or PRs.
+
+
+- **2026-10-15 (pipeline child spans):** Implemented the approved scope with pipelineTracing.ts and bounded operation names. Wrapped four tools, prompt building, enabled permit acquisition, LLM call, JSON parsing, schema validation and evaluation under job.process. Fulfilled spans are OK; failures classify error/cancelled/lease_lost with error.type, preserve the original rejection and end in finally. LLM client spans carry selected GenAI provider/model/token attributes plus existing estimated total/cost metadata; other steps are internal spans. Operation spans end before following Postgres detail writes. Invalid JSON/schema failures remain separate from returned-call success; low evaluation quality is a successful scoring operation. No prompt/output payloads or exception messages/stacks added to these spans. Nine new unit cases cover result/error identity, concurrent context, sampling, statuses and end-before-write boundaries; replaced an over-precise cross-span timestamp assertion with direct observation that the span had already ended before persistence. Eight real-worker integration cases cover success, JSON/schema failure, wrong labels, call rejection, enabled/disabled permit spans and cancelled/lost-lease waits; wait detection uses the bucket row version rather than arbitrary sleeps. Full suite passes 329 tests plus one existing expected failure across 35 files. Typecheck, server/frontend builds, Compose config and diff checks pass. Isolated two-worker Tempo/Grafana smoke inspected six cases including missing prompt, exact child parents, step outcomes, token/cost values matching stored traces, permit contention distinct from call latency, sibling persistence queries, no payload sentinel and clean shutdown. API/worker images build; all temporary containers/network/volumes removed. No schema/dependency changes, development DB writes, live provider calls, commits, pushes or PRs. Learning review pending; explicit queue-wait presentation remains next.
+
+Pipeline checkpoint files: `README.md`, `docs/PLAN.md`, `server/src/pipelineTracing.ts`, `server/src/worker.ts`,
+`server/test/unit/pipelineTracing.test.ts`, `server/test/db/telemetry.test.ts`.
+
+Suggested owner commands after learning review:
+
+```bash
+git add README.md docs/PLAN.md server/src/pipelineTracing.ts server/src/worker.ts \
+  server/test/unit/pipelineTracing.test.ts server/test/db/telemetry.test.ts
+git commit -m "Trace worker pipeline steps and LLM usage"
+```
+
+
+- **2026-10-15 (pipeline span planning):** Confirmed propagation checkpoint committed and branch synced. Inspected worker tools, prompt building, permit admission, LLM wrapper, JSON/schema validation and scoring. Proposed child spans for those operations inside job.process, with provider/model/token/cost metadata and failed-operation recording, excluding subsequent Postgres trace writes from operation spans. Keep prompt/output payloads in existing Postgres detail rather than adding them to Tempo. Verify successful calls followed by validation failures remain separate outcomes and preserve retries/leases. Queue-wait presentation remains a following bounded piece. Owner scope agreement pending; no application changes or tests.
+
 
 - **2026-10-15 (queue propagation learning review):** Owner explained that persisting context survives API crashes and correctly identified shared trace IDs with different span IDs across attempts. Clarified trace context as trace ID, parent span ID and sampling information, and distinguished keeping the old trace in Tempo from replacing the context on the job row during manual retry. Owner confirmed that new attempts use the new request trace/context. Learning review completed. Updated PLAN/local learning notes only; prior 312 passing tests plus one existing expected failure and build/live checks unchanged. Owner commit next, then agree pipeline/LLM spans and queue-wait presentation. No new code, tests, commits, pushes or PRs.
 
