@@ -1049,6 +1049,8 @@ updated the PR summary while ordinary tests passed. The override was then remove
 
 ## Roadmap
 
+- M5 local Kubernetes work is in progress; the first [Helm chart slice](deploy/helm/evalflow/README.md)
+  defines a single Postgres instance with persistent storage. Compose remains the full-stack setup.
 - Add more analytics workflows.
 - Add websocket or server-sent event updates instead of polling.
 - Add richer eval datasets and regression tests.
@@ -1064,7 +1066,7 @@ updated the PR summary while ordinary tests passed. The override was then remove
 
 This is a personal local-only resume project. Questions can be asked through the repository issue tracker if the repository is public.
 
-Pull requests are not currently expected, but small fixes or suggestions are welcome. Contributions should keep the project focused on local backend AI infrastructure and avoid adding authentication, billing, vector databases, Kubernetes, real analytics vendor integrations, or deployment complexity.
+Pull requests are not currently expected, but small fixes or suggestions are welcome. Contributions should keep the project focused on local backend AI infrastructure, including the planned local Kubernetes milestone, and avoid adding authentication, billing, vector databases, real analytics vendor integrations, or unrelated deployment complexity.
 
 ## License
 

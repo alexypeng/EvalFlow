@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+    name: {{ include "evalflow.postgresName" . }}
+    labels:
+        {{- include "evalflow.postgresLabels" . | nindent 8 }}
+spec:
+    serviceName: {{ include "evalflow.postgresName" . }}
+    # More replicas would create independent databases, not Postgres replication.
+    replicas: 1
+    persistentVolumeClaimRetentionPolicy:
+        whenDeleted: Retain
+        whenScaled: Retain
+    selector:
+        matchLabels:
+            {{- include "evalflow.postgresSelectorLabels" . | nindent 12 }}
+    template:
+        metadata:
+            labels:
+                {{- include "evalflow.postgresSelectorLabels" . | nindent 16 }}
+        spec:
+            automountServiceAccountToken: false
+            terminationGracePeriodSeconds: 60
+            containers:
+                - name: postgres
+                  image: {{ .Values.postgres.image | quote }}
+                  imagePullPolicy: IfNotPresent
+                  ports:
+                      - name: postgres
+                        containerPort: 5432
+                  env:
+                      - name: POSTGRES_DB
+                        value: {{ .Values.postgres.database | quote }}
+                      - name: POSTGRES_USER
+                        value: {{ .Values.postgres.username | quote }}
+                      - name: POSTGRES_PASSWORD
+                        valueFrom:
+                            secretKeyRef:
+                                name: {{ required "postgres.existingSecret is required" .Values.postgres.existingSecret | quote }}
+                                key: {{ required "postgres.passwordKey is required" .Values.postgres.passwordKey | quote }}
+                      - name: PGDATA
+                        value: /var/lib/postgresql/data/pgdata
+                  startupProbe:
+                      exec:
+                          command: [sh, -ec, 'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+                      periodSeconds: 2
+                      timeoutSeconds: 2
+                      failureThreshold: 60
+                  readinessProbe:
+                      exec:
+                          command: [sh, -ec, 'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+                      periodSeconds: 5
+                      timeoutSeconds: 2
+                  resources:
+                      {{- toYaml .Values.postgres.resources | nindent 22 }}
+                  volumeMounts:
+                      - name: data
+                        mountPath: /var/lib/postgresql/data
+    volumeClaimTemplates:
+        - metadata:
+              name: data
+          spec:
+              accessModes: [ReadWriteOnce]
+              {{- if ne .Values.postgres.storage.className nil }}
+              storageClassName: {{ .Values.postgres.storage.className | quote }}
+              {{- end }}
+              resources:
+                  requests:
+                      storage: {{ .Values.postgres.storage.size | quote }}

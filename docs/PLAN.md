@@ -14,10 +14,10 @@ _Last updated: 2026-10-16_
 
 | | |
 |---|---|
-| **Current milestone** | M4 Observability, branch `m4-observability` |
-| **Done** | M0 (PR #1), M1 (PR #2), M2 (PR #3), M3 (PR #4) merged; M3 learning reviews and hosted CI verified |
-| **Waiting on you** | Commit the acceptance notes, then open the M4 PR |
-| **Next up** | Owner PR/merge; M4 acceptance passed for aa814c4 |
+| **Current milestone** | M5 Kubernetes, branch `m5-kubernetes`; Postgres chart slice implemented |
+| **Done** | M0–M4 merged (PRs #1–#5); M4 learning reviews and hosted CI verified |
+| **Waiting on you** | Postgres StatefulSet chart learning review |
+| **Next up** | Review/commit Postgres chart, then set up kind and verify persistence |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -186,6 +186,8 @@ also passed for that exact head. M3 was subsequently merged through PR #4 as `ba
 
 ## M4 Observability
 
+Merged in PR #5 as `7cbaf8a` (2026-10-16). Final PR head `53dfcb4` passed hosted typecheck/tests, both Docker builds, regression gate and PR summary update.
+
 **Decide before tracing setup:**
 - **Trace backend:** Owner chose local Grafana Tempo (2026-10-15), viewed through existing Grafana.
 - **Existing `traces` table:** owner approved keeping it for dashboard detail alongside OpenTelemetry (2026-10-15).
@@ -216,7 +218,7 @@ isolated Tempo/Grafana trace retrieval through API → queue wait → worker →
 Prometheus/Grafana checks verified traffic, latency and database queue-depth panels. Final inspection
 confirmed all ten provisioned panels, API/worker scrape targets and valid Compose configuration.
 The checkpoint is committed and pushed. Hosted regression gate and both Docker image builds passed;
-final hosted typecheck/tests also passed. M4 acceptance is complete and the branch remains unmerged.
+final hosted typecheck/tests also passed. M4 acceptance is complete; subsequently merged through PR #5.
 CI: https://github.com/alexypeng/EvalFlow/actions/runs/38851373197
 Regression gate: https://github.com/alexypeng/EvalFlow/actions/runs/38851373198
 No additional application changes needed.
@@ -224,13 +226,14 @@ No additional application changes needed.
 
 ## M5 Kubernetes
 
-Note: the README's Contributing section currently says to avoid Kubernetes. Update it when this milestone starts.
+README now includes the planned local Kubernetes milestone; Compose remains the complete stack during M5 development.
 
 **Decide before starting:**
-- **Postgres in the cluster:** Bitnami subchart (quick) or a small hand-written StatefulSet (more to explain).
+- **Postgres in the cluster:** Owner approved a small hand-written, single-instance StatefulSet for learning (2026-10-16).
 
 Tasks:
-- [ ] **Claude** Helm chart: api Deployment and Service, worker Deployment, Postgres, config and secrets
+- [x] **Claude** Initial Postgres-only Helm chart: one StatefulSet, headless Service, retained PVC and existing Secret reference; lint/render verified, live cluster checks and learning review pending
+- [ ] **Claude** Helm chart: api Deployment and Service, worker Deployment, reaper, remaining config and secrets
 - [ ] **ME** Migration Job as a Helm `pre-install`/`pre-upgrade` hook (be ready to explain hook ordering)
 - [ ] **Claude** Readiness and liveness probes; worker health endpoint
 - [ ] **Claude** `terminationGracePeriodSeconds` matched to the M3 shutdown timeout
@@ -268,6 +271,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-16 | Owner approved writing a small Postgres StatefulSet for learning | First chart slice runs one postgres:16 instance with retained persistent storage, stable Service and existing Secret reference. Validate rendering before kind deployment. Additional Postgres replicas would be independent databases, so replication is outside this slice. Database-before-migration ordering remains a later decision; no migration hook implemented. |
 | 2026-10-16 | Owner chose full queued time including retry backoff | Persist database-clock queued_at on new jobs and every requeue. On claim, emit a retrospective job.queue_wait span ending at the database claim time, then parent job.process beneath it. Separate total, scheduled delay and eligible waiting attributes explain the duration. Omit unknown legacy or invalid intervals rather than inventing zero; measured zero is valid. Queue entry is write time, so transaction visibility/commit time can be included. |
 | 2026-10-15 | Owner approved pipeline operation spans under each worker attempt | Bound spans to the operation, ending before subsequent Postgres detail writes. Keep returned-call success distinct from invalid JSON/schema errors and evaluation quality. Record provider/model/estimated token/cost metadata without copying prompts, outputs or exception payloads into these spans. Preserve original errors and mark error/cancelled/lease_lost outcomes. Disabled mock limiting skips its span. Queue-wait presentation remains a separate decision. |
 | 2026-10-15 | Owner approved one trace across automatic retries with a separate span per attempt; manual retry uses a new retry request trace | Persist W3C traceparent/tracestate on the job, return them with claims, and restore from a clean root context before each consumer span. Automatic failure/reaper/completion keep the saved parent; manual requeue atomically captures its current request or clears old context when untraced. Attempts share the guarded metric outcome lifecycle and serialized finalization, including shutdown releases. Dataset fan-out shares its API request trace with job IDs distinguishing jobs. No baggage is stored; absent/malformed context falls back safely. |
@@ -325,6 +329,12 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
+
+- **2026-10-16 (M5 Postgres chart):** Owner approved the hand-written StatefulSet approach. Added deploy/helm/evalflow chart metadata, values, helpers, headless Service and one-replica Postgres StatefulSet. Claims retain data on deletion/scale-down; default StorageClass, custom class and explicit no-class overrides supported. Password comes from an existing namespace Secret; no credentials rendered. Startup/readiness use TCP pg_isready, resources are bounded and service-account token mounting is off. Added chart README and updated main README Kubernetes scope. Installed Helm 4.3.1 through Homebrew with approval. Strict lint and default/custom/empty-class renders pass; temporary Ruby YAML checks verify selector/identity/mount/retention/Secret relationships and overrides; empty Secret reference and unsupported Kubernetes version are rejected. Corrected a template formatting typo before verification; Python YAML was unavailable, so used installed Ruby YAML without adding project dependencies. No cluster created or live SQL/persistence claimed; no application code, schemas or DB data changed, so server tests not rerun. Kind setup and live persistence checks next after learning review. Files: README, PLAN and six files under deploy/helm/evalflow (including its README). No commits or pushes.
+
+- **2026-10-16 (M5 start):** Created m5-kubernetes from merged main, carrying the existing PLAN update. Read roadmap and M5 tasks; Docker is available and kubectl is on PATH, while kind and Helm are not on PATH. No tools installed or cluster/chart created. Starting the learning checkpoint on desired replica recovery before choosing deployment/database design. Postgres packaging and migration ordering remain undecided. No application changes, tests, commits or pushes.
+
+- **2026-10-16 (M4 merge confirmation):** Verified PR #5 is merged and final PR-head checks passed, including typecheck/tests, server/frontend image builds, dataset regression and PR summary update. Local main contains merge 7cbaf8a and tracked tree was clean before this status update. Updated PLAN only; pre-existing untracked learning files preserved. No commits, pushes or branch changes. M5 design/branch setup next.
 
 - **2026-10-16 (M4 acceptance review):** Confirmed owner committed/pushed aa814c4 and tracked tree was clean. Matched all M4 tasks to existing local test/live evidence, inspected ten Grafana panel queries and scrape configuration, and validated Compose/diff. Hosted regression gate and both image builds pass for exact head; final typecheck/test job also passed. M4 acceptance complete; owner PR/merge next. No redundant suite rerun or application edits. PLAN/local learning notes updated; no commits, pushes or PRs.
 
