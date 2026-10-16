@@ -783,7 +783,7 @@ and [Tempo datasource configuration](https://grafana.com/docs/grafana/latest/dat
 Rebuild the API/worker and start the tracing services:
 
 ```bash
-docker compose up --build -d tempo grafana api worker
+docker compose up --build -d tempo grafana api worker reaper
 curl --fail http://localhost:3000/jobs
 ```
 
@@ -823,29 +823,31 @@ Apply the additive migration before running the updated API/worker. For the Comp
 docker compose up --build -d tempo grafana api worker
 ```
 
-The existing migration service applies pending migrations before the API/worker start. Existing
+The existing migration service applies pending migrations before the API/worker/reaper start. Existing
 jobs get null context fields and keep their status, attempts, input and results. Host development
 also needs the migration applied to its database with `pnpm --filter server exec prisma migrate deploy`.
 
 When a traced API request creates a job, `trace_parent` and `trace_state` store its W3C trace context
 alongside the job input. No baggage is persisted. Claims return those fields with the lease.
-The worker restores the saved context and creates a new `job.process` span for that consumed attempt;
-it does not reopen an ended API span. Postgres work and heartbeats started inside the attempt inherit
-its context. Each concurrent attempt uses a separate async context.
+The worker restores the saved context, records `job.queue_wait` when its timestamps are known, and
+creates a new `job.process` child for that consumed attempt. It does not reopen an ended API span.
+Postgres work and heartbeats started inside the attempt inherit its context. Each concurrent attempt
+uses a separate async context.
 
 ```text
 API request trace
 ├── API handler and job insert
-├── job.process (job A, attempt 1, retried)
-└── job.process (job A, attempt 2, completed)
+├── job.queue_wait (job A, attempt 1)
+│   └── job.process (retried)
+└── job.queue_wait (job A, attempt 2, including backoff)
+    └── job.process (completed)
 ```
 
 Each attempt span has `job.id`, `job.attempt` and its final `job.outcome`, using the same outcome
 definitions as worker metrics. Outcomes are recorded once, after guarded completion/requeue/failure
 acceptance where applicable; lease loss and unconfirmed writes remain distinct. Non-completed outcomes
 are marked as span errors. Span duration covers the observed attempt, including processing and
-finalization, while the gap between attempts shows retry delay. Dedicated queue-wait spans are
-not yet implemented.
+finalization. Queue-wait spans measure the preceding queued interval separately.
 
 Automatic worker retries and reaper recovery retain the original context. A manual retry replaces it
 atomically with the current retry request's context, so it normally starts a new request trace rather
@@ -858,6 +860,54 @@ of such jobs may therefore produce separate root traces. Unsampled context is pr
 exporting spans. Disabled tracing needs no collector and does not change queue behavior. SIGKILL
 cannot end/export an in-progress span, so recovery can appear without its crashed predecessor's
 span. Postgres remains the source of truth for accepted job outcomes.
+
+### Full queued time
+
+`job.queue_wait` covers the full interval from the latest queue-entry write to the successful claim,
+including intentional retry backoff. It uses persisted Postgres timestamps for both ends rather
+than subtracting API/worker clocks. Its attributes are:
+
+| Attribute | Meaning |
+| --- | --- |
+| `job.queue_wait_ms` | Full queued duration before this attempt's claim. |
+| `job.scheduled_delay_ms` | Portion before `run_after`, including intentional retry backoff. |
+| `job.ready_wait_ms` | Portion after eligibility while awaiting a claim. |
+
+The last two values add up to the full duration. Eligibility is bounded to the observed interval,
+so a fresh job whose `run_after` precedes its insert has zero scheduled delay. A full five-second
+wait might consist of two seconds of retry backoff and three seconds eligible for claiming.
+The eligible portion includes polling, backlog and claim/database contention; it does not isolate
+which cause delayed the claim.
+
+The nullable `queued_at` column gets a database-clock default for new single jobs and dataset jobs.
+Worker failure, graceful release, reaper recovery and manual retry refresh it atomically when they
+requeue a job. Claiming, completion and exhausted terminal failure preserve the latest entry time.
+The migration leaves older rows null rather than assigning invented historical timestamps.
+After applying the migration, rebuild/restart the API, worker and reaper together so every requeue
+path writes this field:
+
+```bash
+docker compose up --build -d tempo grafana api worker reaper
+```
+
+The worker creates and immediately ends the retrospective span only after a claim succeeds, using
+`queued_at` and the claim's `started_at` as explicit span times. No worker slot or open application
+span is needed while the job is queued. The queue-wait span ends at claim time and parents the new
+processing span, which starts afterward; this does not add queue time to processing duration or
+the existing worker attempt histogram. The timestamps measure write/claim time and can include
+transaction visibility/commit delays, rather than recording exact commit instants.
+
+Unknown, malformed or negative intervals produce no queue-wait span, and the worker processes the
+job normally. A known zero-length interval produces a real zero-duration span. If the saved trace
+context is missing, the queue-wait span can be the root of a new worker trace. If timing is unknown,
+processing continues directly from the saved context or a fresh root as before. Unsampled waits
+and processing stay unsampled together. Queue spans mark a successful claim; a later processing
+failure does not change that wait's status.
+
+Currently queued jobs have no ended queue-wait span yet; use the existing queued-job gauge to see
+them. Export remains best effort, so a process kill before export can lose this observation even
+though its timestamps persist in Postgres. Automatic retries retain the original trace context
+but start a fresh queue interval. Manual retries replace context and also start a fresh interval.
 
 ### Pipeline child spans
 

@@ -103,6 +103,7 @@ export const JobScalarFieldEnum = {
   leaseToken: 'leaseToken',
   leaseExpiresAt: 'leaseExpiresAt',
   runAfter: 'runAfter',
+  queuedAt: 'queuedAt',
   latencyMs: 'latencyMs',
   promptTokens: 'promptTokens',
   completionTokens: 'completionTokens',

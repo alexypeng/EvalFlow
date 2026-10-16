@@ -134,7 +134,9 @@ it("exports one span per real worker attempt for retries, concurrent jobs and mi
         type: "retention_risk_analysis", input: { userId: "user_healthy" },
         traceParent: `00-${other}-1122334455667788-01`,
     } });
-    const legacy = await prisma.job.create({ data: { type: "retention_risk_analysis", input: { userId: "legacy" } } });
+    const legacy = await prisma.job.create({ data: {
+        type: "retention_risk_analysis", input: { userId: "legacy" }, queuedAt: null,
+    } });
     const run = child("src/startWorker.ts", target.endpoint, "false", { WORKER_CONCURRENCY: "2" });
     try {
         await run.until(async () => (await prisma.job.findMany()).every((job) =>
@@ -147,7 +149,7 @@ it("exports one span per real worker attempt for retries, concurrent jobs and mi
             status: "completed", traceParent: successful.traceParent, traceState: null,
         });
         expect(await prisma.job.findUniqueOrThrow({ where: { id: legacy.id } })).toMatchObject({
-            status: "completed", traceParent: null, traceState: null,
+            status: "completed", traceParent: null, traceState: null, queuedAt: null,
         });
         run.process.kill("SIGTERM");
         expect(await run.closed).toEqual([0, null]);
@@ -156,6 +158,9 @@ it("exports one span per real worker attempt for retries, concurrent jobs and mi
         expect(payload.includes(Buffer.from(other, "hex"))).toBe(true);
         for (const id of [failing.id, successful.id, legacy.id]) expect(payload.includes(Buffer.from(id))).toBe(true);
         expect(payload.toString("latin1").match(/job\.process/g)).toHaveLength(4);
+        expect(payload.toString("latin1").match(/job\.queue_wait(?!_)/g)).toHaveLength(3);
+        expect(payload.includes(Buffer.from("job.scheduled_delay_ms"))).toBe(true);
+        expect(payload.includes(Buffer.from("job.ready_wait_ms"))).toBe(true);
         expect(payload.includes(Buffer.from("evalflow-worker"))).toBe(true);
     } finally { await run.stop(); await target.close(); }
 }, 20000);

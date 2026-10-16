@@ -16,8 +16,8 @@ _Last updated: 2026-10-16_
 |---|---|
 | **Current milestone** | M4 Observability, branch `m4-observability` |
 | **Done** | M0 (PR #1), M1 (PR #2), M2 (PR #3), M3 (PR #4) merged; M3 learning reviews and hosted CI verified |
-| **Waiting on you** | Owner commit for pipeline child spans; learning review completed |
-| **Next up** | Agree queue-wait presentation, then finish M4 verification |
+| **Waiting on you** | Commit the completed full queue-wait checkpoint |
+| **Next up** | Finish M4 acceptance review after the queue-wait checkpoint |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -206,7 +206,7 @@ Tasks:
 - [x] **Claude** OpenTelemetry SDK setup and HTTP/Fastify/pg instrumentation; API traces verified through Tempo/Grafana, worker initialized, learning review completed
 - [x] **ME** Queue trace context persisted as nullable W3C traceparent/tracestate; worker attempt spans continue it, automatic retries retain it and manual retries replace it; learning review completed
 - [x] **ME** Pipeline child spans for tools, prompt, permit wait, LLM, parse/schema validation and evaluation, with model/usage/cost metadata; learning review completed
-- [ ] **ME** Agree and implement explicit queue-wait visibility before final M4 acceptance
+- [x] **ME** Full queue-wait spans including retry backoff, with scheduled-delay and eligible-wait breakdown; implemented, verified and learning review completed
 
 Done when: one trace in the UI spans API request → queue wait → worker → LLM call, and Grafana shows throughput, latency and queue depth.
 
@@ -256,6 +256,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-16 | Owner chose full queued time including retry backoff | Persist database-clock queued_at on new jobs and every requeue. On claim, emit a retrospective job.queue_wait span ending at the database claim time, then parent job.process beneath it. Separate total, scheduled delay and eligible waiting attributes explain the duration. Omit unknown legacy or invalid intervals rather than inventing zero; measured zero is valid. Queue entry is write time, so transaction visibility/commit time can be included. |
 | 2026-10-15 | Owner approved pipeline operation spans under each worker attempt | Bound spans to the operation, ending before subsequent Postgres detail writes. Keep returned-call success distinct from invalid JSON/schema errors and evaluation quality. Record provider/model/estimated token/cost metadata without copying prompts, outputs or exception payloads into these spans. Preserve original errors and mark error/cancelled/lease_lost outcomes. Disabled mock limiting skips its span. Queue-wait presentation remains a separate decision. |
 | 2026-10-15 | Owner approved one trace across automatic retries with a separate span per attempt; manual retry uses a new retry request trace | Persist W3C traceparent/tracestate on the job, return them with claims, and restore from a clean root context before each consumer span. Automatic failure/reaper/completion keep the saved parent; manual requeue atomically captures its current request or clears old context when untraced. Attempts share the guarded metric outcome lifecycle and serialized finalization, including shutdown releases. Dataset fan-out shares its API request trace with job IDs distinguishing jobs. No baggage is stored; absent/malformed context falls back safely. |
 | 2026-10-15 | Owner authorized application OpenTelemetry setup after Tempo review; implement SDK plumbing before queue propagation | Start SDK before dynamic application imports with the documented ESM loader. Export HTTP/protobuf directly to Tempo under separate API/worker service names; local roots sampled and upstream sampling respected. Exclude health/metrics and require a parent for Postgres spans to avoid idle polling noise. Explicit endpoint enables tracing; tests disable it except isolated tracing tests. Batch export and bounded best-effort shutdown preserve application behavior during Tempo outages. Queue context and pipeline spans remain the next learning piece. |
@@ -312,6 +313,13 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
+
+- **2026-10-16 (queue-wait learning review):** Owner correctly calculated five seconds total from two seconds of backoff plus three seconds eligible waiting. Initially connected database persistence to crash survival; clarified that using the database clock for both endpoints also prevents disagreement between worker clocks. Owner identified local-clock skew as inaccurate timing and correctly omitted unknown legacy intervals because zero would falsely imply a measured immediate pickup. Learning checkpoint completed. Updated PLAN/local learning notes only; existing verification unchanged. Owner commit next, then final M4 acceptance review. No commits, pushes or PRs.
+
+- **2026-10-16 (full queue-wait spans):** Owner selected full queued time including retry backoff. Added nullable queued_at with a database-clock default for future inserts, preserving unknown legacy rows, through migration 20261016040938_add_job_queue_entry_time and regenerated Prisma client. Failure/reaper/manual requeue refresh the timestamp; terminal failures retain it and existing fencing/row locks remain intact. Claims return queuedAt/runAfter; jobTracing emits historical queue spans with total/scheduled/eligible timing and parents processing beneath them. Added twelve unit and seven DB cases covering migration defaults, application-clock skew, fan-out, concurrent claims/manual retries, all requeue paths, legacy/null/invalid timestamps, zero duration and sampling. Actual-worker integration checks exported spans. Full suite passes 348 tests plus one existing expected failure across 36 files; typecheck, server/frontend builds and diff checks pass. Corrected a test-only regex that counted the queue_wait_ms attribute as a span name. Isolated two-worker Tempo/Grafana smoke verified delayed initial claim, automatic backoff, manual retry with a new trace, legacy omission, exact persisted timing and API → queue → worker → LLM retrieval. API/worker images built; temporary containers/network/volumes removed. Migration applied only to test databases; no development DB changes, dependency changes, live provider calls, commits, pushes or PRs. Learning review pending. Changed README, PLAN, schema/migration, four generated client files, jobs.ts, jobTracing.ts, unit jobTracing tests, DB telemetry tests and new DB queueWait tests.
+
+- **2026-10-16 (queue-wait planning):** Confirmed pipeline checkpoint committed and branch synced. Inspected queue entry/claim timestamps and worker/reaper/manual retry transitions. Proposed a retrospective queue-wait span emitted on claim, from a persisted database-clock queue-entry timestamp to the database claim timestamp. Recommend total queued time including intentional retry backoff, with delayed versus eligible waiting as separate attributes. Persist fresh queue entry for creation and every requeue; keep legacy unknown intervals unreported instead of inventing timestamps. Queue-wait definition and implementation scope await owner agreement. No schema/application changes or tests.
+
 
 - **2026-10-16 (pipeline learning review):** Clarified invalid JSON versus valid JSON with missing fields; owner correctly selected output.validate for {} after the distinction was explained. Owner correctly identified low-score evaluation as successfully finding a poor result and excluded subsequent database trace persistence from llm.call duration. Learning checkpoint completed. Updated PLAN/local learning notes only; prior verification remains 329 passed plus one existing expected failure, typecheck/builds and live Tempo/Grafana checks passed. Owner commit next; queue-wait design and final M4 verification remain. No application changes, additional tests, commits, pushes or PRs.
 

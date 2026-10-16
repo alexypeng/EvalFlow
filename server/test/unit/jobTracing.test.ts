@@ -1,6 +1,6 @@
-import { afterAll, beforeEach, expect, it } from "vitest";
+import { afterAll, beforeEach, expect, it, vi } from "vitest";
 import { context, propagation, ROOT_CONTEXT, SpanStatusCode, trace } from "@opentelemetry/api";
-import { beginJobAttemptTrace, captureJobTrace, jobParentContext } from "../../src/jobTracing.js";
+import { beginJobAttemptTrace, captureJobTrace, jobParentContext, queueWaitTiming } from "../../src/jobTracing.js";
 import { startInMemoryTracing } from "../fixtures/inMemoryTracing.js";
 
 const tracing = startInMemoryTracing();
@@ -67,5 +67,70 @@ it("retains an unsampled parent without exporting an attempt span", () => {
     });
     expect(attempt.run(captureJobTrace).traceParent).toMatch(new RegExp(`^00-${traceId}-[a-f0-9]{16}-00$`));
     attempt.finish("completed");
+    expect(tracing.exporter.getFinishedSpans()).toHaveLength(0);
+});
+
+const queuedAt = new Date("2026-10-16T00:00:00Z");
+const timing = {
+    queuedAt,
+    runAfter: new Date(queuedAt.getTime() + 2000),
+    startedAt: new Date(queuedAt.getTime() + 5000),
+};
+
+it("records the historical queued interval and makes processing its child despite worker clock skew", () => {
+    vi.spyOn(Date, "now").mockReturnValue(queuedAt.getTime() + 3600000);
+    try {
+        const attempt = beginJobAttemptTrace({ ...saved, ...timing, id: "job", attempts: 2 });
+        expect(tracing.exporter.getFinishedSpans()).toHaveLength(1);
+        attempt.finish("completed");
+        const [queue, processing] = tracing.exporter.getFinishedSpans();
+        expect(queue.name).toBe("job.queue_wait");
+        expect(queue.duration).toEqual([5, 0]);
+        expect(queue.startTime).toEqual([queuedAt.getTime() / 1000, 0]);
+        expect(queue.endTime).toEqual([timing.startedAt.getTime() / 1000, 0]);
+        expect(queue.attributes).toMatchObject({
+            "job.id": "job", "job.attempt": 2,
+            "job.queue_wait_ms": 5000, "job.scheduled_delay_ms": 2000, "job.ready_wait_ms": 3000,
+        });
+        expect(queue.parentSpanContext?.spanId).toBe(spanId);
+        expect(processing.parentSpanContext?.spanId).toBe(queue.spanContext().spanId);
+        expect(processing.spanContext().traceId).toBe(queue.spanContext().traceId);
+    } finally { vi.restoreAllMocks(); }
+});
+
+it.each([
+    [-1000, 0, 5000], [0, 0, 5000], [2000, 2000, 3000], [6000, 5000, 0],
+])("bounds the split for eligibility at %i ms", (due, delay, ready) => {
+    expect(queueWaitTiming({ ...timing, runAfter: new Date(queuedAt.getTime() + due) })).toMatchObject({
+        totalMs: 5000, scheduledDelayMs: delay, readyWaitMs: ready,
+    });
+});
+
+it.each([
+    {}, { ...timing, queuedAt: null }, { ...timing, queuedAt: new Date(NaN) },
+    { ...timing, startedAt: new Date(queuedAt.getTime() - 1) }, { ...timing, runAfter: new Date(NaN) },
+])("omits unknown/invalid intervals while still starting an attempt: %j", (times) => {
+    expect(queueWaitTiming(times)).toBeNull();
+    beginJobAttemptTrace({ ...saved, ...times, id: "job", attempts: 1 }).finish("completed");
+    expect(tracing.exporter.getFinishedSpans().map((span) => span.name)).toEqual(["job.process"]);
+});
+
+it("records a measured zero interval and keeps a new root trace shared with processing", () => {
+    beginJobAttemptTrace({
+        traceParent: null, traceState: null, id: "job", attempts: 1,
+        queuedAt, startedAt: queuedAt, runAfter: queuedAt,
+    }).finish("completed");
+    const [queue, processing] = tracing.exporter.getFinishedSpans();
+    expect(queue.duration).toEqual([0, 0]);
+    expect(queue.attributes["job.queue_wait_ms"]).toBe(0);
+    expect(queue.parentSpanContext).toBeUndefined();
+    expect(processing.parentSpanContext?.spanId).toBe(queue.spanContext().spanId);
+    expect(processing.spanContext().traceId).toBe(queue.spanContext().traceId);
+});
+
+it("keeps a queue span and its processing unsampled together", () => {
+    beginJobAttemptTrace({
+        ...saved, ...timing, traceParent: saved.traceParent.slice(0, -2) + "00", id: "job", attempts: 1,
+    }).finish("completed");
     expect(tracing.exporter.getFinishedSpans()).toHaveLength(0);
 });
