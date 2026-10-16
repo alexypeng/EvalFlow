@@ -16,8 +16,8 @@ _Last updated: 2026-10-16_
 |---|---|
 | **Current milestone** | M4 Observability, branch `m4-observability` |
 | **Done** | M0 (PR #1), M1 (PR #2), M2 (PR #3), M3 (PR #4) merged; M3 learning reviews and hosted CI verified |
-| **Waiting on you** | Commit the completed full queue-wait checkpoint |
-| **Next up** | Finish M4 acceptance review after the queue-wait checkpoint |
+| **Waiting on you** | Commit the acceptance notes, then open the M4 PR |
+| **Next up** | Owner PR/merge; M4 acceptance passed for aa814c4 |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -210,6 +210,18 @@ Tasks:
 
 Done when: one trace in the UI spans API request → queue wait → worker → LLM call, and Grafana shows throughput, latency and queue depth.
 
+**Acceptance review (2026-10-16, `aa814c4`):** All implementation and learning tasks are complete.
+Local verification passed: 348 tests plus one existing expected failure, typecheck, builds and
+isolated Tempo/Grafana trace retrieval through API → queue wait → worker → LLM. Earlier live
+Prometheus/Grafana checks verified traffic, latency and database queue-depth panels. Final inspection
+confirmed all ten provisioned panels, API/worker scrape targets and valid Compose configuration.
+The checkpoint is committed and pushed. Hosted regression gate and both Docker image builds passed;
+final hosted typecheck/tests also passed. M4 acceptance is complete and the branch remains unmerged.
+CI: https://github.com/alexypeng/EvalFlow/actions/runs/38851373197
+Regression gate: https://github.com/alexypeng/EvalFlow/actions/runs/38851373198
+No additional application changes needed.
+
+
 ## M5 Kubernetes
 
 Note: the README's Contributing section currently says to avoid Kubernetes. Update it when this milestone starts.
@@ -313,6 +325,8 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
+
+- **2026-10-16 (M4 acceptance review):** Confirmed owner committed/pushed aa814c4 and tracked tree was clean. Matched all M4 tasks to existing local test/live evidence, inspected ten Grafana panel queries and scrape configuration, and validated Compose/diff. Hosted regression gate and both image builds pass for exact head; final typecheck/test job also passed. M4 acceptance complete; owner PR/merge next. No redundant suite rerun or application edits. PLAN/local learning notes updated; no commits, pushes or PRs.
 
 - **2026-10-16 (queue-wait learning review):** Owner correctly calculated five seconds total from two seconds of backoff plus three seconds eligible waiting. Initially connected database persistence to crash survival; clarified that using the database clock for both endpoints also prevents disagreement between worker clocks. Owner identified local-clock skew as inaccurate timing and correctly omitted unknown legacy intervals because zero would falsely imply a measured immediate pickup. Learning checkpoint completed. Updated PLAN/local learning notes only; existing verification unchanged. Owner commit next, then final M4 acceptance review. No commits, pushes or PRs.
 
