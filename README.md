@@ -49,9 +49,11 @@ docker compose up --build
 Then open:
 
 ```text
-Dashboard: http://localhost:5173
-API:       http://localhost:3000
-Postgres:  localhost:5432
+Dashboard:  http://localhost:5173
+API:        http://localhost:3000
+Prometheus: http://localhost:9090
+Grafana:    http://localhost:3001
+Postgres:   localhost:5432
 ```
 
 Stop the stack with:
@@ -60,7 +62,7 @@ Stop the stack with:
 docker compose down
 ```
 
-Remove local database state if you want a clean reset:
+Remove local database state, collected metrics/traces and Grafana state if you want a clean reset:
 
 ```bash
 docker compose down -v
@@ -619,8 +621,401 @@ curl -X POST http://localhost:3000/jobs/<job_id>/retry
 Get aggregate metrics:
 
 ```bash
+curl http://localhost:3000/stats
+```
+
+The dashboard reads these database aggregates as JSON. API request measurements are available separately:
+
+```bash
 curl http://localhost:3000/metrics
 ```
+
+This endpoint returns Prometheus text using `@prometheus-io/client` (the current name of `prom-client`).
+`evalflow_http_requests_total` counts completed responses, and `evalflow_http_request_duration_seconds`
+records their durations in cumulative histogram buckets from 5 milliseconds to 10 seconds, plus an
+unbounded bucket. Both use `method`, `route` and `status_code` labels. Route patterns such as `/jobs/:id`
+group different IDs together; unknown URLs share `unmatched`. Raw paths, query strings and job IDs
+are never labels. Scrapes of `/metrics` are excluded from both measurements.
+
+HTTP measurements live in each API process and reset on restart; they do not reconstruct past requests from
+Postgres. Job counts use a separate `evalflow_jobs{status="..."}` gauge, read from Postgres on every
+scrape in one grouped query. It always exposes queued, running, completed and dead_letter, including zero
+for empty statuses. Queued includes jobs waiting for retry backoff; running includes claimed jobs whose
+expired leases may still await the reaper. Counts include all stored jobs, including dataset runs.
+These are current counts, not lifetime event counters: manual requeue or deletion can reduce terminal
+counts. An API restart reads them again from Postgres. If the database read fails, `/metrics` returns 500
+instead of publishing stale or false zero job counts; Prometheus marks that scrape DOWN. Worker attempt
+measurements are exposed separately as described below.
+See the [client documentation](https://github.com/prometheus/client_js)
+for the metric types and exposition format.
+
+### Local Prometheus
+
+Docker Compose includes Prometheus, which scrapes the API every 15 seconds with a 5-second timeout.
+Its target is `http://api:3000/metrics`: `api` is the Compose service name. Inside the Prometheus
+container, `localhost` would refer to Prometheus itself, rather than the API container.
+
+```bash
+docker compose up --build -d api prometheus
+```
+
+This also starts Postgres and applies migrations through the existing API dependencies.
+The API must run in Compose for this target to resolve; an API started with `pnpm dev:api` on the
+host is not the configured target. Configuration lives in `observability/prometheus/prometheus.yml`.
+After editing it, run `docker compose restart prometheus` to load the changes.
+
+Open [Prometheus](http://localhost:9090) and its [targets page](http://localhost:9090/targets).
+The `evalflow-api` target should become **UP** after a scrape. Generate a few read-only requests:
+
+```bash
+curl http://localhost:3000/jobs/not-a-uuid
+curl http://localhost:3000/jobs/another-invalid-id
+```
+
+These return 404 without querying Postgres and still produce request measurements. Wait at least
+15 seconds, then try these expressions in Prometheus's query page:
+
+```promql
+up{job="evalflow-api"}
+evalflow_http_requests_total{job="evalflow-api"}
+sum(rate(evalflow_http_requests_total{job="evalflow-api"}[5m]))
+histogram_quantile(0.95, sum by (le) (rate(evalflow_http_request_duration_seconds_bucket{job="evalflow-api"}[5m])))
+```
+
+`up` is 1 when the latest scrape succeeds and 0 when it fails. The counter shows observed totals
+since each API process started. `rate` estimates requests per second from successive samples;
+it needs at least two samples, so wait for multiple scrapes and generate traffic before expecting
+a useful rate or latency estimate. The histogram query estimates the 95th-percentile response time
+in seconds across all API routes. Empty latency data can display `NaN` until requests are observed.
+
+Prometheus keeps samples for 7 days in the `evalflow_prometheus` named volume. Ordinary restarts
+and `docker compose down` preserve it; `docker compose down -v` removes it along with the database
+volume. API restarts reset API counters, while Prometheus retains collected history and `rate`
+accounts for counter resets. Requests between the last scrape and a crash may never be collected.
+The Prometheus port is published only on the local machine.
+See the official [configuration](https://prometheus.io/docs/prometheus/latest/configuration/configuration/)
+and [Docker storage](https://prometheus.io/docs/prometheus/latest/installation/) documentation.
+
+### Local Grafana
+
+Start the API and monitoring services:
+
+```bash
+docker compose up --build -d api worker reaper prometheus grafana
+docker compose restart prometheus
+```
+
+Open [Grafana](http://localhost:3001/d/evalflow-api). The **EvalFlow API** dashboard and its
+Prometheus connection are configured automatically from `observability/grafana/`. Grafana queries
+`http://prometheus:9090` over the Compose network; the browser does not need to reach that container
+hostname. Grafana displays the history Prometheus collected, rather than scraping the API itself.
+
+The dashboard refreshes every 15 seconds and initially shows the last 15 minutes:
+
+| Panel | Meaning |
+| --- | --- |
+| API availability | Latest scrape status: UP or DOWN. Success now includes the job-count DB query, but does not prove worker health or every database operation. |
+| API traffic | Completed HTTP responses per second across API routes. Metrics scrapes are excluded. |
+| Server errors (5xx) | Percentage of completed responses returning 5xx. Responses such as 404 contribute to traffic but are not server errors. |
+| API response latency | Estimated p50 and p95 HTTP durations. A p95 of 100ms means about 95% of measured requests were faster than 100ms. |
+| Queued and running jobs | Current waiting and claimed job counts. Queued includes delayed retries. |
+| Completed and dead-letter jobs | Current stored terminal job counts, rather than a completion rate. |
+| Worker attempt outcomes | Observed ended claims per second, grouped by outcome across workers. A retry followed by success is two attempts. |
+| Worker attempt duration | Estimated p50/p95 from claim return to outcome observation, including permit waits and processing but excluding queued delay. |
+| Provider permit wait | Estimated p50/p95 time acquiring a rate-limit permit, by provider and outcome. |
+| LLM call duration | Estimated p50/p95 time inside the LLM call wrapper, by provider and outcome. |
+
+Use the read-only request examples above to produce traffic, then wait for multiple Prometheus scrapes.
+Rates need at least two samples for a series. The 5xx panel shows zero when traffic exists without
+server errors; without traffic, a percentage or latency estimate is undefined and may show no data.
+Missing samples are not filled with zeros. The HTTP panels measure API requests, not completed jobs,
+queue wait or the duration of an LLM call. The job panels show database counts sampled every 15 seconds;
+transitions between scrapes may not appear. They use `max by (status)` so future API replicas that read
+the same shared database do not multiply the totals. Grafana chooses its rate window from the chart resolution
+and the configured 15-second scrape interval.
+
+This local setup provides anonymous **Viewer** access, disables login and sign-up, and creates no
+initial admin account. Port 3001 is published only on loopback. Dashboard and data-source definitions
+are read-only files; edit them in the repository instead of saving UI edits. Grafana scans dashboard
+files every 10 seconds; restart Grafana after changing data-source provisioning. Its named volume
+`evalflow_grafana` preserves its own state across container replacement; measurement history remains
+in Prometheus's separate volume. `docker compose down -v` deletes both and the Postgres volume.
+See Grafana's official [provisioning documentation](https://grafana.com/docs/grafana/latest/administration/provisioning/).
+
+### Local Tempo
+
+Tempo stores distributed traces; Grafana queries Tempo to display the steps of one operation.
+Prometheus continues to store the aggregate metrics used by the existing dashboard.
+The API emits HTTP/Fastify spans and child Postgres query spans. Jobs carry that context through
+Postgres so worker-attempt spans join the request trace. Each attempt includes pipeline and LLM
+child spans. The existing Postgres `traces` table remains independent.
+
+Start Tempo and refresh Grafana's provisioned data sources:
+
+```bash
+docker compose up -d --no-deps tempo grafana
+docker compose restart grafana
+curl --fail http://localhost:3200/ready
+```
+
+Readiness can take a few seconds after startup. Open [Grafana Explore](http://localhost:3001/explore)
+and select **Tempo**. Search for service `evalflow-api`, or select the trace-ID query and paste an ID
+to inspect its steps. Health checks and metrics scrapes are excluded; use an application route such
+as `GET /jobs` to generate traces. Allow a few seconds for export and search visibility.
+
+The pinned `grafana/tempo:3.1.0` image runs all required components in one process, with local filesystem
+storage suitable for development. Configuration lives in `observability/tempo/tempo.yml`.
+Grafana uses `http://tempo:3200` on the Compose network; the same query/readiness endpoint is exposed
+at `http://localhost:3200`. Trace senders use OTLP over HTTP at `http://tempo:4318/v1/traces`
+inside Compose, or `http://localhost:4318/v1/traces` when running on the host. Port 4318 receives
+traces; port 3200 queries them. Both host ports bind only to loopback.
+
+The `evalflow_tempo` named volume mounts `/var/tempo`, keeping the write-ahead log, trace blocks
+and runtime data across ordinary restarts and container replacement. A seven-day retention override
+lets Tempo periodically remove expired trace blocks; this is not an exact per-trace deletion deadline
+or a disk-size limit. `docker compose down -v` also deletes this volume. Anonymous usage reporting
+is disabled. The provisioned `evalflow-tempo` datasource is read-only, and Prometheus remains the
+default datasource. See the official [local deployment guide](https://grafana.com/docs/tempo/latest/set-up-for-tracing/setup-tempo/deploy/locally/linux/)
+and [Tempo datasource configuration](https://grafana.com/docs/grafana/latest/datasources/tempo/configure-tempo-data-source/).
+
+### Application trace export
+
+Rebuild the API/worker and start the tracing services:
+
+```bash
+docker compose up --build -d tempo grafana api worker reaper
+curl --fail http://localhost:3000/jobs
+```
+
+Compose enables OTLP HTTP/protobuf export to `http://tempo:4318/v1/traces`. For host development,
+set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces` in your environment or
+server `.env`, then use `pnpm dev:api` / `pnpm dev:worker`. Without this explicit endpoint, tracing
+is disabled. `OTEL_SDK_DISABLED=true` also disables it; ordinary tests force tracing off, while
+the tracing integration tests explicitly enable a local mock receiver. No LLM key is needed.
+
+The `startApi.ts` and `startWorker.ts` entrypoints initialize the SDK before dynamically importing
+the applications. The start/dev scripts and Compose commands include OpenTelemetry's ES-module
+loader hook so HTTP and `pg` can be instrumented before use. Running `src/api.ts` or `src/worker.ts`
+directly bypasses SDK initialization. See the official [ES-module setup instructions](https://github.com/open-telemetry/opentelemetry-js/blob/main/doc/esm-support.md).
+
+Services are named `evalflow-api` and `evalflow-worker`; `OTEL_SERVICE_NAME` can override the name
+for a host process. New root traces are sampled, and an incoming W3C `traceparent` sampling decision
+is respected. Fastify adds request/handler spans and Postgres adds query/connection spans under an
+active trace. Query parameters/results and request bodies/authorization headers are not explicitly
+captured; standard HTTP and SQL query-text metadata are collected by the instrumentation.
+`GET /health` and `/metrics` (including query strings) are excluded. Postgres requires a parent span,
+so idle polling and heartbeats outside traced operations do not create standalone traces.
+Worker attempts emit `job.process` spans with child spans for the operations described below.
+
+Completed spans are batched in memory and exported about once per second. Export has a one-second
+timeout, and shutdown flush is bounded to two seconds and idempotent. A failed export does not fail
+a job or change its database status; spans may be lost during outages, queue overflow or process
+kills. API SIGTERM/SIGINT drains requests, disconnects Postgres and flushes telemetry within a
+ten-second shutdown bound. Worker flushing stays inside its existing shutdown deadlines; the
+hard-stop path can still exit before export completes. Prometheus measurements remain unchanged;
+OpenTelemetry metrics/log exporters are disabled in this setup.
+
+### Trace context across the job queue
+
+Apply the additive migration before running the updated API/worker. For the Compose stack:
+
+```bash
+docker compose up --build -d tempo grafana api worker
+```
+
+The existing migration service applies pending migrations before the API/worker/reaper start. Existing
+jobs get null context fields and keep their status, attempts, input and results. Host development
+also needs the migration applied to its database with `pnpm --filter server exec prisma migrate deploy`.
+
+When a traced API request creates a job, `trace_parent` and `trace_state` store its W3C trace context
+alongside the job input. No baggage is persisted. Claims return those fields with the lease.
+The worker restores the saved context, records `job.queue_wait` when its timestamps are known, and
+creates a new `job.process` child for that consumed attempt. It does not reopen an ended API span.
+Postgres work and heartbeats started inside the attempt inherit its context. Each concurrent attempt
+uses a separate async context.
+
+```text
+API request trace
+├── API handler and job insert
+├── job.queue_wait (job A, attempt 1)
+│   └── job.process (retried)
+└── job.queue_wait (job A, attempt 2, including backoff)
+    └── job.process (completed)
+```
+
+Each attempt span has `job.id`, `job.attempt` and its final `job.outcome`, using the same outcome
+definitions as worker metrics. Outcomes are recorded once, after guarded completion/requeue/failure
+acceptance where applicable; lease loss and unconfirmed writes remain distinct. Non-completed outcomes
+are marked as span errors. Span duration covers the observed attempt, including processing and
+finalization. Queue-wait spans measure the preceding queued interval separately.
+
+Automatic worker retries and reaper recovery retain the original context. A manual retry replaces it
+atomically with the current retry request's context, so it normally starts a new request trace rather
+than appending to the old job trace. An untraced manual retry clears the old context. Dataset runs
+create many jobs from one request; those jobs share that request trace and are distinguished by job ID.
+
+Missing or malformed saved context starts a fresh worker trace instead of inheriting another job's
+context. Legacy/untraced jobs still execute, and their null context remains null; separate attempts
+of such jobs may therefore produce separate root traces. Unsampled context is preserved without
+exporting spans. Disabled tracing needs no collector and does not change queue behavior. SIGKILL
+cannot end/export an in-progress span, so recovery can appear without its crashed predecessor's
+span. Postgres remains the source of truth for accepted job outcomes.
+
+### Full queued time
+
+`job.queue_wait` covers the full interval from the latest queue-entry write to the successful claim,
+including intentional retry backoff. It uses persisted Postgres timestamps for both ends rather
+than subtracting API/worker clocks. Its attributes are:
+
+| Attribute | Meaning |
+| --- | --- |
+| `job.queue_wait_ms` | Full queued duration before this attempt's claim. |
+| `job.scheduled_delay_ms` | Portion before `run_after`, including intentional retry backoff. |
+| `job.ready_wait_ms` | Portion after eligibility while awaiting a claim. |
+
+The last two values add up to the full duration. Eligibility is bounded to the observed interval,
+so a fresh job whose `run_after` precedes its insert has zero scheduled delay. A full five-second
+wait might consist of two seconds of retry backoff and three seconds eligible for claiming.
+The eligible portion includes polling, backlog and claim/database contention; it does not isolate
+which cause delayed the claim.
+
+The nullable `queued_at` column gets a database-clock default for new single jobs and dataset jobs.
+Worker failure, graceful release, reaper recovery and manual retry refresh it atomically when they
+requeue a job. Claiming, completion and exhausted terminal failure preserve the latest entry time.
+The migration leaves older rows null rather than assigning invented historical timestamps.
+After applying the migration, rebuild/restart the API, worker and reaper together so every requeue
+path writes this field:
+
+```bash
+docker compose up --build -d tempo grafana api worker reaper
+```
+
+The worker creates and immediately ends the retrospective span only after a claim succeeds, using
+`queued_at` and the claim's `started_at` as explicit span times. No worker slot or open application
+span is needed while the job is queued. The queue-wait span ends at claim time and parents the new
+processing span, which starts afterward; this does not add queue time to processing duration or
+the existing worker attempt histogram. The timestamps measure write/claim time and can include
+transaction visibility/commit delays, rather than recording exact commit instants.
+
+Unknown, malformed or negative intervals produce no queue-wait span, and the worker processes the
+job normally. A known zero-length interval produces a real zero-duration span. If the saved trace
+context is missing, the queue-wait span can be the root of a new worker trace. If timing is unknown,
+processing continues directly from the saved context or a fresh root as before. Unsampled waits
+and processing stay unsampled together. Queue spans mark a successful claim; a later processing
+failure does not change that wait's status.
+
+Currently queued jobs have no ended queue-wait span yet; use the existing queued-job gauge to see
+them. Export remains best effort, so a process kill before export can lose this observation even
+though its timestamps persist in Postgres. Automatic retries retain the original trace context
+but start a fresh queue interval. Manual retries replace context and also start a fresh interval.
+
+### Pipeline child spans
+
+Each `job.process` attempt creates operation spans under the same trace:
+
+```text
+job.process
+├── tool.get_user_events
+├── tool.get_feature_usage
+├── tool.get_subscription_history
+├── tool.get_retention_summary
+├── prompt.build
+├── provider.permit_wait          (when limiting is enabled)
+├── llm.call
+├── output.parse
+├── output.validate
+└── evaluation.score
+```
+
+The four tools, prompt construction, permit wait and LLM call finish their spans before the subsequent
+Postgres detail-trace write. Those writes remain visible as automatic database spans under the attempt.
+Database work performed as part of permit acquisition belongs inside the permit span. Disabled mock
+limiting skips the permit span entirely. Steps that are never reached produce no spans.
+
+`step.outcome` is `success`, `error`, `cancelled` or `lease_lost`. Fulfilled operations are marked OK;
+rejected operations are marked ERROR with `error.type`, and the original error still reaches the
+existing retry/fencing logic. These spans do not capture exception messages/stacks or operation
+input/output payloads. Existing Postgres detail traces still hold the prompt, model response and
+tool payloads, and job errors keep their existing behavior.
+
+An LLM response containing invalid JSON is a successful `llm.call`, then a failed `output.parse`;
+schema validation and evaluation are skipped. Valid JSON with the wrong shape fails `output.validate`.
+A rejected provider/wrapper call fails `llm.call` and has no later validation spans. Evaluation that
+returns a low score is still a successful `evaluation.score` operation: `evalflow.eval.score` and
+`evalflow.eval.label_correct` describe quality, while the attempt can complete normally.
+
+The LLM span records `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`,
+`gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`. Gemini maps to `gcp.gemini`; the local
+mock uses `mock`. Additional attributes are `evalflow.prompt.version`, `evalflow.usage.total_tokens`,
+`evalflow.usage.estimated` and `evalflow.estimated_cost`. Usage/cost values are copied from the
+existing pipeline response rather than recalculated; token counts are currently estimates and
+the existing cost estimate is currently zero. Calls that reject before returning do not fabricate
+usage/cost values. The span name stays `llm.call`, with client kind, and other operation spans use
+internal kind. Attribute naming references the official
+[GenAI conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-spans.md).
+
+For inspection, rebuild the API/worker, submit a mock job and select its trace in Grafana Explore.
+The span list shows operation durations and status; selecting `llm.call` shows model/usage metadata.
+An in-progress call has no exported ended span yet. Shutdown or SIGKILL can still lose unfinished
+spans, and an LLM operation may succeed even if the attempt later loses its lease or its result
+cannot be persisted.
+
+### Worker attempt measurements
+
+Each worker exposes `/metrics` on `WORKER_METRICS_PORT` (default `9100`). Compose makes this port
+available inside its network without publishing a host port. Prometheus's `evalflow-worker` scrape job
+discovers the IPv4 addresses of the Compose `worker` service every 15 seconds and scrapes each instance
+on port 9100. This also supports multiple Compose worker replicas; no Docker socket is mounted into
+Prometheus. After updating the scrape configuration, restart Prometheus as shown above.
+
+The worker exports `evalflow_worker_attempts_total{outcome="..."}` and a matching
+`evalflow_worker_attempt_duration_seconds` histogram. Both use only the bounded `outcome` label:
+
+| Outcome | Meaning |
+| --- | --- |
+| `completed` | The database accepted the fenced result/eval write. A wrong answer can still be a completed execution. |
+| `retried` | The database accepted requeueing this consumed claim, including a graceful shutdown release. |
+| `dead_letter` | The database accepted terminal failure after attempts were exhausted. |
+| `lease_lost` | The worker discarded its attempt after rejected/uncertain ownership. This includes heartbeat failures that prevent safe continuation. |
+| `unconfirmed` | Finalization failed without a confirmed database outcome, such as a database error while releasing a claim. |
+
+Every claim gets its own timer and records at most one outcome and duration. Completion and shutdown
+release writes are serialized within that claim so racing cleanup cannot misclassify an accepted
+completion as lease loss. The existing database fencing still decides whether each write is valid.
+Duration starts when claiming returns and ends when the outcome is observed; it includes tool/model
+time, permit waiting and finalization, but excludes the preceding queue wait and any following retry
+backoff. A claim returned after shutdown starts still consumes an attempt and is counted when released,
+even though its pipeline never ran. In-progress claims have no duration sample yet.
+
+These counters reset on worker restart and are operational measurements, not a durable audit log.
+SIGKILL cannot record its interrupted claim; updates after the last scrape can also be lost on exit,
+including graceful shutdown. Reaper actions do not increment these worker counters. Use stored job
+counts and traces to investigate individual jobs. Worker metrics remain readable during a DB outage,
+but successful scrapes alone do not prove that jobs can be processed.
+
+Workers also export two separate histograms:
+
+- `evalflow_provider_rate_limit_wait_duration_seconds`: time inside permit acquisition.
+- `evalflow_llm_call_duration_seconds`: time inside `callLlm`, including calls that reject.
+
+Both use bounded `provider` (`mock` or `gemini`) and `outcome` labels. `success` means the wrapped
+operation returned, `error` means it rejected, `cancelled` means it raised an abort error, and
+`lease_lost` means ownership could not safely continue. A returned LLM response counts as call success
+even when later JSON/schema validation fails and the attempt retries. Errors raised by the LLM wrapper
+before making a provider request are also call errors, rather than successful requests.
+
+Each measurement ends before the following database trace write. Permit time includes database work,
+polling and sleeping within permit acquisition; it excludes model execution. LLM time includes the
+call wrapper's work and provider/mock response time; it excludes permit waiting, trace writes and
+subsequent output validation. Disabled mock limiting creates no permit-wait observations. Pending calls
+and waits have no finished duration yet; a kill or exit before the next scrape can lose observations.
+The new Grafana panels display p50/p95 estimates by provider and outcome. Unused provider/outcome series
+have zero observations and no finite percentile; they do not imply zero latency. The histograms use
+10ms through 300s finite buckets plus an unbounded bucket.
+
+For a worker started directly on the host, inspect `http://localhost:9100/metrics`. Give each additional
+host worker its own `WORKER_METRICS_PORT`; Compose discovery does not scrape host processes.
+Tests use port `0` so the OS allocates independent ports for subprocesses.
 
 Health check:
 

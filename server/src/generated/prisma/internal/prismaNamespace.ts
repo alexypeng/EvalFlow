@@ -994,6 +994,7 @@ export const JobScalarFieldEnum = {
   leaseToken: 'leaseToken',
   leaseExpiresAt: 'leaseExpiresAt',
   runAfter: 'runAfter',
+  queuedAt: 'queuedAt',
   latencyMs: 'latencyMs',
   promptTokens: 'promptTokens',
   completionTokens: 'completionTokens',
@@ -1001,7 +1002,9 @@ export const JobScalarFieldEnum = {
   estimatedCost: 'estimatedCost',
   evalScore: 'evalScore',
   runId: 'runId',
-  caseId: 'caseId'
+  caseId: 'caseId',
+  traceParent: 'traceParent',
+  traceState: 'traceState'
 } as const
 
 export type JobScalarFieldEnum = (typeof JobScalarFieldEnum)[keyof typeof JobScalarFieldEnum]

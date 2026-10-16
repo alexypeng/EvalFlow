@@ -11,6 +11,11 @@ import { workerLeaseSettings, workerShutdownSettings } from "./leaseSettings.js"
 import { prisma } from "./db.js";
 import type { JobLease } from "./jobs.js";
 import { JobInputSchema } from "./types.js";
+import { createWorkerMetrics, workerMetricsPort } from "./workerMetrics.js";
+import { shutdownTelemetry } from "./telemetry.js";
+import { beginJobAttemptTrace } from "./jobTracing.js";
+import type { AttemptOutcome } from "./workerMetrics.js";
+import { tracePipelineStep } from "./pipelineTracing.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
 const workerId = randomUUID();
@@ -18,13 +23,19 @@ const { leaseDurationMs, heartbeatIntervalMs } = workerLeaseSettings(process.env
 const { graceMs, cleanupMs } = workerShutdownSettings(process.env);
 const rateLimitMock = limitMockProvider(process.env);
 const concurrency = Number(process.env.WORKER_CONCURRENCY ?? 1);
+const metricsPort = workerMetricsPort(process.env);
+const metrics = createWorkerMetrics();
 
 if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new Error(`WORKER_CONCURRENCY must be a positive integer (got "${process.env.WORKER_CONCURRENCY}")`);
 }
 
 const idleSleep = new AbortController();
-const active = new Map<string, { lease: JobLease; heartbeat: ReturnType<typeof startHeartbeat> }>();
+const active = new Map<string, {
+    lease: JobLease;
+    heartbeat: ReturnType<typeof startHeartbeat>;
+    release: (error: string) => ReturnType<typeof failOrRetryJob>;
+}>();
 let stopping = false;
 let abandoning = false;
 let graceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -38,10 +49,10 @@ async function abandonAndExit() {
         process.exit(1);
     }, cleanupMs);
 
-    const outcomes = await Promise.allSettled([...active.values()].map(async ({ lease, heartbeat }) => {
+    const outcomes = await Promise.allSettled([...active.values()].map(async ({ lease, heartbeat, release }) => {
         // Drain renewals before release, so a queued heartbeat cannot extend a released claim.
         await heartbeat.stop();
-        const updated = await failOrRetryJob({ ...lease, error: "Worker shutdown deadline exceeded" });
+        const updated = await release("Worker shutdown deadline exceeded");
         console.log(
             updated ? `Shutdown released job ${lease.id}: ${updated.status}` : `Shutdown no longer owns ${lease.id}`,
         );
@@ -51,7 +62,9 @@ async function abandonAndExit() {
             console.error("Shutdown release failed; lease recovery left to reaper", outcome.reason);
         }
     }
+    await metrics.app.close();
     await prisma.$disconnect();
+    await shutdownTelemetry();
     clearTimeout(hardStop);
     // A provider call or claim query may still be pending; exit even when those handles remain open.
     process.exit(0);
@@ -73,6 +86,10 @@ function requestShutdown(signal: string) {
 process.on("SIGTERM", () => requestShutdown("SIGTERM"));
 process.on("SIGINT", () => requestShutdown("SIGINT"));
 
+await metrics.app.listen({ port: metricsPort, host: "0.0.0.0" });
+const address = metrics.app.server.address();
+console.log(`Worker metrics listening on port ${typeof address === "object" ? address?.port : metricsPort}`);
+
 console.log(
     `Worker ${workerId} running ${concurrency} slot(s), polling every ${pollIntervalMs}ms when idle; ` +
         `lease ${leaseDurationMs}ms, heartbeat ${heartbeatIntervalMs}ms`,
@@ -91,6 +108,7 @@ async function timed<T>(fn: () => Promise<T>) {
 async function processJob(
     job: JobLease & { caseId: string | null; input: unknown },
     assertActive: () => void,
+    complete: typeof completeJob,
 ) {
     const startedAt = Date.now();
     const trace: typeof addTrace = (params) => {
@@ -110,7 +128,9 @@ async function processJob(
         source: caseSnapshot ? "dataset_case" : "built_in_mock",
     };
 
-    const events = await timed(() => getUserEvents(userId, caseSnapshot));
+    const events = await tracePipelineStep("tool.get_user_events", {}, () =>
+        timed(() => getUserEvents(userId, caseSnapshot)),
+    );
     await trace({
         jobId: job.id,
         stepName: "getUserEvents",
@@ -119,7 +139,9 @@ async function processJob(
         latencyMs: events.latencyMs,
     });
 
-    const featureUsage = await timed(() => getFeatureUsage(userId, caseSnapshot));
+    const featureUsage = await tracePipelineStep("tool.get_feature_usage", {}, () =>
+        timed(() => getFeatureUsage(userId, caseSnapshot)),
+    );
     await trace({
         jobId: job.id,
         stepName: "getFeatureUsage",
@@ -128,7 +150,9 @@ async function processJob(
         latencyMs: featureUsage.latencyMs,
     });
 
-    const subscriptionHistory = await timed(() => getSubscriptionHistory(userId, caseSnapshot));
+    const subscriptionHistory = await tracePipelineStep("tool.get_subscription_history", {}, () =>
+        timed(() => getSubscriptionHistory(userId, caseSnapshot)),
+    );
     await trace({
         jobId: job.id,
         stepName: "getSubscriptionHistory",
@@ -137,7 +161,9 @@ async function processJob(
         latencyMs: subscriptionHistory.latencyMs,
     });
 
-    const retentionSummary = await timed(() => getRetentionSummary(userId, caseSnapshot));
+    const retentionSummary = await tracePipelineStep("tool.get_retention_summary", {}, () =>
+        timed(() => getRetentionSummary(userId, caseSnapshot)),
+    );
     await trace({
         jobId: job.id,
         stepName: "getRetentionSummary",
@@ -153,13 +179,17 @@ async function processJob(
         retentionSummary: retentionSummary.output,
     };
 
-    const prompt = await buildRetentionPrompt(userId, snapshot, promptVersion);
+    const prompt = await tracePipelineStep("prompt.build", { "evalflow.prompt.version": promptVersion }, () =>
+        buildRetentionPrompt(userId, snapshot, promptVersion),
+    );
 
-    const { provider } = resolveLlm();
+    const { provider, model } = resolveLlm();
     if (provider === "gemini" || rateLimitMock) {
-        const permit = await timed(() => waitForProviderPermit(job, provider, {
-            signal: idleSleep.signal, assertActive,
-        }));
+        const permit = await tracePipelineStep("provider.permit_wait", { "evalflow.provider": provider }, () =>
+            metrics.measurePermitWait(provider, () =>
+                timed(() => waitForProviderPermit(job, provider, { signal: idleSleep.signal, assertActive })),
+            ),
+        );
         await trace({
             jobId: job.id, stepName: "provider_rate_limit", input: { provider },
             output: { admitted: true, totalTokens: 0, estimatedCost: 0 }, latencyMs: permit.latencyMs,
@@ -168,7 +198,24 @@ async function processJob(
         idleSleep.signal.throwIfAborted();
     }
     assertActive();
-    const llmCall = await timed(() => callLlm(prompt, snapshot, { caseId: job.caseId ?? undefined, mockConfig }));
+    const llmCall = await tracePipelineStep("llm.call", {
+        "gen_ai.operation.name": "generate_content",
+        "gen_ai.provider.name": provider === "gemini" ? "gcp.gemini" : "mock",
+        "gen_ai.request.model": model,
+        "evalflow.prompt.version": promptVersion,
+    }, async (span) => {
+        const result = await metrics.measureLlm(provider, () =>
+            timed(() => callLlm(prompt, snapshot, { caseId: job.caseId ?? undefined, mockConfig })),
+        );
+        span.setAttributes({
+            "gen_ai.usage.input_tokens": result.output.promptTokens,
+            "gen_ai.usage.output_tokens": result.output.completionTokens,
+            "evalflow.usage.total_tokens": result.output.totalTokens,
+            "evalflow.usage.estimated": true,
+            "evalflow.estimated_cost": result.output.estimatedCost,
+        });
+        return result;
+    });
 
     await trace({
         jobId: job.id,
@@ -190,28 +237,37 @@ async function processJob(
         latencyMs: llmCall.latencyMs,
     });
 
-    const parsed = parseLlmJson(llmCall.output.text);
+    const parsed = await tracePipelineStep("output.parse", {}, () => {
+        const parsed = parseLlmJson(llmCall.output.text);
+        if (!parsed.validJson) throw new Error("LLM returned invalid JSON");
+        return parsed;
+    });
 
-    if (!parsed.validJson) {
-        throw new Error("LLM returned invalid JSON");
-    }
+    const validation = await tracePipelineStep("output.validate", {}, () => {
+        const validation = validateRetentionOutput(parsed.parsed);
+        if (!validation.success) {
+            throw new Error(`LLM output failed schema validation: ${validation.error.message}`);
+        }
+        return validation;
+    });
 
-    const validation = validateRetentionOutput(parsed.parsed);
-
-    if (!validation.success) {
-        throw new Error(`LLM output failed schema validation: ${validation.error.message}`);
-    }
-
-    const evalResult = scoreRetentionAnalysis({
-        output: validation.data,
-        snapshot,
-        validJson: parsed.validJson,
-        hasRequiredFields: validation.success,
-        expectedRisk,
+    const evalResult = await tracePipelineStep("evaluation.score", {}, (span) => {
+        const result = scoreRetentionAnalysis({
+            output: validation.data,
+            snapshot,
+            validJson: parsed.validJson,
+            hasRequiredFields: validation.success,
+            expectedRisk,
+        });
+        span.setAttributes({
+            "evalflow.eval.score": result.taskCompletionScore,
+            "evalflow.eval.label_correct": result.reasonableRiskLabel,
+        });
+        return result;
     });
 
     assertActive();
-    const completed = await completeJob({
+    const completed = await complete({
         ...job,
         result: validation.data,
         latencyMs: Date.now() - startedAt,
@@ -231,41 +287,67 @@ async function runOnce() {
 
     if (!job) return false;
 
-    console.log(`Claimed job ${job.id}`);
+    const attemptTrace = beginJobAttemptTrace(job);
+    return attemptTrace.run(async () => {
+        const { finish: finishMetrics, finalize } = metrics.beginAttempt();
+        const finish = (outcome: AttemptOutcome) => {
+            finishMetrics(outcome);
+            attemptTrace.finish(outcome);
+        };
+        const release = (error: string) => attemptTrace.run(() => finalize(async () => {
+            try {
+                const updated = await failOrRetryJob({ ...job, error });
+                finish(updated ? updated.status === "queued" ? "retried" : "dead_letter" : "lease_lost");
+                return updated;
+            } catch (error) {
+                finish("unconfirmed");
+                throw error;
+            }
+        }));
 
-    const heartbeat = startHeartbeat(heartbeatIntervalMs, () => renewJobLease(job, leaseDurationMs));
-    active.set(job.id, { lease: job, heartbeat });
-    try {
-        // A claim already sent before SIGTERM can return afterwards. Release it without starting the pipeline.
-        if (stopping) {
-            await heartbeat.stop();
-            await failOrRetryJob({ ...job, error: "Worker shutdown before execution" });
-        } else {
-            await processJob(job, () => {
-                if (abandoning) throw new LeaseLostError();
-                heartbeat.assertActive();
-            });
-        }
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        console.log(`Claimed job ${job.id}`);
 
-        if (error instanceof LeaseLostError || abandoning) {
-            console.error(`Job ${job.id}: ${message}`);
-        } else {
-            const updated = await failOrRetryJob({ ...job, error: message });
-            console.error(
-                updated ? `Job ${job.id}: ${updated.status}` : `Job ${job.id} lease lost; failure discarded`, error,
-            );
-        }
-    } finally {
+        const heartbeat = startHeartbeat(heartbeatIntervalMs, () => renewJobLease(job, leaseDurationMs));
+        active.set(job.id, { lease: job, heartbeat, release });
         try {
-            await heartbeat.stop();
-        } finally {
-            active.delete(job.id);
-        }
-    }
+            // A claim already sent before SIGTERM can return afterwards. Release it without starting the pipeline.
+            if (stopping) {
+                await heartbeat.stop();
+                await release("Worker shutdown before execution");
+            } else {
+                await processJob(job, () => {
+                    if (abandoning) throw new LeaseLostError();
+                    heartbeat.assertActive();
+                }, (params) => finalize(async () => {
+                    const completed = await completeJob(params);
+                    if (completed) finish("completed");
+                    return completed;
+                }));
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
 
-    return true;
+            if (error instanceof LeaseLostError || abandoning) {
+                if (!abandoning) finish("lease_lost");
+                console.error(`Job ${job.id}: ${message}`);
+            } else {
+                const updated = await release(message);
+                console.error(
+                    updated ? `Job ${job.id}: ${updated.status}` : `Job ${job.id} lease lost; failure discarded`, error,
+                );
+            }
+        } finally {
+            try {
+                await heartbeat.stop();
+            } finally {
+                active.delete(job.id);
+                // Once deadline cleanup starts, it owns outcome recording even if the provider returns late.
+                if (!abandoning) finish("unconfirmed");
+            }
+        }
+
+        return true;
+    });
 }
 
 async function workerLoop(slot: number) {
@@ -292,7 +374,9 @@ async function workerLoop(slot: number) {
 await Promise.all(Array.from({ length: concurrency }, (_, slot) => workerLoop(slot)));
 if (!abandoning) {
     // Keep the shutdown deadline armed until disconnect finishes; a stuck DB must not hang exit forever.
+    await metrics.app.close();
     await prisma.$disconnect();
+    await shutdownTelemetry();
     clearTimeout(graceTimer);
     console.log("Worker shutdown complete");
 }

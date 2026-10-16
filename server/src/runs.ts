@@ -4,6 +4,7 @@ import { promptVersionExists, resolveLlm } from "./llm.js";
 import { AnalyticsSnapshotSchema, CreateRunSchema, MockConfigSchema, type CreateRunInput } from "./types.js";
 import { BaselineSchema, type Baseline } from "./baseline.js";
 import { classifyChange, type CaseChange, type CaseOutcome, type RunSide } from "./caseComparison.js";
+import { captureJobTrace } from "./jobTracing.js";
 export type { CaseChange, CaseOutcome } from "./caseComparison.js";
 
 export type CreateRunResult =
@@ -30,6 +31,7 @@ export async function createRun(body: CreateRunInput): Promise<CreateRunResult> 
         return { ok: false, reason: "mock_config_requires_mock" };
     }
     const mockConfig = provider === "mock" ? MockConfigSchema.parse(input.mockConfig ?? {}) : undefined;
+    const traceContext = captureJobTrace();
 
     const run = await prisma.$transaction(async (tx) => {
         const run = await tx.run.create({
@@ -50,6 +52,7 @@ export async function createRun(body: CreateRunInput): Promise<CreateRunResult> 
                     type: "retention_risk_analysis",
                     runId: run.id,
                     caseId: datasetCase.id,
+                    ...traceContext,
                     input: {
                         userId: snapshot.retentionSummary.userId,
                         snapshot,

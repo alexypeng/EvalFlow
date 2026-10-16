@@ -48,12 +48,58 @@ services:
             GEMINI_API_KEY:
             LLM_PROVIDER: mock
             PORT: 3000
+            OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
         ports:
             - "3000:3000"
         depends_on:
             migrate:
                 condition: service_completed_successfully
-        command: ["pnpm", "start:api"]
+        command: ["node", "--experimental-loader=@opentelemetry/instrumentation/hook.mjs", "dist/startApi.js"]
+
+    prometheus:
+        image: prom/prometheus:v3.15.0
+        command:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=7d
+        ports:
+            - "127.0.0.1:9090:9090"
+        volumes:
+            - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+            - evalflow_prometheus:/prometheus
+        depends_on:
+            - api
+
+    tempo:
+        image: grafana/tempo:3.1.0
+        command: ["-target=all", "-config.file=/etc/tempo/tempo.yml"]
+        ports:
+            - "127.0.0.1:3200:3200"
+            - "127.0.0.1:4318:4318"
+        volumes:
+            - ./observability/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+            - evalflow_tempo:/var/tempo
+
+    grafana:
+        image: grafana/grafana:13.2.4
+        environment:
+            GF_AUTH_ANONYMOUS_ENABLED: "true"
+            GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+            GF_AUTH_DISABLE_LOGIN_FORM: "true"
+            GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
+            GF_USERS_ALLOW_SIGN_UP: "false"
+            GF_ANALYTICS_REPORTING_ENABLED: "false"
+            GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+            GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/api.json
+        ports:
+            - "127.0.0.1:3001:3000"
+        volumes:
+            - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+            - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
+            - evalflow_grafana:/var/lib/grafana
+        depends_on:
+            - prometheus
+            - tempo
 
     worker:
         build:
@@ -65,6 +111,8 @@ services:
             GEMINI_MODEL: gemini-3.8-flash
             LLM_PROVIDER: mock
             WORKER_CONCURRENCY: 1
+            WORKER_METRICS_PORT: 9100
+            OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
             RATE_LIMIT_MOCK: ${RATE_LIMIT_MOCK:-false}
             LEASE_DURATION_MS: ${LEASE_DURATION_MS:-60000}
             HEARTBEAT_INTERVAL_MS: ${HEARTBEAT_INTERVAL_MS:-20000}
@@ -73,7 +121,9 @@ services:
         depends_on:
             migrate:
                 condition: service_completed_successfully
-        command: ["node", "dist/worker.js"]
+        command: ["node", "--experimental-loader=@opentelemetry/instrumentation/hook.mjs", "dist/startWorker.js"]
+        expose:
+            - "9100"
         stop_grace_period: ${WORKER_STOP_GRACE_PERIOD:-40s}
 
     reaper:
@@ -102,3 +152,6 @@ services:
 
 volumes:
     evalflow_postgres:
+    evalflow_prometheus:
+    evalflow_grafana:
+    evalflow_tempo:

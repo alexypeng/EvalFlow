@@ -176,7 +176,7 @@ export async function getJobDetails(id: string): Promise<JobDetails> {
 }
 
 export async function getMetrics(signal?: AbortSignal): Promise<Metrics> {
-    const response = await fetch(`${API_URL}/metrics`, { signal });
+    const response = await fetch(`${API_URL}/stats`, { signal });
     if (!response.ok) {
         throw new Error(await parseResponseError(response, "Failed to fetch metrics"));
     }

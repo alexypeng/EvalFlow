@@ -46,6 +46,7 @@ model Job {
   leaseToken       String?   @map("lease_token") @db.Uuid
   leaseExpiresAt   DateTime? @map("lease_expires_at")
   runAfter         DateTime  @default(dbgenerated("date_trunc('milliseconds', CURRENT_TIMESTAMP)")) @map("run_after")
+  queuedAt         DateTime? @default(dbgenerated("date_trunc('milliseconds', clock_timestamp())")) @map("queued_at")
   latencyMs        Int?      @map("latency_ms")
   promptTokens     Int?      @map("prompt_tokens")
   completionTokens Int?      @map("completion_tokens")
@@ -54,6 +55,8 @@ model Job {
   evalScore        Int?      @map("eval_score")
   runId            String?   @map("run_id") @db.Uuid
   caseId           String?   @map("case_id") @db.Uuid
+  traceParent      String?   @map("trace_parent")
+  traceState       String?   @map("trace_state")
 
   traces Trace[]
   evals  Eval[]

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma, type JobStatus } from "./generated/prisma/client.js";
 import { prisma } from "./db.js";
 import { validateLeaseDuration } from "./leaseSettings.js";
+import { captureJobTrace, type JobTraceContext } from "./jobTracing.js";
 
 // Equal jitter: wait between half and all of the exponential ceiling (2s, 4s, ... up to 30s).
 // Clamp the exponent before calculating it so large attempt counts cannot overflow.
@@ -19,6 +20,7 @@ export async function createJob(type: string, input: Prisma.InputJsonValue, maxA
             input,
             maxAttempts,
             status: "queued",
+            ...captureJobTrace(),
         },
     });
 }
@@ -39,6 +41,15 @@ export async function getJobById(id: string) {
             id,
         },
     });
+}
+
+export type JobCounts = Record<JobStatus, number>;
+
+export async function getJobCounts(): Promise<JobCounts> {
+    const groups = await prisma.job.groupBy({ by: ["status"], _count: { _all: true } });
+    const counts: JobCounts = { queued: 0, running: 0, completed: 0, dead_letter: 0 };
+    for (const group of groups) counts[group.status] = group._count._all;
+    return counts;
 }
 
 export async function getMetrics() {
@@ -97,6 +108,8 @@ export async function reapExpiredJobs(batchSize = 100) {
             error = 'Worker lease expired',
             completed_at = CASE WHEN job.attempts < job.max_attempts THEN NULL ELSE clock_timestamp() END,
             run_after = ${automaticRetryAt},
+            queued_at = CASE WHEN job.attempts < job.max_attempts
+                THEN date_trunc('milliseconds', clock_timestamp()) ELSE job.queued_at END,
             locked_by = NULL, lease_token = NULL, lease_expires_at = NULL
         FROM expired WHERE job.id = expired.id
         RETURNING job.id, job.status
@@ -117,13 +130,15 @@ export async function claimNextJob(lockedBy: string, leaseDurationMs: number) {
     validateLeaseDuration(leaseDurationMs);
     const leaseToken = randomUUID();
     const jobs = await prisma.$queryRaw<
-        Array<JobLease & {
+        Array<JobLease & JobTraceContext & {
             caseId: string | null;
             input: unknown;
             status: string;
             attempts: number;
             maxAttempts: number;
             startedAt: Date;
+            queuedAt: Date | null;
+            runAfter: Date;
             leaseExpiresAt: Date;
         }>
     >`
@@ -140,7 +155,8 @@ export async function claimNextJob(lockedBy: string, leaseDurationMs: number) {
         )
         RETURNING id, case_id AS "caseId", input, status, attempts, max_attempts AS "maxAttempts",
             started_at AS "startedAt", locked_by AS "lockedBy", lease_token AS "leaseToken",
-            lease_expires_at AS "leaseExpiresAt"
+            lease_expires_at AS "leaseExpiresAt", trace_parent AS "traceParent", trace_state AS "traceState",
+            queued_at AS "queuedAt", run_after AS "runAfter"
     `;
     return jobs[0] ?? null;
 }
@@ -211,6 +227,8 @@ export async function failOrRetryJob(params: JobLease & { error: string }) {
                 error = ${params.error},
                 completed_at = CASE WHEN attempts < max_attempts THEN NULL ELSE clock_timestamp() END,
                 run_after = ${automaticRetryAt},
+                queued_at = CASE WHEN attempts < max_attempts
+                    THEN date_trunc('milliseconds', clock_timestamp()) ELSE queued_at END,
                 locked_by = NULL, lease_token = NULL, lease_expires_at = NULL
             WHERE id = ${params.id}::uuid
         `;
@@ -225,7 +243,8 @@ export async function retryJob(id: string) {
         if (!job) return { ok: false as const, reason: "not_found" as const };
         if (job.status !== "dead_letter") return { ok: false as const, reason: "not_dead_letter" as const, job };
         await tx.$executeRaw`
-            UPDATE jobs SET run_after = date_trunc('milliseconds', clock_timestamp()) WHERE id = ${id}::uuid
+            UPDATE jobs SET run_after = date_trunc('milliseconds', clock_timestamp()),
+                queued_at = date_trunc('milliseconds', clock_timestamp()) WHERE id = ${id}::uuid
         `;
         const retriedJob = await tx.job.update({
             where: { id },
@@ -245,6 +264,7 @@ export async function retryJob(id: string) {
                 lockedBy: null,
                 leaseToken: null,
                 leaseExpiresAt: null,
+                ...captureJobTrace(),
             },
         });
         return { ok: true as const, job: retriedJob };
