@@ -16,8 +16,8 @@ _Last updated: 2026-10-15_
 |---|---|
 | **Current milestone** | M4 Observability, branch `m4-observability` |
 | **Done** | M0 (PR #1), M1 (PR #2), M2 (PR #3), M3 (PR #4) merged; M3 learning reviews and hosted CI verified |
-| **Waiting on you** | Owner commit for local Tempo setup; learning review completed |
-| **Next up** | Agree OpenTelemetry application instrumentation scope |
+| **Waiting on you** | Owner commit for OpenTelemetry SDK; learning review completed |
+| **Next up** | Agree queue trace-context propagation and worker span design |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -203,7 +203,7 @@ Tasks:
 - [x] **Claude** Local Prometheus Compose service and API scrape configuration (15-second interval, 5-second timeout, 7-day named-volume history); learning review completed
 - [x] **Claude** Prometheus and Grafana in compose with provisioned API, job-count and worker attempt panels; worker attempt learning review completed
 - [x] **Claude** Local Tempo 3.1.0 service, persistent storage with seven-day retention and provisioned Grafana datasource; learning review completed
-- [ ] **Claude** OpenTelemetry SDK setup and auto-instrumentation for Fastify and pg
+- [x] **Claude** OpenTelemetry SDK setup and HTTP/Fastify/pg instrumentation; API traces verified through Tempo/Grafana, worker initialized, learning review completed
 - [ ] **ME** Trace context propagation across the queue: store `traceparent` on the job row, continue the trace in the worker
 - [ ] **ME** Manual spans for pipeline steps and the LLM call (tokens, model as attributes)
 
@@ -255,6 +255,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-15 | Owner authorized application OpenTelemetry setup after Tempo review; implement SDK plumbing before queue propagation | Start SDK before dynamic application imports with the documented ESM loader. Export HTTP/protobuf directly to Tempo under separate API/worker service names; local roots sampled and upstream sampling respected. Exclude health/metrics and require a parent for Postgres spans to avoid idle polling noise. Explicit endpoint enables tracing; tests disable it except isolated tracing tests. Batch export and bounded best-effort shutdown preserve application behavior during Tempo outages. Queue context and pipeline spans remain the next learning piece. |
 | 2026-10-15 | Owner chose Tempo and approved local backend setup before application instrumentation | Run a single Tempo process with local named-volume storage, seven-day retention and a provisioned Grafana datasource. Publish query/readiness 3200 and OTLP HTTP 4318 on loopback for host development; Compose clients use tempo service DNS. Synthetic trace checks isolate storage/viewing from future SDK and queue propagation work. Keep existing Postgres traces and Prometheus metrics. |
 | 2026-10-15 | Owner approved keeping database traces alongside OpenTelemetry; begin M4 with the JSON /stats endpoint | Dashboard already uses stored payloads/errors/traces for per-job inspection. OpenTelemetry adds cross-service visibility separately. Moving existing JSON from /metrics to /stats frees the conventional Prometheus path while preserving its dashboard response contract. Trace backend and metric design remain to be agreed before their respective implementation pieces. |
 | 2026-10-15 | Owner chose API-first instrumentation: request counter and duration histogram with method, route pattern and response status labels | Counts support traffic/error rates; cumulative duration buckets support percentile estimates later in Prometheus. Unknown URLs share unmatched, method labels are bounded and scrapes are excluded. Measurements belong to each process and reset on restart. Use the renamed official @prometheus-io/client package (installed 0.16.1); Node 22 is supported. Worker/queue measurements and trace backend remain separate decisions. |
@@ -308,6 +309,27 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
+
+- **2026-10-15 (SDK learning review):** Owner explained that tracing must start before Fastify/Postgres and that API instrumentation does not automatically connect to a separately polling worker. Explained automatic wrappers and why saved context connects newly created worker spans rather than resuming ended API spans. Owner described a trace as the umbrella for timed spans and correctly rejected failing jobs during Tempo outages because tracing is observational. Learning review completed. Updated PLAN/local learning notes only; existing 296 passed plus one expected failure, typecheck/build and live checks unchanged. Owner commit next, then agree queue propagation/worker span design. No code changes, additional tests, commits, pushes or PRs.
+
+
+- **2026-10-15 (application tracing SDK):** Owner authorized continuing from the committed/synced Tempo checkpoint. Added early API/worker entrypoints, shared SDK/settings, automatic HTTP and Postgres spans, explicit Fastify plugin instrumentation, separate service names and direct OTLP HTTP/protobuf export. Scripts/Compose use the documented ESM loader hook and start before dynamically loading app modules; worker remains Node PID 1. Optional endpoint-controlled host tracing, explicit test opt-out, monitoring exclusions, parent-required SQL and upstream parent sampling are documented. Added idempotent two-second best-effort flush inside worker shutdown bounds and API SIGTERM/SIGINT request draining with ten-second bound. Added seven unit cases and five integration cases for real exported spans with incoming trace ID, unsampled requests, excluded monitoring, absent authorization header, pending-span flush, refused/stalled receiver and idle tracing-enabled worker shutdown. Current SDK trace package uses an options-object processor constructor; corrected during typecheck. Final typecheck/server/frontend builds and Compose/diff checks pass. Full suite: 296 passed plus one existing expected failure across 32 files. Built API/worker Docker images with frozen lockfile; isolated mock stack verified actual HTTP/Fastify/child Postgres spans through Tempo and Grafana, worker completion, job completion during Tempo outage and zero-exit API/worker shutdown. Initial smoke log read exceeded Node's buffer due pre-migration worker errors; removed the unnecessary whole-log read and reran successfully. No schema changes or live LLM requests; migration deploy only in isolated evalflow_test smoke DB. Removed isolated test containers, network and volumes. Learning review pending; queue propagation and manual job/LLM spans deliberately remain unimplemented. No commits, pushes or PRs.
+
+SDK checkpoint files: `.env.example`, `README.md`, `docs/PLAN.md`, `docker-compose.yml`, `pnpm-lock.yaml`,
+`server/package.json`, `server/src/api.ts`, `server/src/worker.ts`, `server/src/telemetry.ts`,
+`server/src/startApi.ts`, `server/src/startWorker.ts`, `server/vitest.config.ts`,
+`server/test/unit/telemetry.test.ts`, `server/test/db/telemetry.test.ts`, `server/test/fixtures/telemetryShutdown.ts`.
+
+Suggested owner commands after learning review:
+
+```bash
+git add .env.example README.md docs/PLAN.md docker-compose.yml pnpm-lock.yaml server/package.json \
+  server/src/api.ts server/src/worker.ts server/src/telemetry.ts server/src/startApi.ts server/src/startWorker.ts \
+  server/vitest.config.ts server/test/unit/telemetry.test.ts server/test/db/telemetry.test.ts \
+  server/test/fixtures/telemetryShutdown.ts
+git commit -m "Add OpenTelemetry SDK and API database tracing"
+```
+
 
 - **2026-10-15 (Tempo learning review):** Owner identified Tempo as trace storage and correctly said the application still needs setup to send traces. Explained spans and Grafana retrieval. Corrected container-storage confusion by explaining named volumes, ordinary down versus down -v, and container replacement; owner correctly confirmed a replacement container can read prior traces when its volume is kept. Learning review completed; revisit volume deletion behavior during later infrastructure work. Updated PLAN/local learning notes only; existing Compose and live integration validation unchanged. Owner commit next, then agree application OpenTelemetry scope. No new code, tests, commits, pushes or PRs.
 

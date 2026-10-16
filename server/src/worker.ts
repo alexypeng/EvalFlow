@@ -12,6 +12,7 @@ import { prisma } from "./db.js";
 import type { JobLease } from "./jobs.js";
 import { JobInputSchema } from "./types.js";
 import { createWorkerMetrics, workerMetricsPort } from "./workerMetrics.js";
+import { shutdownTelemetry } from "./telemetry.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
 const workerId = randomUUID();
@@ -60,6 +61,7 @@ async function abandonAndExit() {
     }
     await metrics.app.close();
     await prisma.$disconnect();
+    await shutdownTelemetry();
     clearTimeout(hardStop);
     // A provider call or claim query may still be pending; exit even when those handles remain open.
     process.exit(0);
@@ -328,6 +330,7 @@ if (!abandoning) {
     // Keep the shutdown deadline armed until disconnect finishes; a stuck DB must not hang exit forever.
     await metrics.app.close();
     await prisma.$disconnect();
+    await shutdownTelemetry();
     clearTimeout(graceTimer);
     console.log("Worker shutdown complete");
 }

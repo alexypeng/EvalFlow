@@ -14,6 +14,7 @@ if (!dbName.endsWith("_test")) {
 // Ephemeral ports keep real worker subprocesses isolated from each other and local dev workers.
 const testLlmEnv = {
     LLM_PROVIDER: "mock", GEMINI_API_KEY: "", RATE_LIMIT_MOCK: "false", WORKER_METRICS_PORT: "0",
+    OTEL_SDK_DISABLED: "true", OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "",
 };
 
 export default defineConfig({

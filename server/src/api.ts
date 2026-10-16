@@ -1,18 +1,20 @@
 import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { checkDatabaseConnection } from "./db.js";
+import { checkDatabaseConnection, prisma } from "./db.js";
 import { createJob, getJobCounts, getJobDetails, getMetrics, listJobs, retryJob } from "./jobs.js";
 import { compareRuns, createRun, getRunBaseline, getRunReport, listRuns } from "./runs.js";
 import { listDatasets } from "./datasets.js";
 import { CreateJobSchema, CreateRunSchema, ListJobsSchema } from "./types.js";
 import { z } from "zod";
 import { installApiMetrics } from "./apiMetrics.js";
+import { installApiTelemetry, shutdownTelemetry } from "./telemetry.js";
 
 const app = Fastify({
     logger: true,
 });
 
+await installApiTelemetry(app);
 installApiMetrics(app, getJobCounts);
 
 await app.register(cors, {
@@ -171,6 +173,27 @@ app.get("/health", async () => {
 });
 
 const port = Number(process.env.PORT ?? 3000);
+
+let stopping = false;
+function requestShutdown() {
+    if (stopping) return;
+    stopping = true;
+    const timeout = setTimeout(() => process.exit(1), 10000);
+    void (async () => {
+        try {
+            await app.close();
+            await prisma.$disconnect();
+            await shutdownTelemetry();
+        } catch (error) {
+            app.log.error(error, "API shutdown failed");
+            process.exit(1);
+        } finally {
+            clearTimeout(timeout);
+        }
+    })();
+}
+process.on("SIGTERM", requestShutdown);
+process.on("SIGINT", requestShutdown);
 
 await app.listen({
     port,

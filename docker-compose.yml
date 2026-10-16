@@ -48,12 +48,13 @@ services:
             GEMINI_API_KEY:
             LLM_PROVIDER: mock
             PORT: 3000
+            OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
         ports:
             - "3000:3000"
         depends_on:
             migrate:
                 condition: service_completed_successfully
-        command: ["pnpm", "start:api"]
+        command: ["node", "--experimental-loader=@opentelemetry/instrumentation/hook.mjs", "dist/startApi.js"]
 
     prometheus:
         image: prom/prometheus:v3.15.0
@@ -111,6 +112,7 @@ services:
             LLM_PROVIDER: mock
             WORKER_CONCURRENCY: 1
             WORKER_METRICS_PORT: 9100
+            OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
             RATE_LIMIT_MOCK: ${RATE_LIMIT_MOCK:-false}
             LEASE_DURATION_MS: ${LEASE_DURATION_MS:-60000}
             HEARTBEAT_INTERVAL_MS: ${HEARTBEAT_INTERVAL_MS:-20000}
@@ -119,7 +121,7 @@ services:
         depends_on:
             migrate:
                 condition: service_completed_successfully
-        command: ["node", "dist/worker.js"]
+        command: ["node", "--experimental-loader=@opentelemetry/instrumentation/hook.mjs", "dist/startWorker.js"]
         expose:
             - "9100"
         stop_grace_period: ${WORKER_STOP_GRACE_PERIOD:-40s}

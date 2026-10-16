@@ -746,8 +746,9 @@ See Grafana's official [provisioning documentation](https://grafana.com/docs/gra
 
 Tempo stores distributed traces; Grafana queries Tempo to display the steps of one operation.
 Prometheus continues to store the aggregate metrics used by the existing dashboard.
-The current checkpoint prepares trace storage and viewing. The API and worker do not yet emit
-OpenTelemetry traces; the existing Postgres `traces` table remains independent.
+The API now emits HTTP/Fastify spans and child Postgres query spans. The worker SDK is initialized,
+but job spans and trace-context propagation across the queue are the next checkpoint. The existing
+Postgres `traces` table remains independent.
 
 Start Tempo and refresh Grafana's provisioned data sources:
 
@@ -758,9 +759,9 @@ curl --fail http://localhost:3200/ready
 ```
 
 Readiness can take a few seconds after startup. Open [Grafana Explore](http://localhost:3001/explore)
-and select **Tempo**. Once application instrumentation is added, search for traces or select the
-trace-ID query and paste an ID to inspect its steps. An empty result now is expected without a
-test trace or an instrumented application sending data.
+and select **Tempo**. Search for service `evalflow-api`, or select the trace-ID query and paste an ID
+to inspect its steps. Health checks and metrics scrapes are excluded; use an application route such
+as `GET /jobs` to generate traces. Allow a few seconds for export and search visibility.
 
 The pinned `grafana/tempo:3.1.0` image runs all required components in one process, with local filesystem
 storage suitable for development. Configuration lives in `observability/tempo/tempo.yml`.
@@ -776,6 +777,43 @@ or a disk-size limit. `docker compose down -v` also deletes this volume. Anonymo
 is disabled. The provisioned `evalflow-tempo` datasource is read-only, and Prometheus remains the
 default datasource. See the official [local deployment guide](https://grafana.com/docs/tempo/latest/set-up-for-tracing/setup-tempo/deploy/locally/linux/)
 and [Tempo datasource configuration](https://grafana.com/docs/grafana/latest/datasources/tempo/configure-tempo-data-source/).
+
+### Application trace export
+
+Rebuild the API/worker and start the tracing services:
+
+```bash
+docker compose up --build -d tempo grafana api worker
+curl --fail http://localhost:3000/jobs
+```
+
+Compose enables OTLP HTTP/protobuf export to `http://tempo:4318/v1/traces`. For host development,
+set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces` in your environment or
+server `.env`, then use `pnpm dev:api` / `pnpm dev:worker`. Without this explicit endpoint, tracing
+is disabled. `OTEL_SDK_DISABLED=true` also disables it; ordinary tests force tracing off, while
+the tracing integration tests explicitly enable a local mock receiver. No LLM key is needed.
+
+The `startApi.ts` and `startWorker.ts` entrypoints initialize the SDK before dynamically importing
+the applications. The start/dev scripts and Compose commands include OpenTelemetry's ES-module
+loader hook so HTTP and `pg` can be instrumented before use. Running `src/api.ts` or `src/worker.ts`
+directly bypasses SDK initialization. See the official [ES-module setup instructions](https://github.com/open-telemetry/opentelemetry-js/blob/main/doc/esm-support.md).
+
+Services are named `evalflow-api` and `evalflow-worker`; `OTEL_SERVICE_NAME` can override the name
+for a host process. New root traces are sampled, and an incoming W3C `traceparent` sampling decision
+is respected. Fastify adds request/handler spans and Postgres adds query/connection spans under an
+active trace. Query parameters/results and request bodies/authorization headers are not explicitly
+captured; standard HTTP and SQL query-text metadata are collected by the instrumentation.
+`GET /health` and `/metrics` (including query strings) are excluded. Postgres requires a parent span,
+so idle polling and heartbeats outside traced operations do not create standalone traces.
+There are no worker job/LLM spans yet, so the worker service may have no searchable traces.
+
+Completed spans are batched in memory and exported about once per second. Export has a one-second
+timeout, and shutdown flush is bounded to two seconds and idempotent. A failed export does not fail
+a job or change its database status; spans may be lost during outages, queue overflow or process
+kills. API SIGTERM/SIGINT drains requests, disconnects Postgres and flushes telemetry within a
+ten-second shutdown bound. Worker flushing stays inside its existing shutdown deadlines; the
+hard-stop path can still exit before export completes. Prometheus measurements remain unchanged;
+OpenTelemetry metrics/log exporters are disabled in this setup.
 
 ### Worker attempt measurements
 
