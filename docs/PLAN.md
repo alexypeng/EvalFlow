@@ -14,10 +14,10 @@ _Last updated: 2026-10-16_
 
 | | |
 |---|---|
-| **Current milestone** | M5 Kubernetes, branch `m5-kubernetes`; Postgres chart slice implemented |
+| **Current milestone** | M5 Kubernetes, branch `m5-kubernetes`; Postgres running in kind |
 | **Done** | M0–M4 merged (PRs #1–#5); M4 learning reviews and hosted CI verified |
-| **Waiting on you** | Postgres StatefulSet chart learning review |
-| **Next up** | Review/commit Postgres chart, then set up kind and verify persistence |
+| **Waiting on you** | Commit the completed kind/Postgres persistence checkpoint |
+| **Next up** | Commit kind/Postgres scripts after learning review, then agree application/migration ordering |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -232,12 +232,13 @@ README now includes the planned local Kubernetes milestone; Compose remains the 
 - **Postgres in the cluster:** Owner approved a small hand-written, single-instance StatefulSet for learning (2026-10-16).
 
 Tasks:
-- [x] **Claude** Initial Postgres-only Helm chart: one StatefulSet, headless Service, retained PVC and existing Secret reference; lint/render verified, live cluster checks and learning review pending
+- [x] **Claude** Initial Postgres-only Helm chart: one StatefulSet, headless Service, retained PVC and existing Secret reference; lint/render and live SQL/Pod-replacement persistence verified; introductory chart review complete
 - [ ] **Claude** Helm chart: api Deployment and Service, worker Deployment, reaper, remaining config and secrets
 - [ ] **ME** Migration Job as a Helm `pre-install`/`pre-upgrade` hook (be ready to explain hook ordering)
 - [ ] **Claude** Readiness and liveness probes; worker health endpoint
 - [ ] **Claude** `terminationGracePeriodSeconds` matched to the M3 shutdown timeout
-- [ ] **Claude** kind setup script: create cluster, load images, install the chart
+- [x] **Claude** Postgres-only kind setup and persistence scripts: separate cluster/context, generated Secret, Helm install and row survival across Pod replacement; learning review complete
+- [ ] **Claude** Extend kind setup for application image loading and full-stack installation
 - [ ] **ME** KEDA `ScaledObject` with the Postgres scaler: queue-depth query, target per replica, min/max replicas, cooldown
 - [ ] **You** Demo: enqueue a burst, watch workers scale up and back down (README screenshot)
 
@@ -271,6 +272,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-16 | Owner approved a separate evalflow kind cluster and live Postgres persistence check | Use a private ignored kubeconfig with explicit context, generated local Secret and retained claim. Pin the kind node to Kubernetes 1.34.11 for the installed kubectl 1.34 client. Prove new Pod identity, unchanged claim/volume and saved row through Service DNS; leave the development cluster running. This tests graceful Pod replacement, not node loss or crash recovery. |
 | 2026-10-16 | Owner approved writing a small Postgres StatefulSet for learning | First chart slice runs one postgres:16 instance with retained persistent storage, stable Service and existing Secret reference. Validate rendering before kind deployment. Additional Postgres replicas would be independent databases, so replication is outside this slice. Database-before-migration ordering remains a later decision; no migration hook implemented. |
 | 2026-10-16 | Owner chose full queued time including retry backoff | Persist database-clock queued_at on new jobs and every requeue. On claim, emit a retrospective job.queue_wait span ending at the database claim time, then parent job.process beneath it. Separate total, scheduled delay and eligible waiting attributes explain the duration. Omit unknown legacy or invalid intervals rather than inventing zero; measured zero is valid. Queue entry is write time, so transaction visibility/commit time can be included. |
 | 2026-10-15 | Owner approved pipeline operation spans under each worker attempt | Bound spans to the operation, ending before subsequent Postgres detail writes. Keep returned-call success distinct from invalid JSON/schema errors and evaluation quality. Record provider/model/estimated token/cost metadata without copying prompts, outputs or exception payloads into these spans. Preserve original errors and mark error/cancelled/lease_lost outcomes. Disabled mock limiting skips its span. Queue-wait presentation remains a separate decision. |
@@ -329,6 +331,12 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
+
+- **2026-10-16 (kind persistence learning review):** Owner correctly identified that stored data depends on the original disk rather than the stable Service address. Explained that StatefulSets reuse Pod names, while UIDs distinguish individual Pod objects; owner then paraphrased that checking a changed UID proves actual replacement. Learning review complete. Updated PLAN/local learning notes only; existing live verification unchanged. Owner commit next, followed by application deployment/migration ordering design. No application changes, additional tests, commits or pushes.
+
+- **2026-10-16 (kind/Postgres live checkpoint):** Owner approved installation, separate cluster, generated Secret, chart deployment and saved-row/Pod-replacement check. Installed kind 0.33.0; added pinned Kubernetes 1.34.11 cluster config, kind-postgres-up.sh and kind-postgres-check.sh, ignored private .evalflow-kind kubeconfig, and expanded chart README. Setup creates/reuses only evalflow cluster with explicit context, preserves credentials on reruns and refuses replacement credentials when a database claim already exists. Helm release revision 2 is deployed; one Postgres Pod Ready and 1Gi standard claim Bound. Initial deployment succeeded but editing the running setup script disrupted its final command; reran the unchanged script successfully and verified cluster/Secret/storage reuse. Persistence check passed: TCP/Service-DNS authenticated SQL write, normal Pod deletion/replacement, different Pod UID, identical PVC UID/volume, same saved row. Diagnostic schema cleaned up. Shell syntax, strict Helm lint and diff checks pass. Existing Compose containers remain separate; cluster intentionally left running for next steps. No app migrations, application code changes, full-suite rerun, commits or pushes. Live setup learning review pending; full app/image-loading/migration/autoscaling work remains. Files: .gitignore, PLAN, chart README, deploy/kind/cluster.yaml and two scripts.
+
+- **2026-10-16 (M5 status refresh):** Confirmed Postgres chart committed as b130990 on m5-kubernetes, with clean tracked tree before this note update. Owner correctly identified missing jobs with empty storage, related the stable name to database access, identified Helm as a package manager and rejected lint/render as proof of runtime behavior. Explained StatefulSet versus kubelet versus Service after initial conflation, including headless DNS discovery; revisit those boundaries during live deployment. Introductory chart learning review complete. Helm installed; kind still absent from PATH and no cluster/deployment created in this work. Next: agree kind setup and live SQL/Pod-replacement persistence checks. PLAN/local learning notes updated only; no tests, commits or pushes.
 
 - **2026-10-16 (M5 Postgres chart):** Owner approved the hand-written StatefulSet approach. Added deploy/helm/evalflow chart metadata, values, helpers, headless Service and one-replica Postgres StatefulSet. Claims retain data on deletion/scale-down; default StorageClass, custom class and explicit no-class overrides supported. Password comes from an existing namespace Secret; no credentials rendered. Startup/readiness use TCP pg_isready, resources are bounded and service-account token mounting is off. Added chart README and updated main README Kubernetes scope. Installed Helm 4.3.1 through Homebrew with approval. Strict lint and default/custom/empty-class renders pass; temporary Ruby YAML checks verify selector/identity/mount/retention/Secret relationships and overrides; empty Secret reference and unsupported Kubernetes version are rejected. Corrected a template formatting typo before verification; Python YAML was unavailable, so used installed Ruby YAML without adding project dependencies. No cluster created or live SQL/persistence claimed; no application code, schemas or DB data changed, so server tests not rerun. Kind setup and live persistence checks next after learning review. Files: README, PLAN and six files under deploy/helm/evalflow (including its README). No commits or pushes.
 
