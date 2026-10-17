@@ -16,6 +16,7 @@ import { shutdownTelemetry } from "./telemetry.js";
 import { beginJobAttemptTrace } from "./jobTracing.js";
 import type { AttemptOutcome } from "./workerMetrics.js";
 import { tracePipelineStep } from "./pipelineTracing.js";
+import { installHealthChecks } from "./health.js";
 
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
 const workerId = randomUUID();
@@ -86,6 +87,7 @@ function requestShutdown(signal: string) {
 process.on("SIGTERM", () => requestShutdown("SIGTERM"));
 process.on("SIGINT", () => requestShutdown("SIGINT"));
 
+installHealthChecks(metrics.app, { isStopping: () => stopping });
 await metrics.app.listen({ port: metricsPort, host: "0.0.0.0" });
 const address = metrics.app.server.address();
 console.log(`Worker metrics listening on port ${typeof address === "object" ? address?.port : metricsPort}`);

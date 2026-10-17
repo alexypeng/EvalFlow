@@ -169,6 +169,7 @@ WORKER_SHUTDOWN_CLEANUP_MS=5000
 WORKER_STOP_GRACE_PERIOD=40s
 REAPER_INTERVAL_MS=5000
 REAPER_BATCH_SIZE=100
+REAPER_HEALTH_PORT=9101
 ```
 
 `LLM_PROVIDER=mock` is the default so the project can run locally without an API key. Use `LLM_PROVIDER=gemini` and set `GEMINI_API_KEY` to call Gemini instead of the mock provider. `GEMINI_MODEL` selects the model (see [Gemini models](https://ai.google.dev/gemini-api/docs/models)).
@@ -211,6 +212,8 @@ the API and worker, using the same `DATABASE_URL`. For compiled code use
 (1–1000). Each scan handles at most that many expired jobs, then waits for the interval.
 Multiple reapers may run safely: row locks with `SKIP LOCKED` keep them from recovering the same
 claim twice. The reaper needs Postgres access and no LLM API key.
+It exposes process/readiness checks on `REAPER_HEALTH_PORT` (default 9101); use a distinct port
+for each host reaper, or port 0 for an automatically allocated port. Compose does not publish it.
 
 `TEST_DATABASE_URL` is the database used by `pnpm test`. Start it locally with `docker compose --profile test up -d postgres-test`. The name must end in `_test`, since tests truncate tables.
 
@@ -803,7 +806,7 @@ for a host process. New root traces are sampled, and an incoming W3C `traceparen
 is respected. Fastify adds request/handler spans and Postgres adds query/connection spans under an
 active trace. Query parameters/results and request bodies/authorization headers are not explicitly
 captured; standard HTTP and SQL query-text metadata are collected by the instrumentation.
-`GET /health` and `/metrics` (including query strings) are excluded. Postgres requires a parent span,
+`GET /health`, `/livez`, `/readyz` and `/metrics` (including query strings) are excluded. Postgres requires a parent span,
 so idle polling and heartbeats outside traced operations do not create standalone traces.
 Worker attempts emit `job.process` spans with child spans for the operations described below.
 
@@ -1021,7 +1024,15 @@ Health check:
 
 ```bash
 curl http://localhost:3000/health
+curl http://localhost:3000/livez
+curl http://localhost:3000/readyz
 ```
+
+`/livez` checks HTTP process responsiveness without querying Postgres. `/readyz` returns 503 when
+the database probe fails or shutdown has begun; it returns no database error details. The worker
+serves the same checks alongside metrics on port 9100, and the reaper on port 9101. Kubernetes uses
+readiness to stop Service traffic and liveness to decide restarts. Probe requests are excluded from
+API traffic metrics and tracing. See the [kind backend setup](deploy/helm/evalflow-app/README.md).
 
 ## Screenshots
 
@@ -1049,8 +1060,9 @@ updated the PR summary while ordinary tests passed. The override was then remove
 
 ## Roadmap
 
-- M5 local Kubernetes work is in progress; the first [Helm chart slice](deploy/helm/evalflow/README.md)
-  defines a single Postgres instance with persistent storage. Compose remains the full-stack setup.
+- M5 local Kubernetes work is in progress: [Postgres](deploy/helm/evalflow/README.md) and the
+  [backend application](deploy/helm/evalflow-app/README.md) have separate Helm charts, with migration
+  ordering and health checks. Compose includes the dashboard and monitoring; kind worker autoscaling is next.
 - Add more analytics workflows.
 - Add websocket or server-sent event updates instead of polling.
 - Add richer eval datasets and regression tests.

@@ -1,5 +1,13 @@
 import { expect, it } from "vitest";
-import { reaperSettings } from "../../src/reaperSettings.js";
+import { reaperHealthPort, reaperSettings } from "../../src/reaperSettings.js";
+
+it("validates the health port and accepts zero for isolated subprocess tests", () => {
+    expect(reaperHealthPort({})).toBe(9101);
+    expect(reaperHealthPort({ REAPER_HEALTH_PORT: "0" })).toBe(0);
+    for (const value of ["-1", "65536", "1.5", "bad"]) {
+        expect(() => reaperHealthPort({ REAPER_HEALTH_PORT: value })).toThrow("REAPER_HEALTH_PORT");
+    }
+});
 
 it("defaults to bounded scans every five seconds and accepts overrides", () => {
     expect(reaperSettings({})).toEqual({ intervalMs: 5000, batchSize: 100 });

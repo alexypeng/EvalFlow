@@ -2,12 +2,17 @@ import "dotenv/config";
 import { setTimeout as sleep } from "node:timers/promises";
 import { prisma } from "./db.js";
 import { reapExpiredJobs } from "./jobs.js";
-import { reaperSettings } from "./reaperSettings.js";
+import { reaperHealthPort, reaperSettings } from "./reaperSettings.js";
+import Fastify from "fastify";
+import { installHealthChecks } from "./health.js";
 
 const { intervalMs, batchSize } = reaperSettings(process.env);
 const shutdown = new AbortController();
 process.once("SIGTERM", () => shutdown.abort());
 process.once("SIGINT", () => shutdown.abort());
+const health = Fastify({ forceCloseConnections: true });
+installHealthChecks(health, { isStopping: () => shutdown.signal.aborted });
+await health.listen({ port: reaperHealthPort(process.env), host: "0.0.0.0" });
 
 console.log(`Reaper scanning every ${intervalMs}ms, up to ${batchSize} expired jobs per scan`);
 try {
@@ -32,5 +37,6 @@ try {
         }
     }
 } finally {
+    await health.close();
     await prisma.$disconnect();
 }

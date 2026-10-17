@@ -19,6 +19,16 @@ afterEach(async () => {
 });
 
 describe("API Prometheus measurements", () => {
+    it("excludes Kubernetes probes from application traffic", async () => {
+        const app = createApp();
+        app.get("/livez", async () => ({ ok: true }));
+        app.get("/readyz", async () => ({ ok: true }));
+        await app.inject("/livez");
+        await app.inject("/readyz");
+        const { body } = await app.inject("/metrics");
+        expect(body).not.toContain('route="/livez"');
+        expect(body).not.toContain('route="/readyz"');
+    });
     it("reads job counts only when scraped and replaces every status, including zeros", async () => {
         const readCounts = vi.fn()
             .mockResolvedValueOnce({ queued: 8, running: 2, completed: 5, dead_letter: 1 })

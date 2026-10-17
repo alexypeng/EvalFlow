@@ -27,7 +27,7 @@ export function telemetrySettings(env: NodeJS.ProcessEnv, serviceName: string) {
 
 export function ignoreTelemetryPath(url: string | undefined) {
     const path = url?.split("?", 1)[0];
-    return path === "/metrics" || path === "/health";
+    return path === "/metrics" || path === "/health" || path === "/livez" || path === "/readyz";
 }
 
 // Entrypoints call this before dynamically importing any application modules.

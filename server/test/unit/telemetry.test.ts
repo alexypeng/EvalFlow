@@ -27,7 +27,7 @@ it("rejects a misspelled disable switch", () => {
 });
 
 it("excludes monitoring paths with query strings without excluding application routes", () => {
-    for (const path of ["/metrics", "/health", "/metrics?x=1", "/health?x=1"]) {
+    for (const path of ["/metrics", "/health", "/metrics?x=1", "/health?x=1", "/livez", "/readyz?x=1"]) {
         expect(ignoreTelemetryPath(path)).toBe(true);
     }
     for (const path of ["/stats", "/jobs", "/jobs/health", "/healthcheck", undefined]) {
