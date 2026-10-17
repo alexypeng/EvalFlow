@@ -1,8 +1,8 @@
 # EvalFlow application chart
 
-This M5 slice contains the migration hook only. API, worker and reaper Deployments follow next.
-A deployed Helm release at this stage means its migration hook succeeded; it does not mean the
-application processes are running.
+This chart contains the migration hook, API Service and API/worker/reaper Deployments.
+The local default is one replica of each process with the mock provider and no API key.
+KEDA autoscaling and Kubernetes monitoring deployment remain later work.
 
 ## Two releases and startup ordering
 
@@ -17,6 +17,7 @@ Database release ready → application migration hook succeeds → application r
 `scripts/kind-app-up.sh` first runs the database setup, then builds the existing server Dockerfile,
 loads a uniquely tagged image into kind and installs/upgrades the application release. It uses
 the private `.evalflow-kind/kubeconfig` and explicit `kind-evalflow` context throughout.
+After the migration hook succeeds, Helm waits for the backend Deployments to become ready.
 Local kind and learning state are excluded from the Docker build context.
 
 ```bash
@@ -28,6 +29,56 @@ cluster, namespace and release names; the chart exposes database/image settings 
 The default `Never` image pull policy expects the image to be loaded into kind. The script replaces
 the preview `local` tag with a fresh timestamp/commit tag, even when building uncommitted source.
 The successful image tag is recorded in the ignored `.evalflow-kind/server-image-tag` file.
+
+## Backend processes and access
+
+All three Deployments use the same backend image with separate entrypoints. Node runs directly
+as PID 1, constructs the database URL from the existing Secret and imports its entrypoint in the
+same process. API/worker startup still initializes OpenTelemetry before application imports.
+Tracing export defaults to disabled because kind has no Tempo deployment; set
+`telemetry.otlpEndpoint` to a reachable OTLP HTTP endpoint when adding trace collection.
+The separate Compose monitoring stack is unchanged.
+
+The API has a ClusterIP Service named `evalflow-app-api`, listening on port 3000 by default.
+Worker health/metrics use port 9100 and reaper health uses 9101 inside their Pods.
+Worker and reaper consume the shared database queue directly; they do not receive jobs from the API Service.
+
+To open the kind API on a separate local port (leave this command running):
+
+```bash
+kubectl --kubeconfig .evalflow-kind/kubeconfig --context kind-evalflow -n evalflow port-forward service/evalflow-app-api 3002:3000
+```
+
+Then use `http://localhost:3002/health` or the existing `/jobs` API. Port 3002 avoids Compose's
+default API port 3000. No frontend or external ingress is deployed by this chart.
+
+## Health and shutdown
+
+Each process has two endpoints:
+
+| Endpoint | Check | Kubernetes action on repeated failure |
+| --- | --- | --- |
+| `/livez` | HTTP process responsiveness; no database query | Restart the container |
+| `/readyz` | Database reachability and process not shutting down | Mark Pod unready; no restart |
+
+Startup probes allow roughly 60 seconds for the process HTTP server to respond. Liveness checks
+run every 10 seconds with three failures before restart; readiness checks run every three seconds.
+Readiness uses a separate, lazy, single-connection pool with one-second connection and query limits,
+so probe deadlines do not alter normal application query limits. Idle pool errors are handled and
+probe connections close with their HTTP server. Errors return only `{ "ok": false }` with HTTP 503.
+The API's original database-backed `/health` remains available. `/livez` and `/readyz` are excluded
+from API traffic measurements and automatic tracing.
+
+When Postgres is unavailable, the backend remains alive while readiness fails. The API Service loses
+ready endpoints and database-dependent requests are unavailable until recovery. A readiness change
+does not stop a worker or reaper loop: those already catch DB errors and back off before retrying.
+Readiness checks connection availability, not successful job throughput or every database permission.
+
+The API/reaper receive 15 seconds of Kubernetes termination grace. Worker grace is calculated from
+its configured drain and cleanup budgets, rounded up, with five extra seconds: the default is
+30 seconds drain + 5 seconds cleanup + 5 seconds margin = 40 seconds. Existing SIGTERM handling stops
+worker claims and renews leases during drain. Readiness fails during shutdown; liveness remains a
+process check. Rolling updates allow one extra Pod and keep the desired replica count available.
 
 ## Migration Job
 
@@ -81,7 +132,29 @@ database host. A missing database name alone is not a failure fixture: Prisma ca
 The migration must fail, the sentinel must remain absent and the working database's
 completed history must stay unchanged. The test uninstalls its failure release, explicitly removes
 its hook Job and removes its temporary chart. It refuses to reuse an existing failure release.
-The working database/application releases remain installed; no API/worker jobs or live LLM calls run.
+The working database/application releases remain installed; this migration check submits no jobs or live LLM calls.
+
+The backend integration check builds/loads the image, deploys the release, then exercises the processes:
+
+```bash
+bash scripts/kind-backend-check.sh
+```
+
+Use the default single-replica settings and an idle local queue. It verifies API Service job submission
+and worker completion, then scales only kind Postgres to zero. All backend Pods must become unready,
+keep successful liveness and retain their UIDs/restart counts over 32 seconds; the API Service must
+have no ready endpoints. It restores Postgres and proves job processing recovers. It also seeds one
+expired final attempt for the separate reaper to dead-letter and deletes the worker Pod during a
+12-second mock call to verify graceful drain, one accepted result and a ready replacement worker.
+Its own jobs are removed afterward; the retention fixture dataset is loaded idempotently for the
+delayed mock case and remains available. The live processes and kind cluster remain running.
+
+This test temporarily interrupts the kind database and worker. Normal test failure restores the
+database in cleanup; after a forcibly killed test, restore it manually if needed:
+
+```bash
+kubectl --kubeconfig .evalflow-kind/kubeconfig --context kind-evalflow -n evalflow scale statefulset evalflow-postgres --replicas=1
+```
 
 See [Helm hook lifecycle](https://helm.sh/docs/topics/charts_hooks/) and the
 [Prisma migrate deploy command](https://www.prisma.io/docs/cli/v7/migrate/deploy), plus the

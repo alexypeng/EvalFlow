@@ -5,6 +5,15 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | quote }}
 {{- end -}}
 
+{{- define "evalflow-app.databaseUrl" -}}
+const url = new URL("postgresql://localhost");
+url.hostname = process.env.PGHOST;
+url.port = process.env.PGPORT;
+url.username = encodeURIComponent(process.env.PGUSER);
+url.password = encodeURIComponent(process.env.PGPASSWORD);
+url.pathname = `/${encodeURIComponent(process.env.PGDATABASE)}`;
+{{- end -}}
+
 {{- define "evalflow-app.databaseEnv" -}}
 - name: PGHOST
   value: {{ required "database.host is required" .Values.database.host | quote }}

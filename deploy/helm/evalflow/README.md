@@ -1,10 +1,11 @@
 # EvalFlow Helm chart
 
-M5 is in progress. This chart contains only Postgres; the API, worker,
-reaper and autoscaling will follow. Docker Compose remains the full-stack setup.
+M5 is in progress. This chart contains only Postgres. The separate application chart contains
+the backend; autoscaling remains later work. Docker Compose remains the full stack with a dashboard
+and monitoring while kind currently runs the database and backend.
 
-The separate [application chart](../evalflow-app/README.md) now supplies the migration checkpoint
-against this database. Its setup script installs the database release first.
+The separate [application chart](../evalflow-app/README.md) runs migrations and the API, worker and
+reaper against this database. Its setup script installs the database release first.
 
 ## Render locally
 

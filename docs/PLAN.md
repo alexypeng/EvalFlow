@@ -14,10 +14,10 @@ _Last updated: 2026-10-17_
 
 | | |
 |---|---|
-| **Current milestone** | M5 Kubernetes, branch `m5-kubernetes`; Postgres and migration release verified |
+| **Current milestone** | M5 Kubernetes, branch `m5-kubernetes`; backend running in kind with probes |
 | **Done** | M0–M4 merged (PRs #1–#5); M4 learning reviews and hosted CI verified |
-| **Waiting on you** | Commit the completed migration checkpoint |
-| **Next up** | Add API/worker/reaper Deployments after migration checkpoint review |
+| **Waiting on you** | Commit the completed backend deployment/probe checkpoint |
+| **Next up** | Design KEDA worker autoscaling after owner commit |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -230,17 +230,17 @@ README now includes the planned local Kubernetes milestone; Compose remains the 
 
 **Decided:**
 - **Postgres in the cluster:** Owner approved a small hand-written, single-instance StatefulSet for learning (2026-10-16).
-- **Release layout:** Existing evalflow database release first, then separate evalflow-app release whose migration hooks precede normal app resources. API/worker/reaper resources are the next slice.
+- **Release layout:** Existing evalflow database release first, then separate evalflow-app release whose migration hooks precede normal app resources. API/worker/reaper resources are implemented and live-verified; autoscaling follows after review.
 
 Tasks:
 - [x] **Claude** Initial Postgres-only Helm chart: one StatefulSet, headless Service, retained PVC and existing Secret reference; lint/render and live SQL/Pod-replacement persistence verified; introductory chart review complete
-- [ ] **Claude** Helm chart: api Deployment and Service, worker Deployment, reaper, remaining config and secrets
+- [x] **Claude** API Service and API/worker/reaper Deployments with shared Secret-backed DB config, mock provider, resource limits and direct Node entrypoints; live verified
 - [x] **ME** Separate application-release migration Job with pre-install/pre-upgrade hooks; fresh migration, repeat upgrade and failed-install blocking verified; learning review complete
-- [ ] **Claude** Readiness and liveness probes; worker health endpoint
-- [ ] **Claude** `terminationGracePeriodSeconds` matched to the M3 shutdown timeout
+- [x] **Claude** Separate process liveness and bounded database readiness for all backend roles; health responses hide DB errors, drain becomes unready, probes excluded from API traffic/tracing; learning review complete
+- [x] **Claude** API/reaper 15-second grace; worker grace derives from drain + cleanup rounded up + 5-second margin (40 seconds by default); active mock-call drain live verified
 - [x] **Claude** Postgres-only kind setup and persistence scripts: separate cluster/context, generated Secret, Helm install and row survival across Pod replacement; learning review complete
 - [x] **Claude** Backend image build/load into kind and separate migration-release setup/check scripts
-- [ ] **Claude** Extend application chart to full backend installation
+- [x] **Claude** Backend installation and integration script covers API job completion, outage/readiness/recovery, reaper and graceful worker replacement
 - [ ] **ME** KEDA `ScaledObject` with the Postgres scaler: queue-depth query, target per replica, min/max replicas, cooldown
 - [ ] **You** Demo: enqueue a burst, watch workers scale up and back down (README screenshot)
 
@@ -274,6 +274,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-17 | Owner approved keeping a responsive backend alive but unready during database outages | Separate /livez process checks from /readyz database checks to avoid dependency-driven restarts. Readiness uses a lazy one-connection pool with one-second connection/query limits and handles idle errors, without altering application query deadlines. Worker readiness does not gate polling; existing backoff and shutdown logic own that behavior. Use direct Node PID 1 and derive worker Kubernetes grace from drain/cleanup plus margin. Default local deployment uses one API, worker and reaper with mock provider; Compose monitoring remains separate. |
 | 2026-10-16 | Use separate database and application releases with a migration hook before new application resources | Owner accepted the database-first startup flow and correctly required migration success before the new backend deploys. Keep existing evalflow database release ready before evalflow-app pre-install/pre-upgrade Job. Database credentials stay in an existing Secret; URL encoding happens in the Job. Preserve previous backend versions during upgrades and use compatible schema changes; Helm does not undo SQL migrations. Failure Job blocks normal resources. |
 | 2026-10-16 | Owner approved a separate evalflow kind cluster and live Postgres persistence check | Use a private ignored kubeconfig with explicit context, generated local Secret and retained claim. Pin the kind node to Kubernetes 1.34.11 for the installed kubectl 1.34 client. Prove new Pod identity, unchanged claim/volume and saved row through Service DNS; leave the development cluster running. This tests graceful Pod replacement, not node loss or crash recovery. |
 | 2026-10-16 | Owner approved writing a small Postgres StatefulSet for learning | First chart slice runs one postgres:16 instance with retained persistent storage, stable Service and existing Secret reference. Validate rendering before kind deployment. Additional Postgres replicas would be independent databases, so replication is outside this slice. Database-before-migration ordering remains a later decision; no migration hook implemented. |
@@ -334,6 +335,12 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
+
+- **2026-10-17 (backend probe/shutdown learning review):** After clarifying process liveness versus database readiness and Service routing, owner correctly routed requests to a ready API replica, kept live replicas unready during DB outage, and identified that worker polling needs application logic rather than readiness status alone. Clarified that SIGTERM stopping logic already exists. Explained 30s drain + 5s cleanup + 5s Kubernetes margin; owner correctly chose finishing current work over claiming new work and paraphrased the finish-if-possible/cleanup fallback. Review complete. PLAN/local learning notes updated only; all prior verification remains valid. Owner commit next; KEDA design, scaling demo and M5 final acceptance remain. No code changes, new tests, commits or pushes.
+
+- **2026-10-17 (backend Deployments and probes):** Owner approved separate liveness/readiness behavior. Added API ClusterIP Service and API/worker/reaper Deployments, shared escaped URL launcher, mock defaults, resource settings and direct Node entrypoints. API/reaper grace is 15s; worker grace derives from 30s drain + 5s cleanup + 5s margin, with fractional-second rounding checked. Added health.ts with /livez and /readyz, dedicated bounded pg pool, idle-error handling and shutdown readiness; wired all three processes and validated reaper health port. Excluded new probes from API metrics/tracing. Six new unit cases protect readiness recovery/drain races, no leaked DB errors, probe exclusion and port validation. Typecheck, unit suite (199 passed plus one expected failure), full suite (354 passed plus one existing expected failure across 37 files), Docker server build, Helm lint, launcher/selector/grace checks and script syntax/diff pass. Kind integration passes Service job submission/completion, Postgres scale-to-zero readiness loss with liveness 200 and no backend UID/restart changes over 32s, empty ready Service endpoints, recovery and fresh completion, reaper final-attempt recovery, and SIGTERM during a 12s mock call with one accepted eval and ready replacement worker. Corrected test harness assumptions about nested job-details response, UUID lockedBy fixture and startup-line-based log attachment after verbose outage logs; backend job processing was already correct. Test-owned jobs cleaned up; idempotently loaded retention fixture remains. Kind database restored and backend kept running; application release revision 7. Compose DB/config unchanged, no new migrations/dependencies/live provider calls or commits. Learning review pending; KEDA design next. Changed README, PLAN, both chart READMEs; application values, helpers, migration Job and new API Service/Deployment templates; kind-app-up and new kind-backend-check.sh/.mjs; server/src health (new), api, apiMetrics, worker, reaper, reaperSettings, telemetry; unit health (new), apiMetrics, reaperSettings, telemetry tests; server/vitest.config.ts.
+
+- **2026-10-17 (backend deployment planning):** Confirmed migration checkpoint committed as 7aea582; tracked tree clean before notes. Inspected API health (currently DB-backed), worker metrics listener, reaper loop and shutdown budgets. Next bounded slice is API Service and API/worker/reaper Deployments after the existing migration hook, using mock provider and current kind image workflow. Health design pending: distinguish process liveness from database-dependent readiness so a DB outage does not trigger unnecessary restarts. Worker currently lacks health endpoint; API hard shutdown is 10s and worker drain/cleanup is 30s+5s. No code/templates or cluster changes. PLAN/local learning notes updated only.
 
 - **2026-10-17 (migration learning review):** Owner described database-first installation and stopping on migration failure; clarified migration is the first hook inside the application release, before normal resources. Owner correctly said an unchanged deployment has no new migrations to apply, but initially located applied history in the repository folder. Explained the folder contains instructions and _prisma_migrations in Postgres records which this database has applied; owner acknowledged the distinction. Introductory review complete; revisit the history location during later rollout work. PLAN/local learning notes updated only; prior verification unchanged. Owner commit next, then API/worker/reaper Deployments. No new tests, commits or pushes.
 

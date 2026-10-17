@@ -12,6 +12,39 @@ database:
     existingSecret: evalflow-postgres-auth
     passwordKey: postgres-password
 
+telemetry:
+    # Empty disables export; the Compose monitoring stack is separate from kind.
+    otlpEndpoint: ""
+
+api:
+    replicas: 1
+    port: 3000
+    resources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { cpu: "1", memory: 512Mi }
+
+worker:
+    replicas: 1
+    port: 9100
+    concurrency: 1
+    pollIntervalMs: 1000
+    leaseDurationMs: 60000
+    heartbeatIntervalMs: 20000
+    shutdownTimeoutMs: 30000
+    shutdownCleanupMs: 5000
+    resources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { cpu: "1", memory: 512Mi }
+
+reaper:
+    replicas: 1
+    port: 9101
+    intervalMs: 5000
+    batchSize: 100
+    resources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { cpu: "1", memory: 512Mi }
+
 migrations:
     activeDeadlineSeconds: 120
     ttlSecondsAfterFinished: 3600

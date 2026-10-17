@@ -1,0 +1,108 @@
+{{- range $component := list "api" "worker" "reaper" }}
+{{- $settings := index $.Values $component }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: {{ $.Release.Name }}-{{ $component }}
+    labels:
+        {{- include "evalflow-app.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $component }}
+spec:
+    replicas: {{ $settings.replicas }}
+    strategy:
+        type: RollingUpdate
+        rollingUpdate:
+            maxUnavailable: 0
+            maxSurge: 1
+    selector:
+        matchLabels:
+            app.kubernetes.io/name: {{ $.Chart.Name }}
+            app.kubernetes.io/instance: {{ $.Release.Name }}
+            app.kubernetes.io/component: {{ $component }}
+    template:
+        metadata:
+            labels:
+                {{- include "evalflow-app.labels" $ | nindent 16 }}
+                app.kubernetes.io/component: {{ $component }}
+        spec:
+            automountServiceAccountToken: false
+            {{- if eq $component "worker" }}
+            terminationGracePeriodSeconds: {{ add (div (add $settings.shutdownTimeoutMs $settings.shutdownCleanupMs 999) 1000) 5 }}
+            {{- else }}
+            terminationGracePeriodSeconds: 15
+            {{- end }}
+            containers:
+                - name: {{ $component }}
+                  image: {{ printf "%s:%s" $.Values.image.repository $.Values.image.tag | quote }}
+                  imagePullPolicy: {{ $.Values.image.pullPolicy }}
+                  workingDir: /app/server
+                  command: [node, --experimental-loader=@opentelemetry/instrumentation/hook.mjs, --input-type=module, -e]
+                  args:
+                      - |
+                          {{- include "evalflow-app.databaseUrl" $ | nindent 26 }}
+                          process.env.DATABASE_URL = url.toString();
+                          {{- if eq $component "api" }}
+                          await import("./dist/startApi.js");
+                          {{- else if eq $component "worker" }}
+                          await import("./dist/startWorker.js");
+                          {{- else }}
+                          await import("./dist/reaper.js");
+                          {{- end }}
+                  env:
+                      {{- include "evalflow-app.databaseEnv" $ | nindent 22 }}
+                      - name: LLM_PROVIDER
+                        value: mock
+                      - name: GEMINI_API_KEY
+                        value: ""
+                      - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+                        value: {{ $.Values.telemetry.otlpEndpoint | quote }}
+                      {{- if eq $component "api" }}
+                      - name: PORT
+                        value: {{ $settings.port | quote }}
+                      {{- else if eq $component "worker" }}
+                      - name: WORKER_METRICS_PORT
+                        value: {{ $settings.port | quote }}
+                      - name: WORKER_CONCURRENCY
+                        value: {{ $settings.concurrency | quote }}
+                      - name: POLL_INTERVAL_MS
+                        value: {{ $settings.pollIntervalMs | quote }}
+                      - name: LEASE_DURATION_MS
+                        value: {{ $settings.leaseDurationMs | quote }}
+                      - name: HEARTBEAT_INTERVAL_MS
+                        value: {{ $settings.heartbeatIntervalMs | quote }}
+                      - name: WORKER_SHUTDOWN_TIMEOUT_MS
+                        value: {{ $settings.shutdownTimeoutMs | quote }}
+                      - name: WORKER_SHUTDOWN_CLEANUP_MS
+                        value: {{ $settings.shutdownCleanupMs | quote }}
+                      - name: RATE_LIMIT_MOCK
+                        value: "false"
+                      {{- else }}
+                      - name: REAPER_HEALTH_PORT
+                        value: {{ $settings.port | quote }}
+                      - name: REAPER_INTERVAL_MS
+                        value: {{ $settings.intervalMs | quote }}
+                      - name: REAPER_BATCH_SIZE
+                        value: {{ $settings.batchSize | quote }}
+                      {{- end }}
+                  ports:
+                      - name: http
+                        containerPort: {{ $settings.port }}
+                  startupProbe:
+                      httpGet: { path: /livez, port: http }
+                      periodSeconds: 2
+                      timeoutSeconds: 2
+                      failureThreshold: 30
+                  livenessProbe:
+                      httpGet: { path: /livez, port: http }
+                      periodSeconds: 10
+                      timeoutSeconds: 2
+                      failureThreshold: 3
+                  readinessProbe:
+                      httpGet: { path: /readyz, port: http }
+                      periodSeconds: 3
+                      timeoutSeconds: 3
+                      failureThreshold: 1
+                  resources:
+                      {{- toYaml $settings.resources | nindent 22 }}
+{{- end }}

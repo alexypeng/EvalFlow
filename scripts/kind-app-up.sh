@@ -16,4 +16,6 @@ helm upgrade --install evalflow-app "$repo_root/deploy/helm/evalflow-app" \
     --set-string "image.tag=$image_tag" --wait --timeout 180s
 printf '%s\n' "$image_tag" > "$repo_root/.evalflow-kind/server-image-tag"
 kubectl --kubeconfig "$kubeconfig" --context kind-evalflow -n evalflow logs job/evalflow-app-migrate
-printf '\nMigration checkpoint installed; API/worker/reaper resources are the next slice.\n'
+kubectl --kubeconfig "$kubeconfig" --context kind-evalflow -n evalflow get deployments,services
+printf '\nBackend ready. Forward the API with:\n'
+printf 'kubectl --kubeconfig .evalflow-kind/kubeconfig --context kind-evalflow -n evalflow port-forward service/evalflow-app-api 3002:3000\n'

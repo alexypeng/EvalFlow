@@ -34,12 +34,7 @@ spec:
                   args:
                       - |
                           const { spawnSync } = require("node:child_process");
-                          const url = new URL("postgresql://localhost");
-                          url.hostname = process.env.PGHOST;
-                          url.port = process.env.PGPORT;
-                          url.username = encodeURIComponent(process.env.PGUSER);
-                          url.password = encodeURIComponent(process.env.PGPASSWORD);
-                          url.pathname = `/${encodeURIComponent(process.env.PGDATABASE)}`;
+                          {{- include "evalflow-app.databaseUrl" . | nindent 26 }}
                           const child = spawnSync("pnpm", ["exec", "prisma", "migrate", "deploy"], {
                               stdio: "inherit",
                               env: { ...process.env, DATABASE_URL: url.toString() },
