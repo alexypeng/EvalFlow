@@ -10,14 +10,14 @@ The working plan and status tracker. [`ROADMAP.md`](ROADMAP.md) is the one-parag
 
 ## Status snapshot
 
-_Last updated: 2026-10-16_
+_Last updated: 2026-10-17_
 
 | | |
 |---|---|
-| **Current milestone** | M5 Kubernetes, branch `m5-kubernetes`; Postgres running in kind |
+| **Current milestone** | M5 Kubernetes, branch `m5-kubernetes`; Postgres and migration release verified |
 | **Done** | M0–M4 merged (PRs #1–#5); M4 learning reviews and hosted CI verified |
-| **Waiting on you** | Commit the completed kind/Postgres persistence checkpoint |
-| **Next up** | Commit kind/Postgres scripts after learning review, then agree application/migration ordering |
+| **Waiting on you** | Commit the completed migration checkpoint |
+| **Next up** | Add API/worker/reaper Deployments after migration checkpoint review |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -228,17 +228,19 @@ No additional application changes needed.
 
 README now includes the planned local Kubernetes milestone; Compose remains the complete stack during M5 development.
 
-**Decide before starting:**
+**Decided:**
 - **Postgres in the cluster:** Owner approved a small hand-written, single-instance StatefulSet for learning (2026-10-16).
+- **Release layout:** Existing evalflow database release first, then separate evalflow-app release whose migration hooks precede normal app resources. API/worker/reaper resources are the next slice.
 
 Tasks:
 - [x] **Claude** Initial Postgres-only Helm chart: one StatefulSet, headless Service, retained PVC and existing Secret reference; lint/render and live SQL/Pod-replacement persistence verified; introductory chart review complete
 - [ ] **Claude** Helm chart: api Deployment and Service, worker Deployment, reaper, remaining config and secrets
-- [ ] **ME** Migration Job as a Helm `pre-install`/`pre-upgrade` hook (be ready to explain hook ordering)
+- [x] **ME** Separate application-release migration Job with pre-install/pre-upgrade hooks; fresh migration, repeat upgrade and failed-install blocking verified; learning review complete
 - [ ] **Claude** Readiness and liveness probes; worker health endpoint
 - [ ] **Claude** `terminationGracePeriodSeconds` matched to the M3 shutdown timeout
 - [x] **Claude** Postgres-only kind setup and persistence scripts: separate cluster/context, generated Secret, Helm install and row survival across Pod replacement; learning review complete
-- [ ] **Claude** Extend kind setup for application image loading and full-stack installation
+- [x] **Claude** Backend image build/load into kind and separate migration-release setup/check scripts
+- [ ] **Claude** Extend application chart to full backend installation
 - [ ] **ME** KEDA `ScaledObject` with the Postgres scaler: queue-depth query, target per replica, min/max replicas, cooldown
 - [ ] **You** Demo: enqueue a burst, watch workers scale up and back down (README screenshot)
 
@@ -272,6 +274,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-16 | Use separate database and application releases with a migration hook before new application resources | Owner accepted the database-first startup flow and correctly required migration success before the new backend deploys. Keep existing evalflow database release ready before evalflow-app pre-install/pre-upgrade Job. Database credentials stay in an existing Secret; URL encoding happens in the Job. Preserve previous backend versions during upgrades and use compatible schema changes; Helm does not undo SQL migrations. Failure Job blocks normal resources. |
 | 2026-10-16 | Owner approved a separate evalflow kind cluster and live Postgres persistence check | Use a private ignored kubeconfig with explicit context, generated local Secret and retained claim. Pin the kind node to Kubernetes 1.34.11 for the installed kubectl 1.34 client. Prove new Pod identity, unchanged claim/volume and saved row through Service DNS; leave the development cluster running. This tests graceful Pod replacement, not node loss or crash recovery. |
 | 2026-10-16 | Owner approved writing a small Postgres StatefulSet for learning | First chart slice runs one postgres:16 instance with retained persistent storage, stable Service and existing Secret reference. Validate rendering before kind deployment. Additional Postgres replicas would be independent databases, so replication is outside this slice. Database-before-migration ordering remains a later decision; no migration hook implemented. |
 | 2026-10-16 | Owner chose full queued time including retry backoff | Persist database-clock queued_at on new jobs and every requeue. On claim, emit a retrospective job.queue_wait span ending at the database claim time, then parent job.process beneath it. Separate total, scheduled delay and eligible waiting attributes explain the duration. Omit unknown legacy or invalid intervals rather than inventing zero; measured zero is valid. Queue entry is write time, so transaction visibility/commit time can be included. |
@@ -331,6 +334,12 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
+
+- **2026-10-17 (migration learning review):** Owner described database-first installation and stopping on migration failure; clarified migration is the first hook inside the application release, before normal resources. Owner correctly said an unchanged deployment has no new migrations to apply, but initially located applied history in the repository folder. Explained the folder contains instructions and _prisma_migrations in Postgres records which this database has applied; owner acknowledged the distinction. Introductory review complete; revisit the history location during later rollout work. PLAN/local learning notes updated only; prior verification unchanged. Owner commit next, then API/worker/reaper Deployments. No new tests, commits or pushes.
+
+- **2026-10-16 (application migration checkpoint):** Following the separate-release discussion, owner correctly required migrations to succeed before new backend resources; proceeded with the bounded migration checkpoint. Added evalflow-app chart/values/helpers/pre-install+pre-upgrade Job, kind-app-up.sh and kind-migrations-check.sh; excluded local cluster credentials/learning notes from Docker context and updated chart docs. Script readies database, builds existing server image with unique local tag, loads into kind and installs/upgrades migration release with private kubeconfig/context. Fresh database successfully applied all ten migrations; upgrade creates a different Job and preserves migration names/checksums/finish times. Rendered Node launcher checks caught/fixed literal-percent credential encoding. Corrected unsupported Helm 4 list --all flag. Initial negative fixture used a missing database, which Prisma created successfully; removed that temporary database, changed fixture to unreachable host and verified migration failure prevents a temporary normal ConfigMap from installing. Final bundled check passes and removes temporary failure release/Job/chart. Working Postgres/migration releases remain installed (application revision 6). Both charts lint, shell syntax, special-character URL checks and diff checks pass; Docker server image builds using existing build cache. No application processes/LLM requests, Compose DB changes, migration-file edits or server-suite rerun; runtime application code is unchanged. Files: .dockerignore, PLAN, database chart README, new application chart (five files) and two scripts. Learning review pending; API/worker/reaper Deployments next. No commits or pushes.
+
+- **2026-10-16 (application startup inspection):** Confirmed persistence checkpoint committed as 61da57e and tracked tree clean. Owner asked to proceed with API/worker/reaper startup after migrations. Inspected image, entrypoints, health and shutdown paths; confirmed Helm pre-install hooks execute before normal resources, so adding one to a combined fresh Postgres/application release would wait on a database not yet created. Proposed retaining existing evalflow database release and adding a separate application release with pre-install/pre-upgrade migration Job. Alternative is one combined chart with a normal migration Job and explicit application startup gates. Release-layout choice remains pending; no templates, scripts, application code or cluster changes. PLAN/local learning notes updated only.
 
 - **2026-10-16 (kind persistence learning review):** Owner correctly identified that stored data depends on the original disk rather than the stable Service address. Explained that StatefulSets reuse Pod names, while UIDs distinguish individual Pod objects; owner then paraphrased that checking a changed UID proves actual replacement. Learning review complete. Updated PLAN/local learning notes only; existing live verification unchanged. Owner commit next, followed by application deployment/migration ordering design. No application changes, additional tests, commits or pushes.
 

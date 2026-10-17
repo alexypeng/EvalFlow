@@ -1,0 +1,24 @@
+image:
+    repository: evalflow-server
+    tag: local
+    # The kind setup script loads the image directly into the cluster.
+    pullPolicy: Never
+
+database:
+    host: evalflow-postgres
+    port: 5432
+    name: evalflow
+    username: postgres
+    existingSecret: evalflow-postgres-auth
+    passwordKey: postgres-password
+
+migrations:
+    activeDeadlineSeconds: 120
+    ttlSecondsAfterFinished: 3600
+    resources:
+        requests:
+            cpu: 100m
+            memory: 128Mi
+        limits:
+            cpu: "1"
+            memory: 512Mi
