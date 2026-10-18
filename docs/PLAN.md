@@ -16,8 +16,8 @@ _Last updated: 2026-10-18_
 |---|---|
 | **Current milestone** | M5 Kubernetes, branch `m5-kubernetes`; KEDA autoscaling live-verified in kind |
 | **Done** | M0–M4 merged (PRs #1–#5); M4 learning reviews and hosted CI verified |
-| **Waiting on you** | Owner commit; README scaling screenshot and hosted checks remain |
-| **Next up** | Commit the verified KEDA checkpoint, then finish M5 evidence/CI |
+| **Waiting on you** | README scaling screenshot and hosted checks; KEDA committed as b521aac |
+| **Next up** | Capture M5 scaling evidence, then owner push/PR and hosted check review |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -247,7 +247,7 @@ Tasks:
 
 Done when: `helm install` on kind brings up a working stack and workers autoscale on queue depth.
 
-**KEDA checkpoint files (uncommitted):** `README.md`, `docs/PLAN.md`,
+**KEDA checkpoint files (committed as `b521aac`):** `README.md`, `docs/PLAN.md`,
 `deploy/helm/evalflow-app/Chart.yaml`, `deploy/helm/evalflow-app/README.md`,
 `deploy/helm/evalflow-app/values.yaml`,
 `deploy/helm/evalflow-app/templates/backend-deployments.yaml`,
@@ -256,7 +256,7 @@ Done when: `helm install` on kind brings up a working stack and workers autoscal
 `scripts/kind-keda-up.sh`, `scripts/kind-keda-check.sh`, `scripts/kind-keda-check.mjs`,
 `server/test/db/workerDemand.test.ts`. Local learning notes remain unstaged.
 
-Suggested checkpoint commands after learning review (owner runs):
+Completed checkpoint commands (owner committed as `b521aac`; no repeat needed):
 
 ```bash
 git add README.md docs/PLAN.md deploy/helm/evalflow-app scripts/kind-app-up.sh \
@@ -356,6 +356,8 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
+
+- **2026-10-18 (M5 next-step status):** Verified owner committed KEDA as b521aac; tracked working tree clean before this status update, intentional untracked learning files preserved. M5 implementation/live checks and learning review are complete. Scaling screenshot and hosted check review remain before milestone wrap-up; recommend those before M6 benchmarking. No runtime changes, new tests, commits or pushes.
 
 - **2026-10-18 (KEDA learning review):** Owner correctly explained that running jobs still require worker capacity, calculated four workers for two running plus three eligible queued with max4 (ten delayed excluded), and distinguished the highest recommendation in a rolling 30-second scale-down window from the 60-second idle-to-zero cooldown. Clarified zero demand excludes running jobs too. Learning checkpoint complete; owner commit and final M5 screenshot/hosted checks next. PLAN/local learning notes updated only; no new runtime changes, tests, commits or pushes.
 
