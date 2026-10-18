@@ -8,6 +8,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { summarize, markdown } from "../benchmarks/report.mjs";
 import { scenario } from "../benchmarks/scenarios.mjs";
 import { aggregateSweep, sweepMarkdown } from "../benchmarks/sweepReport.mjs";
+import { summarizePolling, aggregatePolling, pollingMarkdown } from "../benchmarks/pollingReport.mjs";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
 const args = ["--kubeconfig", `${repo}.evalflow-kind/kubeconfig`, "--context", "kind-evalflow", "-n", "evalflow"];
@@ -22,9 +23,10 @@ const handle = await open(lock, "wx");
 await handle.writeFile(JSON.stringify({ pid: process.pid, folder }));
 await handle.close();
 const pausedKey = "autoscaling.keda.sh/paused-replicas";
+const isPolling = plan.methodology === "queue-worker-idle-polling-v1";
 const isSweep = plan.methodology === "queue-worker-arrival-sweep-v1";
 const report = { capturedAt: new Date().toISOString(), methodology: plan.methodology, plan, trials: [], summaries: [] };
-let original, scaler, changed = false, stopping = false;
+let original, scaler, changed = false, pollingChanged = false, stopping = false;
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => {
     stopping = true;
     console.error("Stop requested: finishing the bounded current trial, then restoring scaling. Do not send another signal.");
@@ -37,7 +39,7 @@ async function workerState() {
     const d = await deployment();
     const list = JSON.parse(await kube("get", "pods", "-l", "app.kubernetes.io/component=worker", "-o", "json")).items;
     return { desired: d.spec.replicas, ready: d.status.readyReplicas ?? 0, pods: list.map((pod) => ({
-        uid: pod.metadata.uid, deleting: Boolean(pod.metadata.deletionTimestamp),
+        uid: pod.metadata.uid, name: pod.metadata.name, ip: pod.status.podIP, deleting: Boolean(pod.metadata.deletionTimestamp),
         ready: pod.status.conditions?.some((c) => c.type === "Ready" && c.status === "True") ?? false,
         restarts: pod.status.containerStatuses?.reduce((sum, container) => sum + container.restartCount, 0) ?? 0,
     })).sort((a, b) => a.uid.localeCompare(b.uid)) };
@@ -51,8 +53,9 @@ async function until(label, check, timeout = 120_000) {
 }
 async function persist() {
     if (isSweep) report.aggregates = aggregateSweep(report);
+    if (isPolling) report.aggregates = aggregatePolling(report);
     await writeFile(`${folder}/report.json`, JSON.stringify(report, null, 2));
-    await writeFile(`${folder}/report.md`, (isSweep ? sweepMarkdown(report) : markdown(report)));
+    await writeFile(`${folder}/report.md`, (isPolling ? pollingMarkdown(report) : isSweep ? sweepMarkdown(report) : markdown(report)));
 }
 function remote(config) {
     return new Promise((resolve, reject) => {
@@ -102,6 +105,7 @@ try {
         producerSha256: createHash("sha256").update(source).digest("hex"),
         reportSha256: createHash("sha256").update(await readFile(`${repo}benchmarks/report.mjs`)).digest("hex"),
         scenarioSha256: createHash("sha256").update(await readFile(`${repo}benchmarks/scenarios.mjs`)).digest("hex"),
+        pollingReportSha256: createHash("sha256").update(await readFile(`${repo}benchmarks/pollingReport.mjs`)).digest("hex"),
         sweepReportSha256: createHash("sha256").update(await readFile(`${repo}benchmarks/sweepReport.mjs`)).digest("hex"),
         image: original.spec.template.spec.containers[0].image,
         resources: original.spec.template.spec.containers[0].resources,
@@ -114,7 +118,8 @@ try {
         warmupIds: Array.from({ length: trial.workers }, () => randomUUID()),
     }));
     await writeFile(`${folder}/manifest.json`, JSON.stringify({ configs, originalReplicas: original.spec.replicas,
-        originalPausedReplicas: scaler?.metadata.annotations?.[pausedKey] ?? null }, null, 2));
+        originalPausedReplicas: scaler?.metadata.annotations?.[pausedKey] ?? null,
+        originalPollEnv: original.spec.template.spec.containers[0].env.find((item) => item.name === "POLL_INTERVAL_MS") ?? null }, null, 2));
     for (const config of configs) {
         if (stopping) throw new Error("Benchmark stopped before next trial");
         changed = true;
@@ -126,13 +131,29 @@ try {
                     !(await kube("get", "hpa", "keda-hpa-evalflow-app-worker", "--ignore-not-found", "-o", "name"));
             });
         } else await kube("scale", "deployment", "evalflow-app-worker", `--replicas=${config.workers}`);
+        if (isPolling) {
+            pollingChanged = true;
+            await kube("patch", "deployment", "evalflow-app-worker", "--type=strategic", "-p", JSON.stringify({
+                spec: { template: { spec: { containers: [{ name: "worker", env: [
+                    { name: "POLL_INTERVAL_MS", value: String(config.pollIntervalMs) },
+                ] }] } } },
+            }));
+            await kube("rollout", "status", "deployment/evalflow-app-worker", "--timeout=120s");
+        }
         await until(`${config.workers} stable ready workers`, async () => {
             const state = await workerState();
             return state.desired === config.workers && state.ready === config.workers &&
                 state.pods.length === config.workers && state.pods.every((pod) => pod.ready && !pod.deleting);
         });
         const before = await workerState();
-        console.log(`Starting trial: ${config.workers} workers, ${config.jobs} jobs, ${config.arrivalRate} job/s, repetition ${config.repetition ?? 1}, 2000ms mock latency.`);
+        if (isPolling) {
+            const port = env.WORKER_METRICS_PORT ?? "9100";
+            config.metricsUrl = `http://${before.pods[0].ip}:${port}/metrics`;
+            const current = await deployment();
+            assert.equal(current.spec.template.spec.containers[0].env
+                .find((item) => item.name === "POLL_INTERVAL_MS").value, String(config.pollIntervalMs));
+        }
+        console.log(`Starting trial: ${config.workers} workers, ${config.jobs} jobs, ${config.arrivalRate} job/s, repetition ${config.repetition ?? 1}, ${config.latencyMs}ms mock latency${isPolling ? `, poll ${config.pollIntervalMs}ms` : ""}.`);
         const observed = [];
         let finished = false;
         const monitor = (async () => {
@@ -149,7 +170,7 @@ try {
         }
         trial.workerStates = { before, after, observed };
         report.trials.push(trial);
-        const summary = summarize(trial);
+        const summary = isPolling ? summarizePolling(trial) : summarize(trial);
         report.summaries.push(summary);
         await persist();
         console.log(JSON.stringify(summary, null, 2));
@@ -158,20 +179,38 @@ try {
     }
     console.log(`Saved JSON and Markdown: ${folder}`);
 } finally {
+    const restorationErrors = [];
     try {
-        if (changed && scaler) {
-            await kube("patch", "scaledobject", "evalflow-app-worker", "--type=merge", "-p", JSON.stringify({
-                metadata: { annotations: { [pausedKey]: scaler.metadata.annotations?.[pausedKey] ?? null } },
-            }));
-            if (!scaler.metadata.annotations?.[pausedKey] && scaler.metadata.annotations?.["autoscaling.keda.sh/paused"] === "true") {
-                await kube("scale", "deployment", "evalflow-app-worker", `--replicas=${original.spec.replicas}`);
-            } else if (!scaler.metadata.annotations?.[pausedKey]) {
-                await until("KEDA resumed", async () => {
-                    const current = JSON.parse(await kube("get", "scaledobject", "evalflow-app-worker", "-o", "json"));
-                    return current.status?.conditions?.some((c) => c.type === "Paused" && c.status === "False");
-                });
+        try {
+            if (pollingChanged && original) {
+                const old = original.spec.template.spec.containers[0].env.find((item) => item.name === "POLL_INTERVAL_MS");
+                await kube("patch", "deployment", "evalflow-app-worker", "--type=strategic", "-p", JSON.stringify({
+                    spec: { template: { spec: { containers: [{ name: "worker", env: [old ??
+                        { name: "POLL_INTERVAL_MS", $patch: "delete" }] }] } } },
+                }));
+                await kube("rollout", "status", "deployment/evalflow-app-worker", "--timeout=120s");
+                assert.deepEqual((await deployment()).spec.template.spec.containers[0].env
+                    .find((item) => item.name === "POLL_INTERVAL_MS"), old);
+                report.pollingSettingRestored = true;
             }
-        } else if (changed && original) await kube("scale", "deployment", "evalflow-app-worker", `--replicas=${original.spec.replicas}`);
+        } catch (error) { restorationErrors.push(error); }
+        try {
+            if (changed && scaler) {
+                await kube("patch", "scaledobject", "evalflow-app-worker", "--type=merge", "-p", JSON.stringify({
+                    metadata: { annotations: { [pausedKey]: scaler.metadata.annotations?.[pausedKey] ?? null } },
+                }));
+                if (!scaler.metadata.annotations?.[pausedKey] && scaler.metadata.annotations?.["autoscaling.keda.sh/paused"] === "true") {
+                    await kube("scale", "deployment", "evalflow-app-worker", `--replicas=${original.spec.replicas}`);
+                } else if (!scaler.metadata.annotations?.[pausedKey]) {
+                    await until("KEDA resumed", async () => {
+                        const current = JSON.parse(await kube("get", "scaledobject", "evalflow-app-worker", "-o", "json"));
+                        return current.status?.conditions?.some((c) => c.type === "Paused" && c.status === "False");
+                    });
+                }
+            } else if (changed && original) await kube("scale", "deployment", "evalflow-app-worker", `--replicas=${original.spec.replicas}`);
+        } catch (error) { restorationErrors.push(error); }
+        report.scalingSettingRestored = restorationErrors.length === 0;
         if (report.environment) await persist();
+        if (restorationErrors.length) throw new AggregateError(restorationErrors, "Benchmark restoration failed");
     } finally { await unlink(lock); }
 }

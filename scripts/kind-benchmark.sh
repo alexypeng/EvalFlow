@@ -17,6 +17,9 @@ if [[ "${1:-}" == "--verify" && "$#" == 1 ]]; then
 elif [[ "${1:-}" == "--verify-sweep" && "$#" == 1 ]]; then
     run_trial --sweep-smoke
     run_trial --sweep
+elif [[ "${1:-}" == "--verify-polling" && "$#" == 1 ]]; then
+    run_trial --polling-smoke
+    run_trial --polling
 else
     run_trial "$@"
 fi

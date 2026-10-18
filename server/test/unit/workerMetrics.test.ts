@@ -11,6 +11,20 @@ function create(now?: () => number) {
 afterEach(async () => { await Promise.all(instances.splice(0).map(({ app }) => app.close())); });
 
 describe("worker metrics", () => {
+    it("counts claim results without changing returned ownership or rejected errors", async () => {
+        const metrics = create();
+        const job = { id: "job", leaseToken: "token" };
+        const error = new Error("database unavailable");
+        expect(await metrics.measureClaim(async () => job)).toBe(job);
+        expect(await metrics.measureClaim(async () => null)).toBeNull();
+        await expect(metrics.measureClaim(async () => { throw error; })).rejects.toBe(error);
+        const { body } = await metrics.app.inject("/metrics");
+        for (const outcome of ["claimed", "empty", "error"]) {
+            expect(body).toContain(`evalflow_worker_claim_queries_total{outcome="${outcome}"} 1`);
+        }
+        expect(body).toContain('evalflow_worker_attempts_total{outcome="completed"} 0');
+    });
+
     it.each(["measureLlm", "measurePermitWait"] as const)(
         "%s records successful operation time without including later trace work", async (method) => {
             let now = 1000;

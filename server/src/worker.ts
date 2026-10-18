@@ -285,7 +285,7 @@ async function processJob(
 }
 
 async function runOnce() {
-    const job = await claimNextJob(workerId, leaseDurationMs);
+    const job = await metrics.measureClaim(() => claimNextJob(workerId, leaseDurationMs));
 
     if (!job) return false;
 

@@ -1,6 +1,31 @@
 import assert from "node:assert/strict";
 
+export function pollingOffsets(count) {
+    let state = 20261018;
+    let offset = 0;
+    return Array.from({ length: count }, () => {
+        state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+        offset += 1500 + Math.floor(state / 4294967296 * 1000);
+        return offset;
+    });
+}
+
 export function scenario(argv) {
+    if (argv.length === 1 && ["--polling", "--polling-smoke"].includes(argv[0])) {
+        const smoke = argv[0] === "--polling-smoke";
+        const jobs = smoke ? 4 : 30;
+        const repetitions = smoke ? 1 : 3;
+        const scheduledOffsetsMs = pollingOffsets(jobs);
+        const arrivalWindowMs = scheduledOffsetsMs.at(-1) + 1500;
+        const trials = [];
+        for (let repetition = 1; repetition <= repetitions; repetition++) {
+            const intervals = repetition % 2 ? [1000, 100] : [100, 1000];
+            for (const pollIntervalMs of intervals) trials.push({ workers: 1, jobs, latencyMs: 0, repetition,
+                pollIntervalMs, arrivalRate: jobs / (arrivalWindowMs / 1000), scheduledOffsetsMs, arrivalWindowMs });
+        }
+        return { methodology: "queue-worker-idle-polling-v1", smoke, jobs, repetitions, intervalsMs: [1000, 100],
+            workers: 1, latencyMs: 0, scheduledOffsetsMs, arrivalWindowMs, trials };
+    }
     if (argv.length === 1 && ["--sweep", "--sweep-smoke"].includes(argv[0])) {
         const smoke = argv[0] === "--sweep-smoke";
         const durationSeconds = smoke ? 4 : 60;

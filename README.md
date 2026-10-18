@@ -1154,3 +1154,27 @@ At three arrivals/sec, the sampled queue peaked at 60–63 jobs and took 32.7–
 stopped. Execution p99 stayed near 2.03s. This is consistent with the configured four-worker/two-second
 mock workload reaching its processing limit while excess arrivals accumulate. The detailed report
 retains all trial values and ranges; three shared-host trials are not a production capacity guarantee.
+
+
+### Idle polling tradeoff (M6)
+
+The [six-trial comparison](docs/benchmarks/2026-10-18-idle-polling.md) and
+[raw data](docs/benchmarks/2026-10-18-idle-polling.json) hold one worker fixed, use zero configured mock
+delay, and send the same 30 sparse arrivals per trial. All 180 measured jobs completed once with one
+evaluation. Medians of three trial-level metrics per interval:
+
+| Idle poll interval | Queue-wait p99 | Empty claim queries/sec |
+| ---: | ---: | ---: |
+| 1000ms | 972ms | 0.98 |
+| 100ms | 108ms | 9.47 |
+
+Shorter polling reduced idle queue waiting while increasing empty queries by about 9.7 times.
+Execution p99 stayed near 21ms; these light-load results measure waking an idle worker, not maximum
+throughput. The counter excludes health/producer SQL and measures query frequency, not database CPU
+or monetary cost. Three local trials of 30 jobs each provide limited p99 evidence; all trial values
+and ranges remain in the report. This does not establish an optimal production interval.
+
+Run `bash scripts/kind-polling-check.sh` for checks, a fresh instrumented image and smoke/full trials,
+or see the [protocol](benchmarks/README.md#idle-polling-comparison) for an already deployed image.
+The original 1000ms setting and KEDA controls are restored after measurement. LISTEN/NOTIFY remains
+a later comparison; this experiment supplies the polling baseline.

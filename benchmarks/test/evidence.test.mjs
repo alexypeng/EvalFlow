@@ -26,3 +26,25 @@ test("capacity evidence recomputes all nine trials and repeated-rate aggregates"
     assert.equal(new Set(jobs.map((job) => job.id)).size, 1080);
     assert(jobs.every((job) => job.status === "completed" && job.attempts === 1 && job.evaluations === 1));
 });
+
+test("idle polling evidence recomputes six paired trials, counters and restoration", async () => {
+    const { summarizePolling, aggregatePolling, pollingMarkdown } = await import("../pollingReport.mjs");
+    const report = JSON.parse(await readFile(new URL(
+        "../../docs/benchmarks/2026-10-18-idle-polling.json", import.meta.url), "utf8"));
+    assert.equal(report.plan.smoke, false);
+    assert.equal(report.trials.length, 6);
+    assert.equal(report.pollingSettingRestored, true);
+    assert.equal(report.scalingSettingRestored, true);
+    assert.deepEqual(report.summaries, report.trials.map(summarizePolling));
+    assert.deepEqual(report.aggregates, aggregatePolling(report));
+    assert(report.aggregates.every((group) => group.comparable && group.validTrials === 3));
+    const jobs = report.trials.flatMap((trial) => trial.jobs);
+    const warmup = report.trials.flatMap((trial) => trial.warmup);
+    assert.equal(jobs.length, 180);
+    assert.equal(warmup.length, 6);
+    assert.equal(new Set([...jobs, ...warmup].map((job) => job.id)).size, 186);
+    assert([...jobs, ...warmup].every((job) =>
+        job.status === "completed" && job.attempts === 1 && job.evaluations === 1));
+    assert.equal(await readFile(new URL(
+        "../../docs/benchmarks/2026-10-18-idle-polling.md", import.meta.url), "utf8"), pollingMarkdown(report));
+});

@@ -1,14 +1,24 @@
-// Sent over stdin to Node in the existing API Pod. No API or image changes are required.
+// Sent over stdin to the API Pod; polling mode additionally requires worker claim-counter instrumentation.
 import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 const { z } = await import("zod");
 const config = z.strictObject({
     workers: z.union([z.literal(1), z.literal(2), z.literal(4)]),
-    jobs: z.number().int().min(4).max(600), arrivalRate: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-    latencyMs: z.literal(2000), repetition: z.number().int().min(1).max(3).optional(),
+    jobs: z.number().int().min(4).max(600), arrivalRate: z.number().positive().max(3),
+    latencyMs: z.union([z.literal(0), z.literal(2000)]), repetition: z.number().int().min(1).max(3).optional(),
+    pollIntervalMs: z.union([z.literal(100), z.literal(1000)]).optional(),
+    scheduledOffsetsMs: z.array(z.number().int().nonnegative()).optional(),
+    arrivalWindowMs: z.number().int().positive().optional(), metricsUrl: z.url().optional(),
     ids: z.array(z.uuid()), warmupIds: z.array(z.uuid()),
 }).parse(JSON.parse(process.argv[2]));
 if (config.ids.length !== config.jobs || config.warmupIds.length !== config.workers) throw new Error("ID count mismatch");
+if (config.pollIntervalMs !== undefined) {
+    if (config.workers !== 1 || config.latencyMs !== 0 || !config.metricsUrl ||
+        config.scheduledOffsetsMs?.length !== config.jobs || !config.arrivalWindowMs ||
+        config.scheduledOffsetsMs.some((offset, index, values) => offset >= config.arrivalWindowMs ||
+            (index > 0 && offset <= values[index - 1]))) throw new Error("Invalid sparse polling configuration");
+} else if (config.latencyMs !== 2000 || ![1, 2, 3].includes(config.arrivalRate) ||
+    config.scheduledOffsetsMs || config.arrivalWindowMs || config.metricsUrl) throw new Error("Invalid rate configuration");
 if (process.env.LLM_PROVIDER !== "mock") throw new Error("Benchmark requires mock provider");
 const url = new URL("postgresql://localhost");
 url.hostname = process.env.PGHOST; url.port = process.env.PGPORT;
@@ -56,6 +66,14 @@ try {
     if (warmup.some((job) => job.status !== "completed" || job.attempts !== 1 || job._count.evals !== 1) ||
         warmup.length !== config.workers) throw new Error("Warmup failed; inspect fixture IDs in manifest");
     console.error(`Completed warmup batch of ${config.workers} jobs; scheduling ${config.jobs} jobs at ${config.arrivalRate}/s.`);
+    const readClaims = async () => {
+        const response = await fetch(config.metricsUrl, { signal: AbortSignal.timeout(3000) });
+        if (!response.ok) throw new Error(`Worker metrics HTTP ${response.status}`);
+        const text = (await response.text()).split("\n")
+            .filter((line) => line.startsWith("evalflow_worker_claim_queries_total{")).join("\n");
+        return { text, at: performance.now() };
+    };
+    const claimsBefore = config.pollIntervalMs ? await readClaims() : null;
     const [{ now }] = await prisma.$queryRaw`SELECT clock_timestamp() AS now`;
     const began = performance.now();
     sampler = (async () => {
@@ -71,7 +89,7 @@ try {
         }
     })().catch((error) => { issues.push(`Sampling failed: ${error.message}`); });
     const submissions = await Promise.all(ids.map(async (id, index) => {
-        const scheduledMs = index / config.arrivalRate * 1000;
+        const scheduledMs = config.scheduledOffsetsMs?.[index] ?? index / config.arrivalRate * 1000;
         await sleep(Math.max(0, began + scheduledMs - performance.now()));
         const sentMs = performance.now() - began;
         try {
@@ -81,13 +99,19 @@ try {
             return { id, scheduledMs, sentMs, lagMs: Math.max(0, sentMs - scheduledMs), error: error.message };
         }
     }));
-    await sleep(Math.max(0, began + config.jobs / config.arrivalRate * 1000 - performance.now()));
+    const windowMs = config.arrivalWindowMs ?? config.jobs / config.arrivalRate * 1000;
+    await sleep(Math.max(0, began + windowMs - performance.now()));
     const accepted = submissions.filter((job) => !job.error).map((job) => job.id);
     await waitTerminal(accepted, config.jobs * config.latencyMs + 60_000);
     const rows = await rowsFor(ids);
+    const claimsAfter = config.pollIntervalMs ? await readClaims() : null;
+    const claimMetrics = claimsBefore && claimsAfter ? {
+        before: { text: claimsBefore.text, offsetMs: claimsBefore.at - began },
+        after: { text: claimsAfter.text, offsetMs: claimsAfter.at - began },
+    } : undefined;
     stopSampling = true;
     await sampler;
-    console.log(JSON.stringify({ config, startedAt: now, submissions, samples, issues,
+    console.log(JSON.stringify({ config, startedAt: now, submissions, samples, issues, claimMetrics,
         warmup: warmup.map(({ _count, ...job }) => ({ ...job, evaluations: _count.evals })),
         jobs: rows.map(({ _count, ...job }) => ({ ...job, evaluations: _count.evals })) }));
 } finally {

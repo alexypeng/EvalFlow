@@ -40,7 +40,8 @@ export function summarize(trial) {
         Math.abs(Date.parse(sample.databaseAt) - start - sample.offsetMs) > 1000)) {
         issues.push("Database wall clock diverged from monotonic elapsed time by over 1s; possible host/VM suspension or clock change");
     }
-    const endOfArrivals = start + trial.config.jobs / trial.config.arrivalRate * 1000;
+    const arrivalWindowMs = trial.config.arrivalWindowMs ?? trial.config.jobs / trial.config.arrivalRate * 1000;
+    const endOfArrivals = start + arrivalWindowMs;
     const completions = trial.jobs.filter((job) => job.status === "completed" && job.completedAt);
     const terminalTimes = trial.jobs.filter((job) => ["completed", "dead_letter"].includes(job.status))
         .map((job) => Date.parse(job.completedAt)).filter(Number.isFinite);
@@ -52,7 +53,7 @@ export function summarize(trial) {
         workers: trial.config.workers, scheduled: trial.config.jobs, accepted: accepted.length, counts,
         valid: issues.length === 0, issues,
         completedPerSecondDuringArrivals: completions.filter((job) => Date.parse(job.completedAt) <= endOfArrivals).length /
-            (trial.config.jobs / trial.config.arrivalRate),
+            (arrivalWindowMs / 1000),
         completedPerSecondIncludingDrain: durationSeconds > 0 ? counts.completed / durationSeconds : null,
         drainSeconds: finish === null ? null : Math.max(0, (finish - endOfArrivals) / 1000),
         peakQueuedSampled: Math.max(0, ...trial.samples.map((sample) => sample.queued)),

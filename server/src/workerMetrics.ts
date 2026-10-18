@@ -18,6 +18,13 @@ export function workerMetricsPort(env: NodeJS.ProcessEnv) {
 
 export function createWorkerMetrics(now: () => number = () => performance.now()) {
     const registry = new Registry();
+    const claimQueries = new Counter({
+        name: "evalflow_worker_claim_queries_total",
+        help: "Observed queue claim operations by result; errors may occur before or after a query reaches Postgres.",
+        labelNames: ["outcome"] as const,
+        registers: [registry],
+    });
+    for (const outcome of ["claimed", "empty", "error"]) claimQueries.inc({ outcome }, 0);
     const attempts = new Counter({
         name: "evalflow_worker_attempts_total",
         help: "Observed ended claims by outcome; accepted transitions, discarded leases or unconfirmed finalization.",
@@ -77,6 +84,16 @@ export function createWorkerMetrics(now: () => number = () => performance.now())
 
     return {
         app,
+        async measureClaim<T>(operation: () => Promise<T | null>): Promise<T | null> {
+            try {
+                const job = await operation();
+                claimQueries.inc({ outcome: job === null ? "empty" : "claimed" });
+                return job;
+            } catch (error) {
+                claimQueries.inc({ outcome: "error" });
+                throw error;
+            }
+        },
         measureLlm<T>(provider: LlmProvider, operation: () => Promise<T>) {
             return measure(llmDuration, provider, operation);
         },

@@ -21,7 +21,8 @@ bash scripts/kind-benchmark.sh           # 60 jobs per worker count, roughly fiv
 The wrapper runs report unit tests first and uses macOS `caffeinate -i` while each trial runs
 to prevent idle sleep. Keep the host awake manually on other platforms; closing the lid or force-sleeping
 can still invalidate a trial. The local benchmark itself is not run in hosted CI; its
-report tests are. No provider key, new dependency, image build, schema change or API change is needed.
+report tests are. The baseline and capacity sweep need no provider key, new dependency, image build, schema change or API change.
+The idle-polling comparison below needs the worker claim-counter instrumentation in its image.
 
 ## What is measured
 
@@ -86,7 +87,7 @@ restore the original annotation from the manifest; do not blindly remove an owne
 
 The Docker host is shared with other services; these are local exploratory results. Repeat tests,
 vary order/offered rate and control resource contention before publishing stable p99/capacity claims.
-Polling versus LISTEN/NOTIFY and bottleneck changes are later M6 work.
+The idle-polling experiment below measures the wakeup tradeoff; LISTEN/NOTIFY remains later M6 work.
 
 [KEDA pause controls](https://keda.sh/docs/2.21/concepts/scaling-deployments/#pausing-autoscaling)
 
@@ -120,3 +121,44 @@ The first fixed-worker result is preserved unchanged. Its original producer is a
 `docs/benchmarks/sources/2026-10-18-fixed-workers-produce.mjs`, matching that report's producer hash;
 the current producer additionally accepts the sweep rates. The report calculation module remains
 compatible with the original evidence.
+
+## Idle polling comparison
+
+```bash
+bash scripts/kind-polling-check.sh            # typecheck, tests, fresh kind image/deploy, smoke and full comparison
+bash scripts/kind-benchmark.sh --polling-smoke # existing instrumented image: 4 jobs/interval, validation only
+bash scripts/kind-benchmark.sh --polling       # existing instrumented image: 30 jobs/interval, three repetitions
+```
+
+`--verify-polling` runs smoke and full comparisons together. The check bundle uses macOS idle-sleep
+prevention around tests/build/deploy as well as measurement. It leaves the freshly built instrumentation
+image deployed. No schema change or real-provider request is needed.
+
+Hold one worker/concurrency1 fixed, with zero configured mock delay and the existing permit limiter
+and trace export disabled. Compare `POLL_INTERVAL_MS=1000` and `100`. The worker sleeps only after an
+empty/error claim, so this measures waking an idle worker rather than throttling busy processing.
+Each trial receives 30 independently scheduled jobs at reproducible seeded gaps of 1500–2499ms,
+followed by a 1500ms observation tail: a 62.479-second window. All trials use identical arrival offsets.
+The interval order is 1000/100, 100/1000, 1000/100 (three paired repetitions). Each condition starts
+with warmup, and the report rejects overlapping job execution/arrivals so queue backlog cannot silently
+replace the intended idle-worker scenario. Zero mock delay still leaves normal pipeline/persistence work.
+
+The harness changes the Deployment environment before each trial, waits for rollout and old Pods to
+terminate, then monitors the exact ready worker throughout measurement. It restores the original poll
+environment entry and KEDA pause setting independently in cleanup, recording restoration success.
+Deployment changes are outside the measured window. Forced process termination still cannot run cleanup;
+the manifest records original settings for recovery.
+
+The worker exposes `evalflow_worker_claim_queries_total{outcome="claimed|empty|error"}` on its metrics
+endpoint. The API-Pod producer snapshots this counter after warmup and at the end of the observation
+window. Deltas count measured claim operations, with the rate divided by the actual monotonic time
+between snapshots. Every successful empty claim is one queue query returning no job. Other SQL,
+including producer inserts, sampling and readiness checks, is excluded. Errors may happen before or
+after a query reaches Postgres; any error, counter reset or mismatched claimed-job count invalidates
+the trial. This counter measures query frequency, not database CPU, resource saturation or monetary cost.
+
+Reports keep all six trials and summarize median/min/max of each interval's trial-level queue p50/p99,
+total/execution p99 and empty/all claim rates. Three repeats expose a small local range; 30 jobs per
+trial cannot establish a stable population p99. A shorter poll can reduce idle queue waiting while
+increasing empty queries; these results alone do not choose a production setting or demonstrate the
+benefit of LISTEN/NOTIFY. The original 1000ms kind setting is restored after the experiment.
