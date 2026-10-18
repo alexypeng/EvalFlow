@@ -37,7 +37,7 @@ export function installApiMetrics(app: FastifyInstance, readJobCounts: () => Pro
 
     app.addHook("onResponse", async (request, reply) => {
         const route = request.routeOptions.url ?? "unmatched";
-        if (route === "/metrics") return;
+        if (["/metrics", "/livez", "/readyz"].includes(route)) return;
 
         const labels = {
             method: methods.has(request.method) ? request.method : "OTHER",

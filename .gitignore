@@ -135,6 +135,7 @@ dist
 # pnpm
 .pnpm-store
 .evalflow-ci/
+.evalflow-kind/
 
 # yarn v3
 .pnp.*

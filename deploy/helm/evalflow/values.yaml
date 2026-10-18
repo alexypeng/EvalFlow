@@ -1,0 +1,18 @@
+postgres:
+    image: postgres:16
+    database: evalflow
+    username: postgres
+    # Create this Secret in the release namespace before installing the chart.
+    existingSecret: evalflow-postgres-auth
+    passwordKey: postgres-password
+    storage:
+        size: 1Gi
+        # null uses the cluster's default StorageClass; "" explicitly requests no class.
+        className: null
+    resources:
+        requests:
+            cpu: 100m
+            memory: 128Mi
+        limits:
+            cpu: "1"
+            memory: 512Mi

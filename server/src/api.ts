@@ -9,13 +9,16 @@ import { CreateJobSchema, CreateRunSchema, ListJobsSchema } from "./types.js";
 import { z } from "zod";
 import { installApiMetrics } from "./apiMetrics.js";
 import { installApiTelemetry, shutdownTelemetry } from "./telemetry.js";
+import { installHealthChecks } from "./health.js";
 
 const app = Fastify({
     logger: true,
 });
+let stopping = false;
 
 await installApiTelemetry(app);
 installApiMetrics(app, getJobCounts);
+installHealthChecks(app, { isStopping: () => stopping });
 
 await app.register(cors, {
     origin: true,
@@ -174,7 +177,6 @@ app.get("/health", async () => {
 
 const port = Number(process.env.PORT ?? 3000);
 
-let stopping = false;
 function requestShutdown() {
     if (stopping) return;
     stopping = true;

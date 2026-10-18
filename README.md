@@ -169,6 +169,7 @@ WORKER_SHUTDOWN_CLEANUP_MS=5000
 WORKER_STOP_GRACE_PERIOD=40s
 REAPER_INTERVAL_MS=5000
 REAPER_BATCH_SIZE=100
+REAPER_HEALTH_PORT=9101
 ```
 
 `LLM_PROVIDER=mock` is the default so the project can run locally without an API key. Use `LLM_PROVIDER=gemini` and set `GEMINI_API_KEY` to call Gemini instead of the mock provider. `GEMINI_MODEL` selects the model (see [Gemini models](https://ai.google.dev/gemini-api/docs/models)).
@@ -211,6 +212,8 @@ the API and worker, using the same `DATABASE_URL`. For compiled code use
 (1–1000). Each scan handles at most that many expired jobs, then waits for the interval.
 Multiple reapers may run safely: row locks with `SKIP LOCKED` keep them from recovering the same
 claim twice. The reaper needs Postgres access and no LLM API key.
+It exposes process/readiness checks on `REAPER_HEALTH_PORT` (default 9101); use a distinct port
+for each host reaper, or port 0 for an automatically allocated port. Compose does not publish it.
 
 `TEST_DATABASE_URL` is the database used by `pnpm test`. Start it locally with `docker compose --profile test up -d postgres-test`. The name must end in `_test`, since tests truncate tables.
 
@@ -803,7 +806,7 @@ for a host process. New root traces are sampled, and an incoming W3C `traceparen
 is respected. Fastify adds request/handler spans and Postgres adds query/connection spans under an
 active trace. Query parameters/results and request bodies/authorization headers are not explicitly
 captured; standard HTTP and SQL query-text metadata are collected by the instrumentation.
-`GET /health` and `/metrics` (including query strings) are excluded. Postgres requires a parent span,
+`GET /health`, `/livez`, `/readyz` and `/metrics` (including query strings) are excluded. Postgres requires a parent span,
 so idle polling and heartbeats outside traced operations do not create standalone traces.
 Worker attempts emit `job.process` spans with child spans for the operations described below.
 
@@ -1021,7 +1024,15 @@ Health check:
 
 ```bash
 curl http://localhost:3000/health
+curl http://localhost:3000/livez
+curl http://localhost:3000/readyz
 ```
+
+`/livez` checks HTTP process responsiveness without querying Postgres. `/readyz` returns 503 when
+the database probe fails or shutdown has begun; it returns no database error details. The worker
+serves the same checks alongside metrics on port 9100, and the reaper on port 9101. Kubernetes uses
+readiness to stop Service traffic and liveness to decide restarts. Probe requests are excluded from
+API traffic metrics and tracing. See the [kind backend setup](deploy/helm/evalflow-app/README.md).
 
 ## Screenshots
 
@@ -1047,8 +1058,35 @@ updated the PR summary while ordinary tests passed. The override was then remove
 [Failing workflow run](https://github.com/alexypeng/EvalFlow/actions/runs/38471539384) ·
 [Restored passing workflow run](https://github.com/alexypeng/EvalFlow/actions/runs/38475140863)
 
+### Kubernetes Worker Autoscaling
+
+A local mock-only demo submits twenty jobs with 12-second model latency. KEDA scales workers from zero
+up to four, then back to zero after the jobs complete. Every burst job finishes with one attempt and
+one saved evaluation. These captures show actual `kubectl` output with selected columns, formatted
+for readability.
+
+**Scale up:** the worker Deployment requests four replicas and all four worker Pods are ready.
+
+![Captured kubectl output showing four ready workers during the mock burst](docs/screenshots/keda-scale-up.png)
+
+**Scale down:** after completion and the idle cooldown, the Deployment requests zero replicas and
+no worker Pods remain. KEDA handles zero-to-one and one-to-zero transitions; the HPA handles nonzero
+scaling, so the HPA's own minimum of one is expected alongside a ScaledObject minimum of zero.
+The Deployment row shows the requested worker count; the HPA can still show its last nonzero recommendation.
+
+![Captured kubectl output showing zero workers after the mock burst drains](docs/screenshots/keda-scale-down.png)
+
+Reproduce after [setting up the local KEDA stack](deploy/helm/evalflow-app/README.md#worker-autoscaling):
+
+```bash
+node scripts/kind-keda-check.mjs
+```
+
 ## Roadmap
 
+- M5 local Kubernetes work is in progress: [Postgres](deploy/helm/evalflow/README.md) and the
+  [backend application](deploy/helm/evalflow-app/README.md) have separate Helm charts, with migration
+  ordering, health checks and live-verified KEDA worker autoscaling. Compose includes the dashboard and monitoring.
 - Add more analytics workflows.
 - Add websocket or server-sent event updates instead of polling.
 - Add richer eval datasets and regression tests.
@@ -1064,8 +1102,16 @@ updated the PR summary while ordinary tests passed. The override was then remove
 
 This is a personal local-only resume project. Questions can be asked through the repository issue tracker if the repository is public.
 
-Pull requests are not currently expected, but small fixes or suggestions are welcome. Contributions should keep the project focused on local backend AI infrastructure and avoid adding authentication, billing, vector databases, Kubernetes, real analytics vendor integrations, or deployment complexity.
+Pull requests are not currently expected, but small fixes or suggestions are welcome. Contributions should keep the project focused on local backend AI infrastructure, including the planned local Kubernetes milestone, and avoid adding authentication, billing, vector databases, real analytics vendor integrations, or unrelated deployment complexity.
 
 ## License
 
 ISC © Alex Peng
+
+### Local worker autoscaling (M5)
+
+Run `bash scripts/kind-keda-up.sh` to install pinned KEDA 2.21.0 and enable workers scaling from
+zero to four in the isolated kind cluster. Eligible queued and running jobs count toward a target
+of one job per worker; retries still in backoff do not. Run `bash scripts/kind-keda-check.sh` for
+the mock-job burst and delayed-retry demo. See the [application chart guide](deploy/helm/evalflow-app/README.md#worker-autoscaling)
+for timing controls, watch commands, and switching back to a fixed worker.

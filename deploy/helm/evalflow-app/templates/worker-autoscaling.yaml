@@ -1,0 +1,46 @@
+{{- if .Values.autoscaling.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+    name: {{ .Release.Name }}-postgres
+    labels:
+        {{- include "evalflow-app.labels" . | nindent 8 }}
+spec:
+    secretTargetRef:
+        - parameter: password
+          name: {{ .Values.database.existingSecret }}
+          key: {{ .Values.database.passwordKey }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+    name: {{ .Release.Name }}-worker
+    labels:
+        {{- include "evalflow-app.labels" . | nindent 8 }}
+spec:
+    scaleTargetRef:
+        name: {{ .Release.Name }}-worker
+    pollingInterval: {{ .Values.autoscaling.pollingIntervalSeconds }}
+    cooldownPeriod: {{ .Values.autoscaling.cooldownSeconds }}
+    minReplicaCount: {{ .Values.autoscaling.minReplicas }}
+    maxReplicaCount: {{ .Values.autoscaling.maxReplicas }}
+    advanced:
+        horizontalPodAutoscalerConfig:
+            behavior:
+                scaleDown:
+                    stabilizationWindowSeconds: {{ .Values.autoscaling.scaleDownStabilizationSeconds }}
+    triggers:
+        - type: postgresql
+          metricType: AverageValue
+          authenticationRef:
+              name: {{ .Release.Name }}-postgres
+          metadata:
+              host: {{ .Values.autoscaling.databaseHost | quote }}
+              port: {{ .Values.database.port | quote }}
+              userName: {{ .Values.database.username | quote }}
+              dbName: {{ .Values.database.name | quote }}
+              sslmode: disable
+              query: {{ .Files.Get "files/worker-demand.sql" | trim | quote }}
+              targetQueryValue: {{ .Values.autoscaling.targetJobsPerWorker | quote }}
+              activationTargetQueryValue: "0"
+{{- end }}

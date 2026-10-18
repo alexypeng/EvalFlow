@@ -1,0 +1,68 @@
+image:
+    repository: evalflow-server
+    tag: local
+    # The kind setup script loads the image directly into the cluster.
+    pullPolicy: Never
+
+database:
+    host: evalflow-postgres
+    port: 5432
+    name: evalflow
+    username: postgres
+    existingSecret: evalflow-postgres-auth
+    passwordKey: postgres-password
+
+telemetry:
+    # Empty disables export; the Compose monitoring stack is separate from kind.
+    otlpEndpoint: ""
+
+api:
+    replicas: 1
+    port: 3000
+    resources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { cpu: "1", memory: 512Mi }
+
+worker:
+    replicas: 1
+    port: 9100
+    concurrency: 1
+    pollIntervalMs: 1000
+    leaseDurationMs: 60000
+    heartbeatIntervalMs: 20000
+    shutdownTimeoutMs: 30000
+    shutdownCleanupMs: 5000
+    resources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { cpu: "1", memory: 512Mi }
+
+reaper:
+    replicas: 1
+    port: 9101
+    intervalMs: 5000
+    batchSize: 100
+    resources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { cpu: "1", memory: 512Mi }
+
+migrations:
+    activeDeadlineSeconds: 120
+    ttlSecondsAfterFinished: 3600
+    resources:
+        requests:
+            cpu: 100m
+            memory: 128Mi
+        limits:
+            cpu: "1"
+            memory: 512Mi
+
+autoscaling:
+    enabled: false
+    minReplicas: 0
+    maxReplicas: 4
+    targetJobsPerWorker: 1
+    pollingIntervalSeconds: 10
+    cooldownSeconds: 60
+    scaleDownStabilizationSeconds: 30
+    # KEDA runs in another namespace, so use the database Service's full DNS name.
+    databaseHost: evalflow-postgres.evalflow.svc.cluster.local
