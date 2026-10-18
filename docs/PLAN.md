@@ -14,10 +14,10 @@ _Last updated: 2026-10-18_
 
 | | |
 |---|---|
-| **Current milestone** | Post-M6 provider/model contract fix, branch `fix/saved-llm-selection`; implemented, tested and running locally |
-| **Done** | M0–M6 merged locally through PR #7 (`e1682df`); saved provider/model contract and frontend selectors verified locally |
-| **Waiting on you** | Explain missing-credential behavior for a saved Gemini job; owner review and commit |
-| **Next up** | Complete learning review; owner commit/push/PR for provider-selection fix |
+| **Current milestone** | README run guide refresh, branch `docs/run-guide`; documentation updated and checked |
+| **Done** | M0–M6 merged through PR #7 (`e1682df`); provider/model selection merged in PR #8 (`b27da4e`) |
+| **Waiting on you** | Review and commit README/PLAN documentation changes |
+| **Next up** | Owner commit/push/PR for documentation; saved-provider reasoning check remains unanswered |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -60,7 +60,8 @@ user prompt `v3.md`. Branch `fix/saved-llm-selection` created from local main `5
   with their claim; preserve existing selections through concurrent claims, retries and manual retry
 - [x] Frontend provider/model dropdowns and mock-only failure controls; configurable `GEMINI_MODELS`
 - [x] Regression tests, typecheck/build/lint/benchmark checks and local Compose/browser verification
-- [ ] Owner learning review and commit; hosted CI and PR after push
+- [x] Owner committed and merged provider fix in PR #8 (`b27da4e`); hosted check results not re-queried here
+- [ ] Saved-provider reasoning check: missing-key misunderstanding corrected; final default-versus-saved question unanswered
 
 **Validation:** First regression run reproduced four wrong-provider/missing-key failures. New tests
 then passed; existing exact-input fixture needed its expected saved selection updated. Initial full
@@ -617,10 +618,13 @@ git commit -m "Add repeatable worker benchmarks and capacity measurements"
 | 2026-10-01 | Code is formatted with Prettier at 4-space indent, 120 columns (was 80) | Matches the owner's editor settings, so saving a file no longer reformats untouched lines and bloats diffs. One-off reformat of all hand-written TS/TSX; `src/generated/` excluded. |
 | 2026-10-01 | A case passes when its job completed and its risk label matches the answer key; failed jobs don't pass. Pass rate = passed / all cases | A score threshold (e.g. >= 80) lets a wrong label pass: the mock scores 80 on the 4 judgment cases, so it would show 100% despite 4 wrong answers. The label is the task; format/evidence quality shows in mean score. |
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
+| 2026-10-18 | Refresh README around actual dataset-run flow and current Compose defaults | Users can start all required services, explicitly select Mock without a key, configure Gemini from root env, compare runs and test new prompt files. Explicit provider in mock API examples avoids accidental Gemini-default failures. Documentation only; preserve current runtime choices and historical results. |
 | 2026-10-18 | Save provider/model as job instructions; owner approved frontend selectors | Worker defaults cannot reinterpret an existing run. Admission validates configured model choices; execution honors saved instructions even after catalog changes. Missing Gemini credentials fail explicitly. Legacy jobs pin their run selection or standalone default under the existing claim lock. No rewriting historical labels/results or extra live calls. |
 | 2026-10-18 | Owner approved final M6 write-up and charts using existing evidence | Explain configured service/slot limits and idle wakeup delay; explicitly leave pool saturation, claim contention, CPU limits and production maxima unmeasured. Avoid new speculative workload changes. Recompute raw trial metrics for charts; show median and observed range, preserving source archives. |
 
 ## Session log
+
+- **2026-10-18 (README run guide):** Owner requested README update after merging provider selection. Verified main contains b27da4e/PR8 and created docs/run-guide, preserving untracked v3 prompt and learning files. Updated full Compose startup, dataset load, no-key explicit Mock flow, provider/model selection, baseline/regression comparisons, root-env Gemini setup, custom prompt rebuild instructions and dashboard troubleshooting. Fixed mock API example to include explicit saved selection under current Gemini defaults; changed generic prompt API example to shipped v2, added GEMINI_MODELS env example and removed stale notification-review wording. Five JSON examples parse; all local and internal heading links plus diff checks pass. No source/runtime changes, new live calls or full suite rerun for docs-only work. Changed README.md and docs/PLAN.md; local notes also refreshed, unstaged. Owner review/commit next; no Git history mutations or pushes. Earlier owner answered missing-key edge incorrectly and received correction; no later answer to final reasoning check, so understanding is not marked complete.
 
 - **2026-10-18 (saved provider/model implementation):** Owner chose saved selection over worker defaults, then approved frontend provider/model controls with server-configured allowlist. Created fix/saved-llm-selection from main55da9c6 preserving owner Gemini defaults and v3 prompt. Implemented llmConfig, validated optional run selection, safe catalog, job persistence/atomic legacy pinning, saved selection across permits/telemetry/SDK and explicit missing-key errors. UI dropdowns/mock-only controls and Compose model catalog env/docs added. Four red regressions reproduced; final384 passed+1expected/42 files,32 benchmarks,typecheck/build/lint/config/diff checks pass. Browser verified alternate configured model and Mock controls with placeholder key and no submitted live calls. Rebuilt local API/worker/frontend; HTTP200/catalog/worker configuration verified. Temporary preview cleaned. No schema change, user result rewrite, secret exposure, commits or pushes. Owner learning review/commit next; full file list and commands above.
 
