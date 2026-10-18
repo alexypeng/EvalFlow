@@ -1058,11 +1058,35 @@ updated the PR summary while ordinary tests passed. The override was then remove
 [Failing workflow run](https://github.com/alexypeng/EvalFlow/actions/runs/38471539384) ·
 [Restored passing workflow run](https://github.com/alexypeng/EvalFlow/actions/runs/38475140863)
 
+### Kubernetes Worker Autoscaling
+
+A local mock-only demo submits twenty jobs with 12-second model latency. KEDA scales workers from zero
+up to four, then back to zero after the jobs complete. Every burst job finishes with one attempt and
+one saved evaluation. These captures show actual `kubectl` output with selected columns, formatted
+for readability.
+
+**Scale up:** the worker Deployment requests four replicas and all four worker Pods are ready.
+
+![Captured kubectl output showing four ready workers during the mock burst](docs/screenshots/keda-scale-up.png)
+
+**Scale down:** after completion and the idle cooldown, the Deployment requests zero replicas and
+no worker Pods remain. KEDA handles zero-to-one and one-to-zero transitions; the HPA handles nonzero
+scaling, so the HPA's own minimum of one is expected alongside a ScaledObject minimum of zero.
+The Deployment row shows the requested worker count; the HPA can still show its last nonzero recommendation.
+
+![Captured kubectl output showing zero workers after the mock burst drains](docs/screenshots/keda-scale-down.png)
+
+Reproduce after [setting up the local KEDA stack](deploy/helm/evalflow-app/README.md#worker-autoscaling):
+
+```bash
+node scripts/kind-keda-check.mjs
+```
+
 ## Roadmap
 
 - M5 local Kubernetes work is in progress: [Postgres](deploy/helm/evalflow/README.md) and the
   [backend application](deploy/helm/evalflow-app/README.md) have separate Helm charts, with migration
-  ordering and health checks. Compose includes the dashboard and monitoring; kind worker autoscaling is next.
+  ordering, health checks and live-verified KEDA worker autoscaling. Compose includes the dashboard and monitoring.
 - Add more analytics workflows.
 - Add websocket or server-sent event updates instead of polling.
 - Add richer eval datasets and regression tests.

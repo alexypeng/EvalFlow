@@ -16,8 +16,8 @@ _Last updated: 2026-10-18_
 |---|---|
 | **Current milestone** | M5 Kubernetes, branch `m5-kubernetes`; KEDA autoscaling live-verified in kind |
 | **Done** | M0–M4 merged (PRs #1–#5); M4 learning reviews and hosted CI verified |
-| **Waiting on you** | README scaling screenshot and hosted checks; KEDA committed as b521aac |
-| **Next up** | Capture M5 scaling evidence, then owner push/PR and hosted check review |
+| **Waiting on you** | Commit screenshot evidence, then push/PR and review hosted checks |
+| **Next up** | Owner commit of README images; hosted checks remain before M5 wrap-up |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -243,7 +243,8 @@ Tasks:
 - [x] **Claude** Backend installation and integration script covers API job completion, outage/readiness/recovery, reaper and graceful worker replacement
 - [x] **ME** KEDA `ScaledObject` with Secret-backed Postgres scaler: eligible queued plus running, target1, min0/max4, polling10s/cooldown60s/stabilization30s; live verification and learning review complete
 - [x] **Claude** Automated mock burst and delayed-retry demo: twenty jobs scale 0 → 4 → 0, single attempt/eval per burst job; delayed work stays at zero until eligible
-- [ ] **You** Capture README scaling screenshot and review hosted checks after owner commit/push
+- [x] **Claude** Capture README scaling evidence: four ready workers and zero worker Pods, using actual kubectl output with selected columns rendered for readability; images visually checked
+- [ ] **You** Commit screenshot evidence and review hosted checks after owner push/PR
 
 Done when: `helm install` on kind brings up a working stack and workers autoscale on queue depth.
 
@@ -356,6 +357,8 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
+
+- **2026-10-18 (M5 README screenshots):** Owner requested adding screenshots. Reran the existing isolated kind/mock demo and captured real kubectl selected-column output only after all four workers were ready, then after desired zero and no worker Pods remained. The twenty-job burst passed one-attempt/one-eval assertions and returned to zero; delayed retry checks also passed. Rendered the captured output in headless Chrome as docs/screenshots/keda-scale-up.png and keda-scale-down.png, clearly labeled command-output captures rather than a Kubernetes dashboard. Both1200×1280 PNGs visually inspected: complete tables/logs, readable text and no clipped content. Added images/captions/reproduction command to README and corrected stale roadmap wording; explained HPA minimum/last nonzero recommendation versus KEDA's zero transition. Browser emitted display-link diagnostics but exited0 and wrote valid PNGs. No application/runtime/test/chart changes, live provider calls, commits or pushes. Only own terminal fixtures cleaned; temporary capture/render sources remain outside repo. Changed README.md, docs/PLAN.md and the two PNGs; local learning notes updated unstaged. Suggested owner commands: `git add README.md docs/PLAN.md docs/screenshots/keda-scale-up.png docs/screenshots/keda-scale-down.png` then `git commit -m "Document worker autoscaling with live demo captures"`. Hosted checks remain before M5 wrap-up.
 
 - **2026-10-18 (M5 next-step status):** Verified owner committed KEDA as b521aac; tracked working tree clean before this status update, intentional untracked learning files preserved. M5 implementation/live checks and learning review are complete. Scaling screenshot and hosted check review remain before milestone wrap-up; recommend those before M6 benchmarking. No runtime changes, new tests, commits or pushes.
 
