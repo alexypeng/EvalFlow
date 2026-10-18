@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { llmOptions, selectLlm, LlmSelectionError } from "./llmConfig.js";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { checkDatabaseConnection, prisma } from "./db.js";
@@ -33,7 +34,14 @@ app.post("/jobs", async (request, reply) => {
         });
     }
 
-    const job = await createJob(parsed.data.type, parsed.data.input, parsed.data.maxAttempts ?? 3);
+    let llm;
+    try {
+        llm = selectLlm();
+    } catch (error) {
+        if (error instanceof LlmSelectionError) return reply.code(400).send({ error: error.message });
+        throw error;
+    }
+    const job = await createJob(parsed.data.type, { ...parsed.data.input, llm }, parsed.data.maxAttempts ?? 3);
 
     return reply.code(201).send(job);
 });
@@ -78,6 +86,8 @@ app.post<{ Params: { id: string } }>("/jobs/:id/retry", async (request, reply) =
     return result.job;
 });
 
+app.get("/llm-options", async () => llmOptions());
+
 app.get("/datasets", async () => listDatasets());
 
 app.get("/runs", async (request, reply) => {
@@ -96,6 +106,10 @@ app.post("/runs", async (request, reply) => {
     }
 
     const result = await createRun(parsed.data);
+
+    if (!result.ok && result.reason === "invalid_llm_selection") {
+        return reply.code(400).send({ error: result.message });
+    }
 
     if (!result.ok && result.reason === "dataset_not_found") {
         return reply.code(404).send({

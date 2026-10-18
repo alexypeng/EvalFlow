@@ -10,7 +10,7 @@ import type { MockConfig } from "../../src/types.js";
 
 beforeEach(resetDatabase);
 
-it("runs persisted mock settings through a real worker, retries and comparison", async () => {
+it("honors saved mock settings under Gemini worker defaults, including retries and comparison", async () => {
     await loadDataset(await readDatasetFile(retentionV1));
     async function run(mockConfig: Partial<MockConfig>, promptVersion = "v2") {
         const result = await createRun({ datasetName: "retention", datasetVersion: 1, promptVersion, mockConfig });
@@ -28,7 +28,7 @@ it("runs persisted mock settings through a real worker, retries and comparison",
     const worker = spawn(process.execPath, ["--import", "tsx", "src/worker.ts"], {
         cwd: process.cwd(),
         env: {
-            ...process.env, LLM_PROVIDER: "mock", GEMINI_API_KEY: "", WORKER_CONCURRENCY: "4", POLL_INTERVAL_MS: "10",
+            ...process.env, LLM_PROVIDER: "gemini", GEMINI_API_KEY: "", WORKER_CONCURRENCY: "4", POLL_INTERVAL_MS: "10",
         },
         stdio: ["ignore", "pipe", "pipe"],
     });
@@ -64,6 +64,7 @@ it("runs persisted mock settings through a real worker, retries and comparison",
                 expect(calls[0].output).toEqual(calls[1].output);
                 expect(calls[0].input).toMatchObject({
                     caseId: job.caseId,
+                    provider: "mock", model: "mock-rule-based",
                     mockConfig: runId === invalid.id ? invalid.mockConfig : missing.mockConfig,
                 });
             }

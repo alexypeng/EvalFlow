@@ -52,6 +52,7 @@ describe("createRun", () => {
             snapshot: dsCase!.snapshot,
             promptVersion: "v1",
             expectedRisk: "high",
+            llm: { provider: "mock", model: "mock-rule-based" },
             mockConfig: MockConfigSchema.parse({}),
         });
     });

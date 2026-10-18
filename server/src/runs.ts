@@ -1,6 +1,7 @@
+import { selectLlm, LlmSelectionError } from "./llmConfig.js";
 import { prisma } from "./db.js";
 import { Prisma, type Run } from "./generated/prisma/client.js";
-import { promptVersionExists, resolveLlm } from "./llm.js";
+import { promptVersionExists } from "./llm.js";
 import { AnalyticsSnapshotSchema, CreateRunSchema, MockConfigSchema, type CreateRunInput } from "./types.js";
 import { BaselineSchema, type Baseline } from "./baseline.js";
 import { classifyChange, type CaseChange, type CaseOutcome, type RunSide } from "./caseComparison.js";
@@ -9,6 +10,7 @@ export type { CaseChange, CaseOutcome } from "./caseComparison.js";
 
 export type CreateRunResult =
     { ok: true; run: Run; jobCount: number }
+    | { ok: false; reason: "invalid_llm_selection"; message: string }
     | { ok: false; reason: "dataset_not_found" | "unknown_prompt_version" | "mock_config_requires_mock" };
 
 export async function createRun(body: CreateRunInput): Promise<CreateRunResult> {
@@ -26,7 +28,14 @@ export async function createRun(body: CreateRunInput): Promise<CreateRunResult> 
         return { ok: false, reason: "unknown_prompt_version" };
     }
 
-    const { provider, model } = resolveLlm();
+    let llm;
+    try {
+        llm = selectLlm(input.llm);
+    } catch (error) {
+        if (error instanceof LlmSelectionError) return { ok: false, reason: "invalid_llm_selection", message: error.message };
+        throw error;
+    }
+    const { provider, model } = llm;
     if (input.mockConfig && provider !== "mock") {
         return { ok: false, reason: "mock_config_requires_mock" };
     }
@@ -58,6 +67,7 @@ export async function createRun(body: CreateRunInput): Promise<CreateRunResult> 
                         snapshot,
                         promptVersion: input.promptVersion,
                         expectedRisk: datasetCase.expectedRisk,
+                        llm,
                         ...(mockConfig ? { mockConfig } : {}),
                     },
                 };

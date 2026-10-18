@@ -70,12 +70,19 @@ export const MockConfigSchema = z.strictObject({
 
 export type MockConfig = z.infer<typeof MockConfigSchema>;
 
+export const LlmSelectionSchema = z.discriminatedUnion("provider", [
+    z.object({ provider: z.literal("mock"), model: z.literal("mock-rule-based") }),
+    z.object({ provider: z.literal("gemini"), model: z.string().min(1).max(120).regex(/^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/) }),
+]);
+export type LlmSelection = z.infer<typeof LlmSelectionSchema>;
+
 export const JobInputSchema = z.object({
     userId: z.string().min(1),
     snapshot: AnalyticsSnapshotSchema.optional(),
     promptVersion: PromptVersionSchema.optional(),
     expectedRisk: RiskLevelSchema.optional(),
     mockConfig: MockConfigSchema.optional(),
+    llm: LlmSelectionSchema.optional(),
 });
 
 export type JobInput = z.infer<typeof JobInputSchema>;
@@ -85,6 +92,7 @@ export const CreateRunSchema = z.object({
     datasetVersion: z.number().int().min(1),
     promptVersion: PromptVersionSchema.default("v1"),
     mockConfig: MockConfigSchema.optional(),
+    llm: LlmSelectionSchema.optional(),
 });
 
 export type CreateRunInput = z.input<typeof CreateRunSchema>;

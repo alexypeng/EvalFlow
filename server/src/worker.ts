@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { assertLlmCredentials } from "./llmConfig.js";
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { getFeatureUsage, getRetentionSummary, getSubscriptionHistory, getUserEvents } from "./analyticsTools.js";
@@ -136,7 +137,11 @@ async function processJob(
         promptVersion = defaultPromptVersion,
         expectedRisk,
         mockConfig,
+        llm,
     } = JobInputSchema.parse(job.input);
+    if (!llm) throw new Error("Job has no saved LLM selection");
+    const { provider, model } = resolveLlm(llm);
+    assertLlmCredentials(llm);
     const toolInput = {
         userId,
         source: caseSnapshot ? "dataset_case" : "built_in_mock",
@@ -197,7 +202,6 @@ async function processJob(
         buildRetentionPrompt(userId, snapshot, promptVersion),
     );
 
-    const { provider, model } = resolveLlm();
     if (provider === "gemini" || rateLimitMock) {
         const permit = await tracePipelineStep("provider.permit_wait", { "evalflow.provider": provider }, () =>
             metrics.measurePermitWait(provider, () =>
@@ -219,7 +223,7 @@ async function processJob(
         "evalflow.prompt.version": promptVersion,
     }, async (span) => {
         const result = await metrics.measureLlm(provider, () =>
-            timed(() => callLlm(prompt, snapshot, { caseId: job.caseId ?? undefined, mockConfig })),
+            timed(() => callLlm(prompt, snapshot, { caseId: job.caseId ?? undefined, mockConfig, llm })),
         );
         span.setAttributes({
             "gen_ai.usage.input_tokens": result.output.promptTokens,

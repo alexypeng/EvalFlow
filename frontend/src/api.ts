@@ -103,11 +103,22 @@ export type RunComparison = {
     summary: Record<CaseChange, number>;
 };
 
+export type LlmSelection = { provider: "mock" | "gemini"; model: string };
+export type LlmOptions = {
+    default: LlmSelection;
+    providers: Array<{ provider: LlmSelection["provider"]; models: string[]; available: boolean }>;
+};
+
+export function getLlmOptions(signal?: AbortSignal) {
+    return runRequest<LlmOptions>("/llm-options", { signal });
+}
+
 export type CreateRunInput = {
     datasetName: string;
     datasetVersion: number;
     promptVersion: string;
     mockConfig?: MockConfig;
+    llm?: LlmSelection;
 };
 
 async function parseResponseError(response: Response, fallback: string) {

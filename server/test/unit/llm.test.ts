@@ -58,6 +58,33 @@ describe("Gemini SDK integration", () => {
         });
     });
 
+    it("uses the saved Gemini model despite mock worker defaults", async () => {
+        vi.stubEnv("LLM_PROVIDER", "mock");
+        vi.stubEnv("GEMINI_API_KEY", "test-key");
+        generateContent.mockResolvedValue({ text: '{"retentionRisk":"low"}' });
+        const response = await callLlm("prompt", snapshot, {
+            llm: { provider: "gemini", model: "gemini-test-model" },
+        });
+        expect(generateContent).toHaveBeenCalledExactlyOnceWith({ model: "gemini-test-model", contents: "prompt" });
+        expect(response).toMatchObject({ provider: "gemini", model: "gemini-test-model" });
+    });
+
+    it("keeps a saved mock selection under Gemini worker defaults", async () => {
+        vi.stubEnv("LLM_PROVIDER", "gemini");
+        vi.stubEnv("GEMINI_API_KEY", "test-key");
+        const response = await callLlm("prompt", snapshot, { llm: { provider: "mock", model: mockModel } });
+        expect(response.provider).toBe("mock");
+        expect(createClient).not.toHaveBeenCalled();
+    });
+
+    it("rejects a saved Gemini job without credentials instead of calling mock", async () => {
+        vi.stubEnv("LLM_PROVIDER", "mock");
+        vi.stubEnv("GEMINI_API_KEY", "");
+        await expect(callLlm("prompt", snapshot, { llm: { provider: "gemini", model: "gemini-test-model" } }))
+            .rejects.toThrow("GEMINI_API_KEY");
+        expect(createClient).not.toHaveBeenCalled();
+    });
+
     it("returns empty text for a response without text so validation rejects it", async () => {
         vi.stubEnv("LLM_PROVIDER", "gemini");
         vi.stubEnv("GEMINI_API_KEY", "test-key");
@@ -227,13 +254,11 @@ describe("resolveLlm and callLlm", () => {
         expect(response.model).toBe(mockModel);
     });
 
-    it("report the mock when gemini is requested without an API key", async () => {
+    it("reject Gemini without an API key instead of silently falling back", async () => {
         vi.stubEnv("LLM_PROVIDER", "gemini");
         vi.stubEnv("GEMINI_API_KEY", "");
 
-        const response = await callLlm("prompt", snapshot);
-        expect(response.provider).toBe("mock");
-        expect(response.model).toBe(mockModel);
+        await expect(callLlm("prompt", snapshot)).rejects.toThrow("GEMINI_API_KEY");
     });
 
     it("resolve to gemini when the API key is set", () => {

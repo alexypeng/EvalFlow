@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import type { SubmitEventHandler } from "react";
 import {
-    compareRuns, createRun, getRunReport, listDatasets, listRuns,
-    type CaseChange, type Dataset, type MockConfig, type Run, type RunComparison, type RunReport,
+    compareRuns, createRun, getRunReport, listDatasets, listRuns, getLlmOptions,
+    type LlmSelection, type LlmOptions, type CaseChange, type Dataset, type MockConfig, type Run, type RunComparison, type RunReport,
 } from "./api";
 
 const emptyConfig: MockConfig = {
@@ -11,6 +11,8 @@ const emptyConfig: MockConfig = {
 
 export default function RunsDashboard() {
     const [datasets, setDatasets] = useState<Dataset[]>([]);
+    const [llmOptions, setLlmOptions] = useState<LlmOptions | null>(null);
+    const [selection, setSelection] = useState<LlmSelection | null>(null);
     const [runs, setRuns] = useState<RunReport[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
@@ -31,10 +33,11 @@ export default function RunsDashboard() {
         let timeout: number;
         async function refresh() {
             try {
-                const [nextDatasets, nextRuns] = await Promise.all([
-                    listDatasets(controller.signal), listRuns(controller.signal),
+                const [nextDatasets, nextRuns, nextOptions] = await Promise.all([
+                    listDatasets(controller.signal), listRuns(controller.signal), getLlmOptions(controller.signal),
                 ]);
                 if (controller.signal.aborted) return;
+                setLlmOptions(nextOptions);
                 setDatasets(nextDatasets);
                 setRuns(nextRuns);
                 setLoadError(null);
@@ -53,6 +56,9 @@ export default function RunsDashboard() {
     }, [revision]);
 
     const dataset = datasets.find((item) => item.id === datasetId) ?? datasets[0];
+    const llm = selection ?? llmOptions?.default;
+    const provider = llmOptions?.providers.find((item) => item.provider === llm?.provider);
+    const canRun = Boolean(llm && provider?.available && provider.models.includes(llm.model));
     const baseline = runs.find((report) => report.run.id === baselineId);
     const candidates = baseline
         ? runs.filter((report) => report.run.datasetId === baseline.run.datasetId && report.run.id !== baselineId)
@@ -60,7 +66,7 @@ export default function RunsDashboard() {
 
     const submit: SubmitEventHandler<HTMLFormElement> = async (event) => {
         event.preventDefault();
-        if (!dataset || submitting) return;
+        if (!dataset || !llm || !canRun || submitting) return;
         setSubmitting(true);
         setActionError(null);
         setNotice(null);
@@ -69,7 +75,8 @@ export default function RunsDashboard() {
                 datasetName: dataset.name,
                 datasetVersion: dataset.version,
                 promptVersion,
-                ...(useMockConfig ? { mockConfig } : {}),
+                llm,
+                ...(llm.provider === "mock" && useMockConfig ? { mockConfig } : {}),
             });
             setSelectedRunId(result.run.id);
             setNotice(`Created run ${result.run.id.slice(0, 8)} with ${result.jobCount} queued cases.`);
@@ -104,7 +111,7 @@ export default function RunsDashboard() {
                     <p className="run-muted">No datasets loaded yet. Load a dataset to start evaluating cases.</p>
                 ) : null}
                 <form onSubmit={submit}>
-                    <fieldset disabled={submitting || !dataset}>
+                    <fieldset disabled={submitting || !dataset || !llmOptions}>
                         <div className="run-form-grid">
                             <label>
                                 Dataset
@@ -124,16 +131,44 @@ export default function RunsDashboard() {
                                     title="Use a version such as v1 or v2" maxLength={50}
                                     onChange={(event) => setPromptVersion(event.target.value)} />
                             </label>
-                            <button className="run-button" type="submit">
+                            <label>
+                                Provider
+                                <select className="run-input" value={llm?.provider ?? ""} required
+                                    onChange={(event) => {
+                                        const next = llmOptions?.providers.find((item) => item.provider === event.target.value);
+                                        if (next) setSelection({ provider: next.provider, model: next.models[0] });
+                                        setUseMockConfig(false);
+                                    }}>
+                                    {!llmOptions && <option value="">Loading providers…</option>}
+                                    {llmOptions?.providers.map((item) => (
+                                        <option key={item.provider} value={item.provider} disabled={!item.available}>
+                                            {item.provider === "mock" ? "Mock" : "Gemini"}{!item.available ? " (not configured)" : ""}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                            <label>
+                                Model
+                                <select className="run-input" value={llm?.model ?? ""} required
+                                    onChange={(event) => { if (llm) setSelection({ ...llm, model: event.target.value }); }}>
+                                    {!provider && <option value="">Select a provider</option>}
+                                    {provider?.models.map((model) => <option key={model} value={model}>{model}</option>)}
+                                </select>
+                            </label>
+                            <button className="run-button" type="submit" disabled={!canRun}>
                                 {submitting ? "Creating run…" : "Start run"}
                             </button>
                         </div>
-                        <label className="run-check">
+                        {llm && !provider?.available && <p className="run-muted">
+                            Gemini is not configured on the backend. Select Mock or configure the backend API key.
+                        </p>}
+                        <p className="run-muted">Provider and model are saved for this run and its retries.</p>
+                        {llm?.provider === "mock" && <label className="run-check">
                             <input type="checkbox" checked={useMockConfig}
                                 onChange={(event) => setUseMockConfig(event.target.checked)} />
                             Configure mock failures and latency
-                        </label>
-                        {useMockConfig && (
+                        </label>}
+                        {llm?.provider === "mock" && useMockConfig && (
                             <div className="run-mock-settings">
                                 <p className="run-muted">
                                     For the mock provider. Rates are 0–1: 0.25 selects roughly 25% of cases.

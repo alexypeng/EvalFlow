@@ -12,6 +12,7 @@ The first workflow, `retention_risk_analysis`, simulates an analytics agent that
 - [Install](#install)
 - [Usage](#usage)
 - [Environment Variables](#environment-variables)
+- [Provider and model selection](#choose-a-provider-and-model-for-a-run)
 - [Architecture](#architecture)
 - [Workflow](#workflow)
 - [Data Model](#data-model)
@@ -174,7 +175,7 @@ REAPER_BATCH_SIZE=100
 REAPER_HEALTH_PORT=9101
 ```
 
-`LLM_PROVIDER=mock` is the default so the project can run locally without an API key. Use `LLM_PROVIDER=gemini` and set `GEMINI_API_KEY` to call Gemini instead of the mock provider. `GEMINI_MODEL` selects the model (see [Gemini models](https://ai.google.dev/gemini-api/docs/models)).
+`LLM_PROVIDER` chooses the default provider when a run does not specify one. Host development defaults to `mock`; Compose uses its service environment settings. To use Gemini, provide `GEMINI_API_KEY` to the API and workers. Explicit Gemini selections never silently fall back to mock. `GEMINI_MODEL` sets the default model and `GEMINI_MODELS` adds allowed choices (see [provider/model selection](#choose-a-provider-and-model-for-a-run)).
 
 Gemini calls use `@google/genai`. Token counts currently remain character-based estimates, and estimated cost is
 zero; they do not yet use the provider's usage metadata or pricing.
@@ -289,6 +290,50 @@ five-minute CI step limit. Tests use only `evalflow_test` and mock calls, with n
 
 - Inside Docker Compose, services use `postgres` as the database host.
 - Outside Docker, local processes use `localhost` as the database host.
+
+## Choose a provider and model for a run
+
+In **Dataset runs**, select a **Provider** and **Model** before starting the run. The API exposes
+configured choices through `GET /llm-options`; credentials never leave the backend. Gemini is
+unavailable in the selector when the API has no key. Workers also require their own key for Gemini
+jobs and fail clearly if it is missing, without substituting mock output.
+
+`GEMINI_MODEL` sets the default Gemini model. Add other permitted model IDs to root `.env` for Compose:
+
+```dotenv
+GEMINI_MODELS=
+```
+
+Set its value to a comma-separated list of Gemini model IDs available to your project. The default
+`GEMINI_MODEL` is always included. This is a configured allowlist, not automatic discovery or a
+promise that Google will accept each configured ID. Recreate API/worker after environment changes:
+
+```bash
+docker compose up -d --build api worker frontend
+```
+
+A run request may specify a selection:
+
+```json
+{
+  "datasetName": "retention",
+  "datasetVersion": 1,
+  "promptVersion": "v3",
+  "llm": { "provider": "mock", "model": "mock-rule-based" }
+}
+```
+
+Omitting `llm` uses the API's configured default. Admission rejects unconfigured models, invalid
+provider/model pairs, missing API credentials and mock failure settings on Gemini runs. Each new
+run job saves the chosen provider/model in its input. Workers use that saved selection for provider
+permits, telemetry and the actual LLM call, even when worker defaults differ or the model allowlist
+later changes. Automatic and manual retries preserve it. Single jobs save the API default at creation.
+
+Older queued jobs are pinned atomically with their first claim: run jobs use the stored run selection;
+standalone jobs use that worker's default. Concurrent workers still use `FOR UPDATE SKIP LOCKED`.
+Existing completed results and historical provider labels are not rewritten. Before this fix, run
+labels reflected API configuration and could disagree with actual execution; inspect `llm_call`
+trace metadata for the provider actually used, and rerun old comparisons when necessary.
 
 ## Run a dataset from the CLI
 
