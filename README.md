@@ -11,6 +11,8 @@ The first workflow, `retention_risk_analysis`, simulates an analytics agent that
 - [Background](#background)
 - [Install](#install)
 - [Usage](#usage)
+- [Test a new prompt](#test-a-new-prompt)
+- [Troubleshooting](#troubleshooting)
 - [Environment Variables](#environment-variables)
 - [Provider and model selection](#choose-a-provider-and-model-for-a-run)
 - [Architecture](#architecture)
@@ -43,11 +45,25 @@ Abstract dependencies:
 
 ## Install
 
-Run the full local stack with Docker Compose:
+Start Docker Desktop (or your Docker engine), then run from the repository root:
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
+
+This starts Postgres, migrations, the API, worker, reaper, frontend and monitoring services.
+No API key is needed to start the stack or run an evaluation with **Mock** selected.
+The current Compose configuration defaults the API and worker to Gemini; select Mock explicitly
+in **Dataset runs** for a no-key demo. [Configure Gemini](#choose-a-provider-and-model-for-a-run)
+for live calls. Single-job submissions and the CLI use the API's default provider.
+
+Load the included dataset after the API has started:
+
+```bash
+docker compose exec api pnpm dataset:load datasets/retention-v1.json
+```
+
+Loading the same unchanged dataset again is safe and does not duplicate it.
 
 Then open:
 
@@ -55,7 +71,8 @@ Then open:
 Dashboard:  http://localhost:5173
 API:        http://localhost:3000
 Prometheus: http://localhost:9090
-Grafana:    http://localhost:3001
+Grafana:    http://localhost:3001/d/evalflow-api
+Tempo:      http://localhost:3200/ready (readiness; view traces through Grafana Explore)
 Postgres:   localhost:5432
 ```
 
@@ -84,10 +101,12 @@ Optional for local development outside Docker:
 - pnpm
 - PostgreSQL
 
-Copy the example environment file when running processes outside Docker:
+For host development or Gemini configuration, create a root `.env` if one does not already exist:
+
+Do not overwrite an existing `.env`; add or update its settings instead.
 
 ```bash
-cp .env.example .env
+cp -n .env.example .env
 ```
 
 For Docker, the compose file already uses the container database host:
@@ -104,13 +123,35 @@ postgresql://postgres:postgres@localhost:5432/evalflow
 
 ## Usage
 
-Use the dashboard:
+### Evaluate and compare dataset runs
 
-1. Open `http://localhost:5173`.
-2. Enter a user ID, such as `user_123`, `user_medium`, `user_healthy`, or any custom value.
-3. Click `Run analysis`.
-4. Watch the job move through `queued`, `running`, and `completed`.
-5. Inspect the retention analysis, eval score, traces, latency, token usage, and result JSON.
+1. Open [the dashboard](http://localhost:5173). It opens on **Dataset runs**.
+2. Select `retention v1` (20 cases), prompt `v1`, provider **Mock** and model `mock-rule-based`.
+3. Leave **Configure mock failures and latency** unchecked and select **Start run**.
+4. Wait for the 20 cases to finish, then select the run ID to inspect pass rate, mean score,
+   latency, tokens, cost and saved provider/model settings. A finished run can contain dead letters;
+   check the failed count as well as the pass rate.
+5. Select **Use as baseline** on that run.
+6. Create another run with the same dataset/provider/model. For a deliberate mock regression,
+   enable mock settings and set **Changed label rate** to `1`, leaving other failure rates at `0`.
+7. Select the second run as the candidate under **Compare runs** and inspect the per-case changes.
+
+The normal mock gets 16 of the 20 dataset labels right (80%). Four cases intentionally disagree
+with its fixed rule. Mock ignores prompt content, so changing `v1` to `v2` alone will not change its
+predictions. Use Gemini to test prompt effects. Equal Gemini pass rates can still hide different
+regressed and improved cases; inspect the comparison rather than only the percentage.
+
+### Analyze a single user
+
+1. Switch to **Single job**.
+2. Enter `user_123`, `user_medium`, `user_healthy`, or another user ID.
+3. Select **Run analysis** and watch `queued → running → completed`, or inspect a dead-letter error.
+4. Open the job to inspect its analysis, evaluation, step traces, timing and result JSON.
+
+Single jobs use the API's configured default provider/model, saved when the job is created.
+With the current Compose Gemini default, they require a key. For a no-key single-job demo,
+set `LLM_PROVIDER: mock` on both the API and worker services in `docker-compose.yml`, then recreate
+them. This changes defaults for new work; it does not change saved run/job instructions.
 
 Create a job directly through the API:
 
@@ -151,6 +192,47 @@ Example structured result:
 
 Unknown users use fallback mock analytics data, so entering a value like `user_5` still exercises the full pipeline.
 
+## Test a new prompt
+
+Prompt templates live in `server/prompts/retention/`. Copy an existing template to an unused
+version such as `v3.md` (the command below preserves a file that already exists):
+
+```bash
+cp -n server/prompts/retention/v2.md server/prompts/retention/v3.md
+```
+
+Edit the new file, keeping the `{{userId}}` and `{{snapshot}}` placeholders and the required JSON
+output fields. Keep previously tested versions unchanged so comparisons remain meaningful.
+Rebuild the containers to include the file and clear process-level prompt caches:
+
+```bash
+docker compose up -d --build api worker frontend
+```
+
+Start a new dataset run with prompt version `v3`, provider Gemini and the same model/dataset as
+your baseline. Compare individual cases and aggregate results. A revised prompt does not guarantee
+better accuracy. Mock runs exercise the pipeline but cannot measure prompt improvements.
+
+## Troubleshooting
+
+If the app does not open, start the full stack and inspect its status:
+
+```bash
+docker compose up -d --build
+docker compose ps -a
+docker compose logs --tail=100 frontend api worker migrate
+```
+
+Starting only `api worker` does not start the frontend when it is stopped. Open port **5173** for
+the app; port **3000** is the API. Grafana is on **3001**. Monitoring charts need traffic and several
+Prometheus scrapes; generate jobs and wait roughly 30–60 seconds for rate panels.
+
+If Gemini calls fail, inspect the job error and its `llm_call` trace when present. Confirm the run's
+saved provider/model and the API/worker key configuration. A key must belong to the Google project
+you inspect for usage; provider quota, availability and model access can also cause errors. Missing
+worker credentials fail explicitly rather than generating mock output. Existing results do not
+change when environment variables change—create a fresh run to test the new settings.
+
 ## Environment Variables
 
 `.env.example` contains the local development variables:
@@ -160,6 +242,7 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/evalflow
 DOCKER_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/evalflow
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MODELS=
 LLM_PROVIDER=mock
 RATE_LIMIT_MOCK=false
 PORT=3000
@@ -197,7 +280,7 @@ WORKER_WAKEUP_MODE=notify pnpm dev:worker
 For Compose, set `WORKER_WAKEUP_MODE=notify` in the root `.env`, then recreate the worker through the
 normal `docker compose up --build` flow so the migration service finishes first. For Helm, set
 `worker.wakeupMode=notify` in the application release values; its migration hook installs the trigger
-before the updated backend rolls out. Defaults stay polling-only until the M6 comparison is reviewed.
+before the updated backend rolls out. Polling remains the default; notification mode is opt-in.
 
 The migration installs a jobs-table trigger on queued inserts and transitions back to queued.
 It covers individual submissions, run fan-out, manual retries, worker retries, reaper recovery and
@@ -298,6 +381,15 @@ configured choices through `GET /llm-options`; credentials never leave the backe
 unavailable in the selector when the API has no key. Workers also require their own key for Gemini
 jobs and fail clearly if it is missing, without substituting mock output.
 
+For Gemini, put your key in the repository root `.env` (`EvalFlow/.env`), not a server-only env file:
+
+```dotenv
+GEMINI_API_KEY=your_key_here
+```
+
+Compose passes that key to the API and worker. Recreate those services after changing it; do not
+commit the key. Choose Gemini in the run form, then select a configured model.
+
 `GEMINI_MODEL` sets the default Gemini model. Add other permitted model IDs to root `.env` for Compose:
 
 ```dotenv
@@ -318,7 +410,7 @@ A run request may specify a selection:
 {
   "datasetName": "retention",
   "datasetVersion": 1,
-  "promptVersion": "v3",
+  "promptVersion": "v2",
   "llm": { "provider": "mock", "model": "mock-rule-based" }
 }
 ```
@@ -651,8 +743,8 @@ EvalFlow also stores observability data for each run:
 
 ### Dataset runs and mock failure settings
 
-The dashboard opens on **Dataset runs**. Choose a loaded dataset and prompt version, optionally
-enable mock failure settings, then select **Start run**. Each dataset case becomes a queued job.
+The dashboard opens on **Dataset runs**. Choose a loaded dataset, prompt version, provider and model,
+optionally enable mock failure settings for Mock, then select **Start run**. Each dataset case becomes a queued job.
 Run progress and results refresh every two seconds. Select a run ID to inspect pass rate, score,
 latency percentiles, tokens, cost and saved settings. Use **Single job** for the original analysis,
 job history, traces and retry flow.
@@ -661,13 +753,16 @@ Select **Use as baseline** on a reference run, then choose a candidate of the sa
 in **Compare runs**. The table shows per-case outcomes and scores; filter it to inspect regressions,
 improvements, warnings or pending cases. Pending results stay visible until both cases finish.
 
-`GET /datasets` lists loaded dataset versions and case counts. `GET /runs` returns the latest 50
+`GET /llm-options` returns configured provider/model choices, availability and the API default;
+it never returns credentials. `GET /datasets` lists loaded dataset versions and case counts. `GET /runs` returns the latest 50
 run reports; use `?limit=<1–100>` to change the page size. Runs are newest first. Pass rate uses
 all cases as the denominator, including unfinished ones; mean score, latency, tokens and cost use
 completed jobs. Mock failures simulate a change in behavior and do not measure the effect of prompt
 text on a real model.
 
-Load the fixture with `pnpm --filter server dataset:load datasets/retention-v1.json`, then create a run:
+With Compose, load the fixture using `docker compose exec api pnpm dataset:load datasets/retention-v1.json`.
+For host development, use `pnpm --filter server dataset:load datasets/retention-v1.json`.
+Create an explicit mock run (works even when the API defaults to Gemini):
 
 ```bash
 curl -X POST http://localhost:3000/runs \
@@ -676,6 +771,7 @@ curl -X POST http://localhost:3000/runs \
     "datasetName": "retention",
     "datasetVersion": 1,
     "promptVersion": "v2",
+    "llm": { "provider": "mock", "model": "mock-rule-based" },
     "mockConfig": {
       "seed": "demo",
       "wrongLabelRate": 0.25,
