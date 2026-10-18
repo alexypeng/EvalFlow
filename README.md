@@ -218,8 +218,8 @@ When KEDA has scaled workers to zero, no worker listener exists; KEDA's database
 
 The correctness tests include transaction commit/rollback, all queue-writing paths, real listener
 termination/reconnect, wakeup races, concurrent processes/slots, future eligibility and shutdown.
-Notification performance measurements are still pending: compare both modes on the same migrated build,
-rather than attributing differences between older and newer builds solely to notifications.
+The [same-build wakeup comparison](docs/benchmarks/2026-10-18-wakeup-comparison.md) measures both modes
+on the same migrated image, with fresh polling controls. Older polling evidence remains unchanged.
 
 `LEASE_DURATION_MS` defaults to 60000; `HEARTBEAT_INTERVAL_MS` defaults to 20000 and must be
 a positive integer smaller than the lease duration. Both are worker settings in milliseconds.
@@ -1218,5 +1218,36 @@ and ranges remain in the report. This does not establish an optimal production i
 
 Run `bash scripts/kind-polling-check.sh` for checks, a fresh instrumented image and smoke/full trials,
 or see the [protocol](benchmarks/README.md#idle-polling-comparison) for an already deployed image.
-The original 1000ms setting and KEDA controls are restored after measurement. LISTEN/NOTIFY remains
-a later comparison; this experiment supplies the polling baseline.
+The original 1000ms setting and KEDA controls are restored after measurement. The same-build
+LISTEN/NOTIFY comparison below adds fresh polling controls rather than reusing this older-image baseline.
+
+
+### Polling versus notifications on the same build (M6)
+
+The [nine-trial comparison](docs/benchmarks/2026-10-18-wakeup-comparison.md) and
+[raw evidence](docs/benchmarks/2026-10-18-wakeup-comparison.json) use the same migrated backend image
+for all three conditions: one warm worker/concurrency1, zero configured mock delay, identical sparse
+arrivals and three rotated repetitions per condition. All 270 measured jobs completed once with one
+evaluation. Medians of the three trial-level metrics:
+
+| Wakeup mode | Queue-wait p99 | Empty claim queries/sec |
+| --- | ---: | ---: |
+| Poll every 1000 ms | 952ms | 0.98 |
+| Poll every 100 ms | 103ms | 9.47 |
+| Notifications + 1000 ms backup | 12ms | 1.22 |
+
+Notification trial queue-wait p99 ranged from 7.71–20.65 ms, versus 911.42–965.62 ms for 1000 ms polling and
+102.84–106.13 ms for 100 ms polling. Total p99 medians were 967.49/119.71/28.71 ms respectively; execution
+p99 medians remained 19–25 ms. This supports faster idle-worker pickup in this local workload. It does
+not establish maximum capacity, scale-from-zero latency or a stable production p99.
+
+Notifications used fewer empty claim queries than 100 ms polling, while retaining backup queries and
+one extra listener connection per worker process. The counter excludes other SQL and notification/
+trigger overhead, so it does not measure total database CPU or cost. All notification trials registered
+once before warmup with no observed disconnect/re-registration. Original mode/interval/KEDA settings
+were restored; polling remains the default. Detailed trials, ranges, source hashes and migration/image
+identity remain in the evidence. Earlier archives are preserved.
+
+Run `bash scripts/kind-wakeup-check.sh` for checks, a fresh kind image/migration, smoke and full trials.
+See the [comparison protocol](benchmarks/README.md#same-build-polling-versus-notification-comparison)
+for individual modes and cleanup details.

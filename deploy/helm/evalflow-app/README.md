@@ -238,5 +238,5 @@ your image, database and autoscaling values.
 Notifications wake existing idle workers; SQL claiming/leases still assign jobs. With zero worker Pods,
 KEDA's existing demand query and activation polling remain responsible for starting capacity. The listener
 reconnects independently and ordinary backup claims continue during a listener outage. Account for the
-extra connection per worker process when sizing Postgres. The M6 notification performance comparison
-has not yet been run; prior polling evidence remains unchanged.
+extra connection per worker process when sizing Postgres. The [M6 same-build comparison](../../../docs/benchmarks/2026-10-18-wakeup-comparison.md)
+measures notifications and fresh polling controls; prior polling evidence remains unchanged.

@@ -166,6 +166,52 @@ benefit of LISTEN/NOTIFY. The original 1000ms kind setting is restored after the
 
 The current benchmark harness requires `WORKER_WAKEUP_MODE=poll` (an absent setting means poll for
 older images). It refuses notification-enabled workers so a wakeup cannot silently change the polling
-baseline. The next notification comparison must rerun both modes on the same migrated/instrumented
+baseline. The comparison below reruns all modes on the same migrated/instrumented
 build; the notification trigger adds work on queue writes even when workers use polling-only mode.
 Existing archived evidence describes its original builds and remains unchanged.
+
+
+## Same-build polling versus notification comparison
+
+```bash
+bash scripts/kind-wakeup-check.sh            # typecheck/report tests, fresh image + kind migration, smoke/full trials
+bash scripts/kind-benchmark.sh --wakeup-smoke # existing updated deployment: 4 jobs per condition; validation only
+bash scripts/kind-benchmark.sh --wakeup       # existing updated deployment: 30 jobs per condition, 3 repetitions
+```
+
+`--verify-wakeup` runs smoke then full comparison. This mode uses the same image and enabled queued-job
+trigger for all conditions: `poll-1000`, `poll-100`, `notify-1000` (notifications plus fixed1000ms backup).
+The check script builds/deploys the already committed worker feature through the normal Helm migration
+workflow and keeps that updated image/trigger installed. No worker runtime or database schema changes
+are introduced by this benchmark implementation. It does not deploy to Compose or call a real provider.
+The earlier polling-only modes continue to refuse notification-enabled workers; `--wakeup` explicitly
+manages both settings instead.
+
+One warm worker/concurrency1, zero configured mock delay, identical seeded1500–2499ms arrival gaps and
+the same62.479-second observation window isolate existing idle-worker pickup. Each full trial submits30
+jobs, with three repetitions per condition (270 measured jobs plus9 warmups). Order rotates A/B/C,
+B/C/A, C/A/B, where A=poll1000, B=poll100 and C=notify1000. Smoke has4 jobs/condition and one repetition.
+KEDA is paused and Pod startup/warmup occur outside measurements, so scale-from-zero behavior is excluded.
+
+Before running, the harness verifies the installed notification migration checksum and enabled trigger.
+It waits for each mode/interval rollout, exact ready replica count and old-Pod termination. Notification
+trials require exactly one `listening` log event before warmup and no disconnect/re-registration through
+the trial; polling trials require no listener events. Only those timestamped state events are saved.
+A silent network failure without a driver event cannot be ruled out by this log check alone. The existing
+Pod UID/readiness/restart, job attempt/eval, clock, counter and arrival-overlap checks remain enforced.
+The image ID, migration identity/checksum and worker/listener/producer/harness/report source hashes are
+saved with raw per-job/submission/sample data. Comparing the original older-build polling archive directly
+against this run would confound mode changes with deployment/migration changes, so controls are rerun.
+
+The report groups by **mode and interval**, preserving individual trials and median/min/max of trial
+metrics. Incomplete/invalid groups have no aggregate results. Claim counters measure empty/all claim
+operations per actual observation second, excluding warmup and health/producer/other SQL. They do not
+measure total database work, trigger cost, notification traffic or listener connection overhead.
+Notification mode still makes backup queries and uses one extra connection/process. Do not infer a
+query-cost or CPU reduction from lower queue latency alone. Thirty jobs per trial and three local
+repetitions provide limited p99 evidence rather than a production latency guarantee.
+
+Normal completion/failure restores both original worker environment entries (including absence) and
+KEDA pause settings independently, writing restoration flags in the report. The manifest records all
+original entries and fixture IDs. Own valid terminal fixtures are cleaned; invalid trials remain for
+inspection. Forced kill/host loss cannot run cleanup; follow the lock/manifest guidance above.

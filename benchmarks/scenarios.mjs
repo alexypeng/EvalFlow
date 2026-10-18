@@ -10,7 +10,30 @@ export function pollingOffsets(count) {
     });
 }
 
+export const wakeupConditions = [
+    { condition: "poll-1000", wakeupMode: "poll", pollIntervalMs: 1000 },
+    { condition: "poll-100", wakeupMode: "poll", pollIntervalMs: 100 },
+    { condition: "notify-1000", wakeupMode: "notify", pollIntervalMs: 1000 },
+];
+
 export function scenario(argv) {
+    if (argv.length === 1 && ["--wakeup", "--wakeup-smoke"].includes(argv[0])) {
+        const smoke = argv[0] === "--wakeup-smoke";
+        const jobs = smoke ? 4 : 30;
+        const repetitions = smoke ? 1 : 3;
+        const scheduledOffsetsMs = pollingOffsets(jobs);
+        const arrivalWindowMs = scheduledOffsetsMs.at(-1) + 1500;
+        const trials = [];
+        for (let repetition = 1; repetition <= repetitions; repetition++) {
+            for (let position = 0; position < wakeupConditions.length; position++) {
+                const condition = wakeupConditions[(position + repetition - 1) % wakeupConditions.length];
+                trials.push({ ...condition, workers: 1, jobs, latencyMs: 0, repetition,
+                    arrivalRate: jobs / (arrivalWindowMs / 1000), scheduledOffsetsMs, arrivalWindowMs });
+            }
+        }
+        return { methodology: "queue-worker-wakeup-comparison-v1", smoke, jobs, repetitions,
+            conditions: wakeupConditions, workers: 1, latencyMs: 0, scheduledOffsetsMs, arrivalWindowMs, trials };
+    }
     if (argv.length === 1 && ["--polling", "--polling-smoke"].includes(argv[0])) {
         const smoke = argv[0] === "--polling-smoke";
         const jobs = smoke ? 4 : 30;
@@ -44,7 +67,7 @@ export function scenario(argv) {
             repetitions, rates, workers: 4, latencyMs: 2000, trials };
     }
     assert(argv.length === 0 || (argv.length === 2 && argv[0] === "--jobs"),
-        "Usage: node scripts/kind-benchmark.mjs [--jobs 60 | --sweep | --sweep-smoke]");
+        "Usage: node scripts/kind-benchmark.mjs [--jobs 60 | --sweep | --sweep-smoke | --polling | --polling-smoke | --wakeup | --wakeup-smoke]");
     const jobs = argv.length ? Number(argv[1]) : 60;
     assert(Number.isInteger(jobs) && jobs >= 4 && jobs <= 600, "Jobs must be an integer from 4 to 600");
     return { methodology: "queue-worker-fixed-v1", trials: [1, 2, 4].map((workers) => ({

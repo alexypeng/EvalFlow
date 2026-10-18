@@ -48,3 +48,30 @@ test("idle polling evidence recomputes six paired trials, counters and restorati
     assert.equal(await readFile(new URL(
         "../../docs/benchmarks/2026-10-18-idle-polling.md", import.meta.url), "utf8"), pollingMarkdown(report));
 });
+
+test("same-build wakeup evidence recomputes all conditions with a stable listener and restored settings", async () => {
+    const { summarizeWakeup, aggregateWakeup, wakeupMarkdown } = await import("../wakeupReport.mjs");
+    const report = JSON.parse(await readFile(new URL(
+        "../../docs/benchmarks/2026-10-18-wakeup-comparison.json", import.meta.url), "utf8"));
+    assert.equal(report.plan.smoke, false);
+    assert.equal(report.trials.length, 9);
+    assert.equal(report.pollingSettingRestored, true);
+    assert.equal(report.wakeupSettingRestored, true);
+    assert.equal(report.scalingSettingRestored, true);
+    assert.deepEqual(report.summaries, report.trials.map(summarizeWakeup));
+    assert.deepEqual(report.aggregates, aggregateWakeup(report));
+    assert(report.aggregates.every((group) => group.comparable && group.validTrials === 3));
+    const jobs = report.trials.flatMap((trial) => trial.jobs);
+    const warmup = report.trials.flatMap((trial) => trial.warmup);
+    assert.equal(jobs.length, 270);
+    assert.equal(warmup.length, 9);
+    assert.equal(new Set([...jobs, ...warmup].map((job) => job.id)).size, 279);
+    assert([...jobs, ...warmup].every((job) =>
+        job.status === "completed" && job.attempts === 1 && job.evaluations === 1));
+    const imageIds = new Set(report.trials.map((trial) => trial.workerStates.before.pods[0].imageId));
+    assert.equal(imageIds.size, 1);
+    assert([...imageIds][0]);
+    assert.equal(report.environment.notificationMigration.migration_name, "20261018000000_notify_queued_jobs");
+    assert.equal(await readFile(new URL(
+        "../../docs/benchmarks/2026-10-18-wakeup-comparison.md", import.meta.url), "utf8"), wakeupMarkdown(report));
+});

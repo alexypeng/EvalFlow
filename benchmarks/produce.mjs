@@ -6,12 +6,17 @@ const config = z.strictObject({
     workers: z.union([z.literal(1), z.literal(2), z.literal(4)]),
     jobs: z.number().int().min(4).max(600), arrivalRate: z.number().positive().max(3),
     latencyMs: z.union([z.literal(0), z.literal(2000)]), repetition: z.number().int().min(1).max(3).optional(),
+    wakeupMode: z.enum(["poll", "notify"]).optional(),
+    condition: z.enum(["poll-1000", "poll-100", "notify-1000"]).optional(),
     pollIntervalMs: z.union([z.literal(100), z.literal(1000)]).optional(),
     scheduledOffsetsMs: z.array(z.number().int().nonnegative()).optional(),
     arrivalWindowMs: z.number().int().positive().optional(), metricsUrl: z.url().optional(),
     ids: z.array(z.uuid()), warmupIds: z.array(z.uuid()),
 }).parse(JSON.parse(process.argv[2]));
 if (config.ids.length !== config.jobs || config.warmupIds.length !== config.workers) throw new Error("ID count mismatch");
+if (Boolean(config.wakeupMode) !== Boolean(config.condition) ||
+    (config.wakeupMode && config.condition !== `${config.wakeupMode}-${config.pollIntervalMs}`) ||
+    (config.wakeupMode === "notify" && config.pollIntervalMs !== 1000)) throw new Error("Invalid wakeup condition");
 if (config.pollIntervalMs !== undefined) {
     if (config.workers !== 1 || config.latencyMs !== 0 || !config.metricsUrl ||
         config.scheduledOffsetsMs?.length !== config.jobs || !config.arrivalWindowMs ||

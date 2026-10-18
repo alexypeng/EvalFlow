@@ -9,6 +9,7 @@ import { summarize, markdown } from "../benchmarks/report.mjs";
 import { scenario } from "../benchmarks/scenarios.mjs";
 import { aggregateSweep, sweepMarkdown } from "../benchmarks/sweepReport.mjs";
 import { summarizePolling, aggregatePolling, pollingMarkdown } from "../benchmarks/pollingReport.mjs";
+import { summarizeWakeup, aggregateWakeup, wakeupMarkdown } from "../benchmarks/wakeupReport.mjs";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
 const args = ["--kubeconfig", `${repo}.evalflow-kind/kubeconfig`, "--context", "kind-evalflow", "-n", "evalflow"];
@@ -23,7 +24,9 @@ const handle = await open(lock, "wx");
 await handle.writeFile(JSON.stringify({ pid: process.pid, folder }));
 await handle.close();
 const pausedKey = "autoscaling.keda.sh/paused-replicas";
+const isWakeup = plan.methodology === "queue-worker-wakeup-comparison-v1";
 const isPolling = plan.methodology === "queue-worker-idle-polling-v1";
+const sparse = isPolling || isWakeup;
 const isSweep = plan.methodology === "queue-worker-arrival-sweep-v1";
 const report = { capturedAt: new Date().toISOString(), methodology: plan.methodology, plan, trials: [], summaries: [] };
 let original, scaler, changed = false, pollingChanged = false, stopping = false;
@@ -41,8 +44,16 @@ async function workerState() {
     return { desired: d.spec.replicas, ready: d.status.readyReplicas ?? 0, pods: list.map((pod) => ({
         uid: pod.metadata.uid, name: pod.metadata.name, ip: pod.status.podIP, deleting: Boolean(pod.metadata.deletionTimestamp),
         ready: pod.status.conditions?.some((c) => c.type === "Ready" && c.status === "True") ?? false,
+        imageId: pod.status.containerStatuses?.[0]?.imageID,
         restarts: pod.status.containerStatuses?.reduce((sum, container) => sum + container.restartCount, 0) ?? 0,
     })).sort((a, b) => a.uid.localeCompare(b.uid)) };
+}
+async function listenerEvents(pod) {
+    const logs = await kube("logs", pod.name, "--timestamps=true");
+    return logs.split("\n").flatMap((line) => {
+        const match = /^(\S+) Worker queue listener (listening|disconnected)$/.exec(line);
+        return match ? [{ at: match[1], state: match[2] }] : [];
+    });
 }
 async function until(label, check, timeout = 120_000) {
     const deadline = Date.now() + timeout;
@@ -54,8 +65,9 @@ async function until(label, check, timeout = 120_000) {
 async function persist() {
     if (isSweep) report.aggregates = aggregateSweep(report);
     if (isPolling) report.aggregates = aggregatePolling(report);
+    if (isWakeup) report.aggregates = aggregateWakeup(report);
     await writeFile(`${folder}/report.json`, JSON.stringify(report, null, 2));
-    await writeFile(`${folder}/report.md`, (isPolling ? pollingMarkdown(report) : isSweep ? sweepMarkdown(report) : markdown(report)));
+    await writeFile(`${folder}/report.md`, (isWakeup ? wakeupMarkdown(report) : isPolling ? pollingMarkdown(report) : isSweep ? sweepMarkdown(report) : markdown(report)));
 }
 function remote(config) {
     return new Promise((resolve, reject) => {
@@ -89,7 +101,8 @@ try {
     original = await deployment();
     const env = Object.fromEntries(original.spec.template.spec.containers[0].env.map((item) => [item.name, item.value]));
     assert.equal(env.LLM_PROVIDER, "mock", "Only mock workers are allowed");
-    assert.equal(env.WORKER_WAKEUP_MODE ?? "poll", "poll", "Polling benchmarks require polling-only workers");
+    if (!isWakeup) assert.equal(env.WORKER_WAKEUP_MODE ?? "poll", "poll", "Polling benchmarks require polling-only workers");
+    else assert(["poll", "notify"].includes(env.WORKER_WAKEUP_MODE ?? "poll"), "Unsupported original worker mode");
     assert.equal(env.WORKER_CONCURRENCY, "1", "This scenario requires concurrency 1");
     assert.equal(env.RATE_LIMIT_MOCK, "false", "Mock permits must not throttle this scenario");
     assert(!env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, "Use disabled trace export for this controlled baseline");
@@ -101,11 +114,31 @@ try {
     }
     assert.equal(await database('console.log(await prisma.job.count({where:{status:{in:["queued","running"]}}}));'), "0",
         "Benchmark requires an idle queue before changing worker counts");
+    let notificationMigration;
+    if (isWakeup) {
+        const migrations = JSON.parse(await database(`console.log(JSON.stringify(await prisma.$queryRaw\`
+            SELECT migration_name, checksum, finished_at FROM "_prisma_migrations"
+            WHERE migration_name = '20261018000000_notify_queued_jobs'
+                AND finished_at IS NOT NULL AND rolled_back_at IS NULL\`));`));
+        assert.equal(migrations.length, 1, "Notification migration must be applied first");
+        notificationMigration = migrations[0];
+        assert.equal(notificationMigration.checksum, createHash("sha256").update(await readFile(
+            `${repo}server/prisma/migrations/20261018000000_notify_queued_jobs/migration.sql`)).digest("hex"));
+        assert.equal(await database(`console.log(Number((await prisma.$queryRaw\`
+            SELECT count(*)::int AS count FROM pg_trigger WHERE tgrelid = 'jobs'::regclass
+                AND tgname = 'jobs_notify_queued' AND NOT tgisinternal AND tgenabled IN ('O', 'A')\`)[0].count));`),
+            "1", "Notification trigger must be enabled for all comparison conditions");
+    }
     report.environment = {
         gitCommit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim(),
         producerSha256: createHash("sha256").update(source).digest("hex"),
         reportSha256: createHash("sha256").update(await readFile(`${repo}benchmarks/report.mjs`)).digest("hex"),
         scenarioSha256: createHash("sha256").update(await readFile(`${repo}benchmarks/scenarios.mjs`)).digest("hex"),
+        harnessSha256: createHash("sha256").update(await readFile(`${repo}scripts/kind-benchmark.mjs`)).digest("hex"),
+        wakeupReportSha256: createHash("sha256").update(await readFile(`${repo}benchmarks/wakeupReport.mjs`)).digest("hex"),
+        queueWakeupSha256: createHash("sha256").update(await readFile(`${repo}server/src/queueWakeup.ts`)).digest("hex"),
+        workerSha256: createHash("sha256").update(await readFile(`${repo}server/src/worker.ts`)).digest("hex"),
+        notificationMigration, wakeupMode: env.WORKER_WAKEUP_MODE ?? "poll",
         pollingReportSha256: createHash("sha256").update(await readFile(`${repo}benchmarks/pollingReport.mjs`)).digest("hex"),
         sweepReportSha256: createHash("sha256").update(await readFile(`${repo}benchmarks/sweepReport.mjs`)).digest("hex"),
         image: original.spec.template.spec.containers[0].image,
@@ -120,7 +153,8 @@ try {
     }));
     await writeFile(`${folder}/manifest.json`, JSON.stringify({ configs, originalReplicas: original.spec.replicas,
         originalPausedReplicas: scaler?.metadata.annotations?.[pausedKey] ?? null,
-        originalPollEnv: original.spec.template.spec.containers[0].env.find((item) => item.name === "POLL_INTERVAL_MS") ?? null }, null, 2));
+        originalPollEnv: original.spec.template.spec.containers[0].env.find((item) => item.name === "POLL_INTERVAL_MS") ?? null,
+        originalModeEnv: original.spec.template.spec.containers[0].env.find((item) => item.name === "WORKER_WAKEUP_MODE") ?? null }, null, 2));
     for (const config of configs) {
         if (stopping) throw new Error("Benchmark stopped before next trial");
         changed = true;
@@ -132,11 +166,12 @@ try {
                     !(await kube("get", "hpa", "keda-hpa-evalflow-app-worker", "--ignore-not-found", "-o", "name"));
             });
         } else await kube("scale", "deployment", "evalflow-app-worker", `--replicas=${config.workers}`);
-        if (isPolling) {
+        if (sparse) {
             pollingChanged = true;
             await kube("patch", "deployment", "evalflow-app-worker", "--type=strategic", "-p", JSON.stringify({
                 spec: { template: { spec: { containers: [{ name: "worker", env: [
                     { name: "POLL_INTERVAL_MS", value: String(config.pollIntervalMs) },
+                    ...(isWakeup ? [{ name: "WORKER_WAKEUP_MODE", value: config.wakeupMode }] : []),
                 ] }] } } },
             }));
             await kube("rollout", "status", "deployment/evalflow-app-worker", "--timeout=120s");
@@ -147,14 +182,22 @@ try {
                 state.pods.length === config.workers && state.pods.every((pod) => pod.ready && !pod.deleting);
         });
         const before = await workerState();
-        if (isPolling) {
+        if (sparse) {
             const port = env.WORKER_METRICS_PORT ?? "9100";
             config.metricsUrl = `http://${before.pods[0].ip}:${port}/metrics`;
             const current = await deployment();
             assert.equal(current.spec.template.spec.containers[0].env
                 .find((item) => item.name === "POLL_INTERVAL_MS").value, String(config.pollIntervalMs));
         }
-        console.log(`Starting trial: ${config.workers} workers, ${config.jobs} jobs, ${config.arrivalRate} job/s, repetition ${config.repetition ?? 1}, ${config.latencyMs}ms mock latency${isPolling ? `, poll ${config.pollIntervalMs}ms` : ""}.`);
+        if (isWakeup) {
+            assert.equal((await deployment()).spec.template.spec.containers[0].env
+                .find((item) => item.name === "WORKER_WAKEUP_MODE")?.value, config.wakeupMode);
+            if (config.wakeupMode === "notify") await until("notification listener registered", async () => {
+                return (await listenerEvents(before.pods[0])).at(-1)?.state === "listening";
+            }, 20_000);
+        }
+        const listenersBefore = isWakeup ? await listenerEvents(before.pods[0]) : undefined;
+        console.log(`Starting trial: ${config.workers} workers, ${config.jobs} jobs, ${config.arrivalRate} job/s, repetition ${config.repetition ?? 1}, ${config.latencyMs}ms mock latency${isWakeup ? `, ${config.condition}` : isPolling ? `, poll ${config.pollIntervalMs}ms` : ""}.`);
         const observed = [];
         let finished = false;
         const monitor = (async () => {
@@ -170,8 +213,15 @@ try {
             trial.issues.push("Worker replica count, Pod identity, readiness or restart count changed during the trial");
         }
         trial.workerStates = { before, after, observed };
+        if (isWakeup) {
+            try { trial.listenerStates = { before: listenersBefore, after: await listenerEvents(after.pods[0]) }; }
+            catch (error) {
+                trial.listenerStates = { before: listenersBefore, after: [] };
+                trial.issues.push(`Listener evidence unavailable: ${error.message}`);
+            }
+        }
         report.trials.push(trial);
-        const summary = isPolling ? summarizePolling(trial) : summarize(trial);
+        const summary = isWakeup ? summarizeWakeup(trial) : isPolling ? summarizePolling(trial) : summarize(trial);
         report.summaries.push(summary);
         await persist();
         console.log(JSON.stringify(summary, null, 2));
@@ -184,15 +234,19 @@ try {
     try {
         try {
             if (pollingChanged && original) {
-                const old = original.spec.template.spec.containers[0].env.find((item) => item.name === "POLL_INTERVAL_MS");
+                const names = isWakeup ? ["POLL_INTERVAL_MS", "WORKER_WAKEUP_MODE"] : ["POLL_INTERVAL_MS"];
+                const entries = names.map((name) => original.spec.template.spec.containers[0].env.find((item) => item.name === name));
                 await kube("patch", "deployment", "evalflow-app-worker", "--type=strategic", "-p", JSON.stringify({
-                    spec: { template: { spec: { containers: [{ name: "worker", env: [old ??
-                        { name: "POLL_INTERVAL_MS", $patch: "delete" }] }] } } },
+                    spec: { template: { spec: { containers: [{ name: "worker", env: entries.map((old, index) =>
+                        old ?? { name: names[index], $patch: "delete" }) }] } } },
                 }));
                 await kube("rollout", "status", "deployment/evalflow-app-worker", "--timeout=120s");
-                assert.deepEqual((await deployment()).spec.template.spec.containers[0].env
-                    .find((item) => item.name === "POLL_INTERVAL_MS"), old);
+                const restored = (await deployment()).spec.template.spec.containers[0].env;
+                for (let index = 0; index < names.length; index++) {
+                    assert.deepEqual(restored.find((item) => item.name === names[index]), entries[index]);
+                }
                 report.pollingSettingRestored = true;
+                if (isWakeup) report.wakeupSettingRestored = true;
             }
         } catch (error) { restorationErrors.push(error); }
         try {
