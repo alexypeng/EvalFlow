@@ -14,10 +14,10 @@ _Last updated: 2026-10-18_
 
 | | |
 |---|---|
-| **Current milestone** | M6 Benchmark & write-up, branch `m6-benchmarks`; concurrency checkpoint committed as 6ed0718; final write-up, learning review and local acceptance complete |
-| **Done** | M0–M5 merged (PRs #1–#6); M5 local evidence, learning reviews and hosted checks verified |
-| **Waiting on you** | Owner commit and hosted CI/PR after final local acceptance |
-| **Next up** | Owner commit the write-up, push m6-benchmarks, open PR and verify hosted checks |
+| **Current milestone** | Post-M6 provider/model contract fix, branch `fix/saved-llm-selection`; implemented, tested and running locally |
+| **Done** | M0–M6 merged locally through PR #7 (`e1682df`); saved provider/model contract and frontend selectors verified locally |
+| **Waiting on you** | Explain missing-credential behavior for a saved Gemini job; owner review and commit |
+| **Next up** | Complete learning review; owner commit/push/PR for provider-selection fix |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -44,6 +44,54 @@ message. v2 can produce valid output; provider availability is intermittent. Par
 Auth scope is unresolved.
 
 ---
+
+## Post-M6: saved provider/model selection
+
+**Confirmed:** Owner chose workers following saved provider/model instructions and authorized frontend
+provider/model selectors backed by a configured allowlist. Preserve earlier completed results and
+user prompt `v3.md`. Branch `fix/saved-llm-selection` created from local main `55da9c6`; M6 merge is
+`e1682df` (PR #7), followed by owner's explicit Gemini default configuration.
+
+- [x] Validate selections and expose safe `GET /llm-options` catalog; no API key returned
+- [x] Save selection with each new run job and API-created single job
+- [x] Worker uses the saved selection for provider permits, spans, metrics and LLM SDK model
+- [x] Explicit Gemini fails without credentials; never substitutes mock output
+- [x] Pin legacy run jobs from stored run selection, standalone jobs from worker default, atomically
+  with their claim; preserve existing selections through concurrent claims, retries and manual retry
+- [x] Frontend provider/model dropdowns and mock-only failure controls; configurable `GEMINI_MODELS`
+- [x] Regression tests, typecheck/build/lint/benchmark checks and local Compose/browser verification
+- [ ] Owner learning review and commit; hosted CI and PR after push
+
+**Validation:** First regression run reproduced four wrong-provider/missing-key failures. New tests
+then passed; existing exact-input fixture needed its expected saved selection updated. Initial full
+suite imported the old fixture before correction (383 pass +1 expected/1 fail); final clean suite
+42 files,384 passed +1 existing expected failure (95.21s). Typecheck, server/frontend builds, frontend
+lint and32 benchmark tests pass. Real DB coverage includes concurrent claiming, legacy pinning,
+automatic/manual retries, API catalog/admission and saved-Gemini/no-key failure before permits or
+calls. Existing multi-run real worker test now runs saved mocks under Gemini defaults through
+retries and comparison. SDK tests stub Gemini and verify exact selected model; no live Gemini calls.
+Browser preview verified two configured model choices, switching provider and mock-only controls;
+preview processes/tab closed. Rebuilt/restarted only local API/worker/frontend and normal dependencies;
+dashboard HTTP200, safe catalog and effective worker Gemini configuration verified. No schema changes,
+volume deletion, history mutation, commits or pushes. Existing completed results remain unchanged;
+old run labels may not match actual historical execution and are documented accordingly.
+
+**Changed files:** `.env.example`, `README.md`, `docker-compose.yml`, `docs/PLAN.md`,
+`frontend/src/{RunsDashboard.tsx,api.ts,index.css}`, `server/src/{api.ts,jobs.ts,llm.ts,llmConfig.ts,runs.ts,types.ts,worker.ts}`,
+`server/test/unit/{llm.test.ts,llmConfig.test.ts}`,
+`server/test/db/{llmSelection.test.ts,mockFailures.test.ts,runs.test.ts}`.
+User-owned `server/prompts/retention/v3.md` and local learning files were preserved, not authored here.
+Suggested owner commands after review (v3 prompt can be committed separately):
+
+```bash
+git add .env.example README.md docker-compose.yml docs/PLAN.md \
+  frontend/src/RunsDashboard.tsx frontend/src/api.ts frontend/src/index.css \
+  server/src/api.ts server/src/jobs.ts server/src/llm.ts server/src/llmConfig.ts \
+  server/src/runs.ts server/src/types.ts server/src/worker.ts \
+  server/test/unit/llm.test.ts server/test/unit/llmConfig.test.ts \
+  server/test/db/llmSelection.test.ts server/test/db/mockFailures.test.ts server/test/db/runs.test.ts
+git commit -m "Persist LLM selection and add run provider and model controls"
+```
 
 ## M0 Foundations ✅
 
@@ -569,9 +617,19 @@ git commit -m "Add repeatable worker benchmarks and capacity measurements"
 | 2026-10-01 | Code is formatted with Prettier at 4-space indent, 120 columns (was 80) | Matches the owner's editor settings, so saving a file no longer reformats untouched lines and bloats diffs. One-off reformat of all hand-written TS/TSX; `src/generated/` excluded. |
 | 2026-10-01 | A case passes when its job completed and its risk label matches the answer key; failed jobs don't pass. Pass rate = passed / all cases | A score threshold (e.g. >= 80) lets a wrong label pass: the mock scores 80 on the 4 judgment cases, so it would show 100% despite 4 wrong answers. The label is the task; format/evidence quality shows in mean score. |
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
+| 2026-10-18 | Save provider/model as job instructions; owner approved frontend selectors | Worker defaults cannot reinterpret an existing run. Admission validates configured model choices; execution honors saved instructions even after catalog changes. Missing Gemini credentials fail explicitly. Legacy jobs pin their run selection or standalone default under the existing claim lock. No rewriting historical labels/results or extra live calls. |
 | 2026-10-18 | Owner approved final M6 write-up and charts using existing evidence | Explain configured service/slot limits and idle wakeup delay; explicitly leave pool saturation, claim contention, CPU limits and production maxima unmeasured. Avoid new speculative workload changes. Recompute raw trial metrics for charts; show median and observed range, preserving source archives. |
 
 ## Session log
+
+- **2026-10-18 (saved provider/model implementation):** Owner chose saved selection over worker defaults, then approved frontend provider/model controls with server-configured allowlist. Created fix/saved-llm-selection from main55da9c6 preserving owner Gemini defaults and v3 prompt. Implemented llmConfig, validated optional run selection, safe catalog, job persistence/atomic legacy pinning, saved selection across permits/telemetry/SDK and explicit missing-key errors. UI dropdowns/mock-only controls and Compose model catalog env/docs added. Four red regressions reproduced; final384 passed+1expected/42 files,32 benchmarks,typecheck/build/lint/config/diff checks pass. Browser verified alternate configured model and Mock controls with placeholder key and no submitted live calls. Rebuilt local API/worker/frontend; HTTP200/catalog/worker configuration verified. Temporary preview cleaned. No schema change, user result rewrite, secret exposure, commits or pushes. Owner learning review/commit next; full file list and commands above.
+
+
+- **2026-10-18 (provider contract fix planning):** Owner requested durable fix after API Gemini metadata versus mock execution. Inspection confirms provider/model saved on Run but not job input; worker and callLlm independently resolve environment, including missing-key mock fallback. Proposed persisting selection and enforcing it throughout execution, explicit missing-key failure and no-network mismatch/retry tests. Owner design choice pending; branch main, preserve local Gemini Compose settings and v3 prompt. No implementation, tests or runtime changes in this planning step.
+
+- **2026-10-18 (Gemini local configuration mismatch):** Owner reported no Gemini dashboard calls. Effective worker provider was mock despite API-created run metadata claiming Gemini; recent llm_call trace inputs confirmed mock-rule-based execution. User had enabled Gemini only on API. Changed worker LLM_PROVIDER in local Compose config to gemini to match API, recreated only worker, and verified resolveLlm=gemini with key present without exposing key or issuing an extra test call. Existing runs/results preserved; owner must create fresh runs for actual Gemini comparisons. Metadata describes API selection and does not enforce worker provider; architectural enforcement remains separate/unimplemented. Local provider configuration changes left uncommitted, no Git mutation.
+
+- **2026-10-18 (local dashboard startup):** Owner reported dashboard unavailable after starting only API/worker. Reproduced connection refusal on5173 while API health passed; Compose inventory showed no frontend container. Started only frontend via Compose (normal dependencies ran), then verified Vite ready and dashboard HTTP200. No application code changes, volume deletion or Git mutations. Use full `docker compose up -d --build` when starting the entire stack.
 
 - **2026-10-18 (final M6 branch acceptance):** Owner completed learning review: distinguished worker capacity from Postgres maximum, queue waiting from execution, and absent listeners at zero replicas. Authorized final review/checks. Standards and scope reviews of main f723e39 through M6 plus uncommitted write-up found no material issues; fixed stale review status. Fresh374 passed+1 existing expected failure/40 files,32 benchmark tests,typecheck,application builds,frontend lint,chart exact check,Helm lint/render,Compose config,syntax/diff and both Docker builds pass. Dataset regression gate passes with20 unchanged cases/0 regressions on isolated test API/database. Initial sandbox DB failure resolved by escalated suite rerun. No deployments/new performance experiments or Git mutations. Write-up files still uncommitted; owner commit/push/PR and hosted checks next.
 

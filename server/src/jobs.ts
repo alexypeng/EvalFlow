@@ -1,3 +1,4 @@
+import { resolveLlm } from "./llmConfig.js";
 import { randomUUID } from "node:crypto";
 import { Prisma, type JobStatus } from "./generated/prisma/client.js";
 import { prisma } from "./db.js";
@@ -129,6 +130,9 @@ export interface JobEvaluation {
 export async function claimNextJob(lockedBy: string, leaseDurationMs: number) {
     validateLeaseDuration(leaseDurationMs);
     const leaseToken = randomUUID();
+    // Old queued jobs acquire durable instructions under the same row lock as their lease.
+    // Run metadata takes precedence over worker defaults; retries never overwrite saved instructions.
+    const fallbackSelection = JSON.stringify(resolveLlm());
     const jobs = await prisma.$queryRaw<
         Array<JobLease & JobTraceContext & {
             caseId: string | null;
@@ -146,7 +150,14 @@ export async function claimNextJob(lockedBy: string, leaseDurationMs: number) {
         SET status = 'running', attempts = attempts + 1,
             started_at = clock_timestamp(), completed_at = NULL, error = NULL,
             locked_by = ${lockedBy}::uuid, lease_token = ${leaseToken}::uuid,
-            lease_expires_at = clock_timestamp() + ${leaseDurationMs} * interval '1 millisecond'
+            lease_expires_at = clock_timestamp() + ${leaseDurationMs} * interval '1 millisecond',
+            input = CASE
+                WHEN type <> 'retention_risk_analysis' OR input::jsonb ? 'llm' THEN input
+                ELSE input::jsonb || jsonb_build_object('llm', COALESCE(
+                    (SELECT jsonb_build_object('provider', runs.provider, 'model', runs.model)
+                     FROM runs WHERE runs.id = jobs.run_id),
+                    ${fallbackSelection}::jsonb
+                )) END
         WHERE id = (
             SELECT id FROM jobs
             WHERE status = 'queued' AND run_after <= clock_timestamp() AND attempts < max_attempts

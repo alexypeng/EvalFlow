@@ -3,7 +3,10 @@ import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { GoogleGenAI } from "@google/genai";
 import type { AnalyticsSnapshot } from "./analyticsTools.js";
-import { MockConfigSchema, PromptVersionSchema, type MockConfig } from "./types.js";
+import { MockConfigSchema, PromptVersionSchema, type MockConfig, type LlmSelection } from "./types.js";
+
+import { resolveLlm, assertLlmCredentials } from "./llmConfig.js";
+export { resolveLlm, geminiModel, mockModel } from "./llmConfig.js";
 
 export type LlmProvider = "mock" | "gemini";
 
@@ -17,19 +20,7 @@ export type LlmResponse = {
     model: string;
 };
 
-export const geminiModel = process.env.GEMINI_MODEL ?? "gemini-3.8-flash";
-
-export const mockModel = "mock-rule-based";
-
 export const defaultPromptVersion = "v1";
-
-export function resolveLlm(): { provider: LlmProvider; model: string } {
-    if (process.env.LLM_PROVIDER === "gemini" && process.env.GEMINI_API_KEY) {
-        return { provider: "gemini", model: geminiModel };
-    }
-
-    return { provider: "mock", model: mockModel };
-}
 
 const promptDir = new URL("../prompts/retention/", import.meta.url);
 const promptTemplates = new Map<string, string>();
@@ -101,9 +92,11 @@ function selected(config: MockConfig, caseId: string, mode: string, rate: number
 export async function callLlm(
     prompt: string,
     snapshot: AnalyticsSnapshot,
-    options: { caseId?: string; mockConfig?: Partial<MockConfig> } = {},
+    options: { caseId?: string; mockConfig?: Partial<MockConfig>; llm?: LlmSelection } = {},
 ): Promise<LlmResponse> {
-    const { provider, model: modelName } = resolveLlm();
+    const selection = resolveLlm(options.llm);
+    assertLlmCredentials(selection);
+    const { provider, model: modelName } = selection;
 
     if (options.mockConfig && provider !== "mock") {
         throw new Error("mockConfig requires the mock provider");
