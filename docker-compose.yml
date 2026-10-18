@@ -46,7 +46,7 @@ services:
         environment:
             DATABASE_URL: postgresql://postgres:postgres@postgres:5432/evalflow
             GEMINI_API_KEY:
-            LLM_PROVIDER: mock
+            LLM_PROVIDER: gemini
             PORT: 3000
             OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
         ports:
@@ -109,7 +109,7 @@ services:
             DATABASE_URL: postgresql://postgres:postgres@postgres:5432/evalflow
             GEMINI_API_KEY:
             GEMINI_MODEL: gemini-3.8-flash
-            LLM_PROVIDER: mock
+            LLM_PROVIDER: gemini
             WORKER_CONCURRENCY: 1
             WORKER_WAKEUP_MODE: ${WORKER_WAKEUP_MODE:-poll}
             POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-2000}
