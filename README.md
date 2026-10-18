@@ -1084,7 +1084,7 @@ node scripts/kind-keda-check.mjs
 
 ## Roadmap
 
-- M5 local Kubernetes work is in progress: [Postgres](deploy/helm/evalflow/README.md) and the
+- M5 local Kubernetes is implemented: [Postgres](deploy/helm/evalflow/README.md) and the
   [backend application](deploy/helm/evalflow-app/README.md) have separate Helm charts, with migration
   ordering, health checks and live-verified KEDA worker autoscaling. Compose includes the dashboard and monitoring.
 - Add more analytics workflows.
@@ -1115,3 +1115,42 @@ zero to four in the isolated kind cluster. Eligible queued and running jobs coun
 of one job per worker; retries still in backoff do not. Run `bash scripts/kind-keda-check.sh` for
 the mock-job burst and delayed-retry demo. See the [application chart guide](deploy/helm/evalflow-app/README.md#worker-autoscaling)
 for timing controls, watch commands, and switching back to a fixed worker.
+
+### Fixed-worker benchmarks (M6)
+
+The first [benchmark scenario](benchmarks/README.md) compares 1, 2 and 4 fixed workers with one queued
+job/second and two-second mock latency. It records queue wait, execution time, end-to-end p50/p99,
+completion rates, failures and raw samples. Run `bash scripts/kind-benchmark.sh` against an idle M5
+kind stack. KEDA is paused during measurement and restored afterward. This queue/worker benchmark
+excludes HTTP submission and real-provider latency; single-run results are exploratory.
+
+
+The [first captured comparison](docs/benchmarks/2026-10-18-fixed-workers.md) and
+[raw job/sample data](docs/benchmarks/2026-10-18-fixed-workers.json) record 60 completed jobs at each
+worker count. End-to-end p99 was 62.8s / 3.4s / 2.9s for 1 / 2 / 4 workers, respectively. All three
+valid trials had one attempt and one evaluation per job. This is one trial per configuration on a
+shared local host; it does not establish maximum capacity or a stable p99.
+
+
+### Repeated capacity sweep (M6)
+
+`bash scripts/kind-benchmark.sh --sweep` holds four workers fixed and tests 1, 2 and 3 incoming jobs/second
+for 60 seconds each, with three rotated repetitions per rate. It saves individual trials and reports
+the median/range of each trial's completion rate, p99 latency, sampled queue maximum and drain time.
+See the [sweep protocol](benchmarks/README.md#repeated-four-worker-capacity-sweep).
+
+
+The [captured nine-trial sweep](docs/benchmarks/2026-10-18-capacity-sweep.md) and
+[raw data](docs/benchmarks/2026-10-18-capacity-sweep.json) contain 1080 measured jobs, all completed
+with one attempt and one evaluation. Medians across the three trials at each arrival rate:
+
+| Arrivals/sec | Completions/sec including drain | Total p99 latency |
+| ---: | ---: | ---: |
+| 1 | 0.98 | 3.0s |
+| 2 | 1.92 | 3.5s |
+| 3 | 1.94 | 32.8s |
+
+At three arrivals/sec, the sampled queue peaked at 60–63 jobs and took 32.7–32.9s to drain after arrivals
+stopped. Execution p99 stayed near 2.03s. This is consistent with the configured four-worker/two-second
+mock workload reaching its processing limit while excess arrivals accumulate. The detailed report
+retains all trial values and ranges; three shared-host trials are not a production capacity guarantee.

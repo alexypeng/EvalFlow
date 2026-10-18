@@ -14,10 +14,10 @@ _Last updated: 2026-10-18_
 
 | | |
 |---|---|
-| **Current milestone** | M5 Kubernetes, branch `m5-kubernetes`; KEDA autoscaling live-verified in kind |
-| **Done** | M0–M4 merged (PRs #1–#5); M4 learning reviews and hosted CI verified |
-| **Waiting on you** | Commit screenshot evidence, then push/PR and review hosted checks |
-| **Next up** | Owner commit of README images; hosted checks remain before M5 wrap-up |
+| **Current milestone** | M6 Benchmark & write-up, branch `m6-benchmarks`; repeated capacity sweep verified; introductory learning review complete |
+| **Done** | M0–M5 merged (PRs #1–#6); M5 local evidence, learning reviews and hosted checks verified |
+| **Waiting on you** | Owner checkpoint commit of baseline and repeated capacity benchmarks |
+| **Next up** | Commit benchmark checkpoint, then agree the next M6 overhead experiment |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -244,7 +244,7 @@ Tasks:
 - [x] **ME** KEDA `ScaledObject` with Secret-backed Postgres scaler: eligible queued plus running, target1, min0/max4, polling10s/cooldown60s/stabilization30s; live verification and learning review complete
 - [x] **Claude** Automated mock burst and delayed-retry demo: twenty jobs scale 0 → 4 → 0, single attempt/eval per burst job; delayed work stays at zero until eligible
 - [x] **Claude** Capture README scaling evidence: four ready workers and zero worker Pods, using actual kubectl output with selected columns rendered for readability; images visually checked
-- [ ] **You** Commit screenshot evidence and review hosted checks after owner push/PR
+- [x] **You** Screenshot evidence committed; PR #6 hosted typecheck/tests, both Docker builds and regression gate passed; merged as f723e39
 
 Done when: `helm install` on kind brings up a working stack and workers autoscale on queue depth.
 
@@ -269,14 +269,57 @@ git commit -m "Add Postgres-driven worker autoscaling with KEDA"
 
 ## M6 Benchmark & write-up
 
-- [ ] **Claude** Load generator: enqueue N jobs at a fixed rate; mock provider with configurable latency
+M5 merged in [PR #6](https://github.com/alexypeng/EvalFlow/pull/6) as `f723e39` on 2026-10-18;
+local branch is now `m6-benchmarks`. Owner approved 1/2/4 fixed workers, concurrency 1, one job/second
+and 2000ms mock latency. Implemented 60 jobs per count with warmup/full drain, direct Postgres arrivals
+and timestamp-based queue/execution/end-to-end reports, excluding HTTP. Smoke and full live checks pass.
+All 180 measured jobs completed with one attempt/eval each. p99 total latency: 62.8s / 3.4s / 2.9s;
+completion rate including drain: 0.49 / 0.96 / 0.98 jobs/s. Results and raw samples are in
+[the first report](benchmarks/2026-10-18-fixed-workers.md). This is one exploratory trial per count.
+An earlier long run with an expired lease and a large clock gap was rejected and retained only locally;
+clock-gap detection and macOS idle-sleep prevention preceded the successful rerun. KEDA restored after
+success/failure; valid fixture jobs cleaned, invalid-run terminal fixtures retained for inspection.
+Repetition, order/resource isolation, capacity sweeps and the broader measurement plan remain.
+
+**Capacity sweep approved, implemented and verified:** Four workers/concurrency1,2000ms mock latency,
+1/2/3 arrivals per second over60-second windows, three trials per rate. Counts60/120/180 per trial
+(1080 measured jobs total), rotated1/2/3,2/3/1,3/1/2. Warmup/full drain each trial. All nine trials valid,
+all1080 measured and36 warmup jobs completed with one attempt/eval, no worker changes/clock gaps;
+KEDA restored and valid own fixtures cleaned. Median drain-inclusive completion rates0.979/1.920/1.940
+jobs/s; median trial p99 total3.010/3.503/32.814s. At3/s, sampled peak queue60–63 and drain32.655–32.886s;
+execution p99~2.03s. Individual trials/ranges and raw data are in the
+[capacity sweep report](benchmarks/2026-10-18-capacity-sweep.md). This measures the configured mock
+workload, not maximum Postgres or production capacity. Aggregates withheld for missing/invalid repeats;
+no pooled-job p99. Fourteen report/planning/provenance tests, typecheck and live smoke/full checks pass.
+Baseline evidence remains unchanged with original producer archived. Introductory learning review complete.
+
+
+- [x] **Claude** First load generator: independently scheduled direct-queue arrivals, fixed 1 job/s and 2000ms seeded mock latency, configurable count, scoped fixtures and raw report; introductory learning review complete
+- [x] **Claude** Repeated fixed-four-worker capacity sweep: three rates, balanced order, constant arrival windows, full drain, per-trial/range evidence; introductory learning review complete
 - [ ] **ME** Measurement plan: throughput and p50/p99 end-to-end latency (created → completed) against worker count and `WORKER_CONCURRENCY`
 - [ ] **ME** Find the bottleneck: connection pool size, poll interval, claim-query contention
 - [ ] **ME** Implement `LISTEN/NOTIFY` wake-up and compare against polling
-- [ ] **Claude** Scripts that turn results into tables and charts
+- [ ] **Claude** Scripts that turn results into tables and charts (Markdown comparison/raw JSON implemented; charts remain)
 - [ ] **ME** README write-up: architecture diagram, numbers, design decisions and trade-offs (Claude drafts diagrams and layout)
 
 Done when: the README has real numbers and an explanation of what limited throughput and why.
+
+**First M6 checkpoint files (uncommitted):** `.github/workflows/ci.yml`, `package.json`, `README.md`,
+`docs/PLAN.md`, `benchmarks/README.md`, `benchmarks/produce.mjs`, `benchmarks/report.mjs`,
+`benchmarks/test/report.test.mjs`, `scripts/kind-benchmark.mjs`, `scripts/kind-benchmark.sh`,
+`docs/benchmarks/2026-10-18-fixed-workers.md` and `.json`. Capacity sweep additionally changes/adds
+`benchmarks/scenarios.mjs`, `benchmarks/sweepReport.mjs`, `benchmarks/test/sweep.test.mjs`,
+`benchmarks/test/evidence.test.mjs`, `docs/benchmarks/2026-10-18-capacity-sweep.md` and `.json`, and
+`docs/benchmarks/sources/2026-10-18-fixed-workers-produce.mjs`. Local learning notes stay unstaged.
+
+Suggested owner commands after learning review:
+
+```bash
+git add .github/workflows/ci.yml package.json README.md docs/PLAN.md benchmarks \
+  scripts/kind-benchmark.mjs scripts/kind-benchmark.sh docs/benchmarks
+git commit -m "Add repeatable worker benchmarks and capacity measurements"
+```
+
 
 ---
 
@@ -295,6 +338,8 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-18 | Owner approved a repeated arrival-rate sweep at four fixed workers,2000ms latency,1/2/3 arrivals/s,60-second windows and three trials/rate | Vary offered load while holding capacity fixed to bracket overload. Use60/120/180 jobs to keep arrival duration equal, rotate rate order to balance position, warm/drain each trial, retain per-trial results and summarize median/min/max of trial metrics. Withhold aggregates for missing/invalid repetitions and never pool trial p99 values. Existing first-benchmark evidence remains immutable; source archive preserves its producer provenance. |
+| 2026-10-18 | Owner approved fixed 1/2/4 workers at 1 job/s and 2000ms mock latency for the first M6 scenario | Hold replicas fixed to isolate worker-count effects; identical load exposes overload at one worker and spare capacity at four. Use direct queue insertion because the jobs API does not expose mock latency; no public API change. First60-job trial per count is exploratory, with independent arrivals, warmup, raw data, failure accounting and separate arrival/drain completion rates. Pause KEDA using its supported annotation, monitor fixed Pods, then restore prior scaling. Reject clock gaps instead of treating host/VM suspension as capacity evidence; keep macOS awake during measurement. |
 | 2026-10-18 | Owner confirmed capacity-based KEDA policy: eligible queued plus running, target1, min0/max4, polling10s, cooldown60s, nonzero stabilization30s | Match target to current worker concurrency1; exclude retries in backoff and terminal work while retaining running demand. Four is a conservative local cap on the shared eight-CPU/~8GB Docker environment, not a benchmark optimum. KEDA2.21.0 is pinned and supports this Kubernetes1.34 cluster. Keep application autoscaling opt-in, omit worker replicas under HPA ownership, use existing Secret authentication and cross-namespace database DNS. No new queue/status or application runtime logic. |
 | 2026-10-17 | Owner approved keeping a responsive backend alive but unready during database outages | Separate /livez process checks from /readyz database checks to avoid dependency-driven restarts. Readiness uses a lazy one-connection pool with one-second connection/query limits and handles idle errors, without altering application query deadlines. Worker readiness does not gate polling; existing backoff and shutdown logic own that behavior. Use direct Node PID 1 and derive worker Kubernetes grace from drain/cleanup plus margin. Default local deployment uses one API, worker and reaper with mock provider; Compose monitoring remains separate. |
 | 2026-10-16 | Use separate database and application releases with a migration hook before new application resources | Owner accepted the database-first startup flow and correctly required migration success before the new backend deploys. Keep existing evalflow database release ready before evalflow-app pre-install/pre-upgrade Job. Database credentials stay in an existing Secret; URL encoding happens in the Job. Preserve previous backend versions during upgrades and use compatible schema changes; Helm does not undo SQL migrations. Failure Job blocks normal resources. |
@@ -357,6 +402,18 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
+
+- **2026-10-18 (capacity sweep learning review):** Owner correctly calculated about one extra queued job/second under three arrivals versus about two completions, and identified waiting time as the reason total latency rises while execution stays near two seconds. Owner identified four workers/two-second calls as the configured limit but needed the rate derivation explained; after recap, correctly calculated eight workers/two seconds = four jobs/second. Introductory review complete with reinforcement; revisit capacity assumptions in future experiments. Verified benchmark files remain uncommitted; owner requested commit commands. PLAN/local learning notes updated only; no new code, tests, runtime changes, commits or pushes.
+
+- **2026-10-18 (repeated capacity sweep):** Owner approved the next experiment. Extended producer to rates1/2/3 and optional repetition ID; added pure scenario planner, separate sweep-report module, CLI sweep/smoke/verification modes and regression/provenance tests. Fixed baseline mode/report math preserved, original producer archived against its recorded hash. Rotated rate order1/2/3,2/3/1,3/1/2 with four steady workers/concurrency1 and2000ms mock delay;60-second windows imply60/120/180 jobs. Short three-rate smoke and full nine-trial run pass: all1080 measured plus36 warmup jobs complete once with one eval, stable worker readiness/UID/restarts and clocks. All valid fixture jobs cleaned and original KEDA pause setting restored. Median completion/s including drain0.9786/1.9202/1.9405 and median trial p99 total3.0097/3.5025/32.8144s for rates1/2/3. At3/s, queue sample maximum60–63 and drain32.655–32.886s; execution p99~2.03s throughout. All report/aggregate recalculations match raw evidence; all four source hashes verified. Fourteen reporting/planning/evidence tests, typecheck, Node/shell syntax, CI YAML parse and diff checks pass. Added README protocol/result links/table and complete raw/Markdown artifacts. This identifies saturation for the configured mock service time; no claim about Postgres's maximum throughput or production p99. First baseline files unchanged. No worker/API/schema/image/dependency changes, live provider calls, commits or pushes. Full changed-file list and owner commit commands in M6; local learning notes remain unstaged. Capacity report learning review pending before next experiment.
+
+- **2026-10-18 (next M6 experiment planning):** Owner requested the next part after benchmark recap. Verified first checkpoint remains uncommitted on m6-benchmarks; no runtime changes or new load runs. Proposed keeping four workers/2000ms latency fixed and varying arrivals1/2/3 per second in equal60-second windows, with three trials per rate, to bracket ideal capacity and reduce single-run noise. Owner design confirmation pending; PLAN/local learning notes updated only. Existing first-benchmark verification remains valid.
+
+- **2026-10-18 (first benchmark learning review):** Clarified offered submission rate versus worker capacity after owner attributed one job/s to workers. Explained queue wait plus execution with an arrival timeline; owner correctly calculated10s waiting+2s execution=12s total. Owner correctly excluded the clock-gap run from controlled normal-performance evidence; clarified such disruptions can occur in real systems and merit separate failure testing. Introductory review complete, with offered-load/queue-time distinctions to revisit during later experiments. Owner requested a recap of this implementation. PLAN/local learning notes updated only; no new code, tests, commits or pushes.
+
+- **2026-10-18 (first M6 benchmark):** Owner explained fixed replicas avoid confounding comparisons, that overload increases queue/total latency, correctly calculated four workers / two seconds = two jobs/s, and approved 1/2/4 at one arrival/s and2000ms mock latency. Implemented benchmark-only producer/report modules, kind orchestrator/wrapper, report tests and CI test step. No API/schema/worker/image changes or new dependencies. Smoke4-job trials passed allcounts/restoration. First long run invalidated after one expired lease and a large wall-clock/monotonic discrepancy with stable Pod identity/restarts; suspension or clock change inferred, not proved. Retained invalid results/terminal fixtures locally, added clock-gap rejection and scoped macOS caffeinate idle-sleep prevention, then reran. Successful60-job trials at1/2/4 each complete60/60 once with one eval, no worker changes/clock errors; p99 total62777/3407/2879ms, execution p99~2029/2026/2027ms, batch completion rates0.490/0.961/0.981 jobs/s. KEDA pause restored after success/failure, valid own jobs cleaned. Archived complete raw/report evidence and verified producer/report source hashes and all180 job invariants. Seven report tests, typecheck, Node/shell syntax, CI YAML parse, evidence recomputation and diff checks pass. First baseline is shared-host, single-trial evidence; no maximum-capacity/p99-stability claim, broad bottleneck/concurrency/LISTEN-NOTIFY work remains. Updated README, PLAN and local learning notes; file list/owner commit commands in M6. Learning report review pending. No commits/pushes or real LLM calls.
+
+- **2026-10-18 (M6 planning start):** Verified M5 PR #6 merged at f723e39 and checkout is m6-benchmarks with tracked tree clean before status edits. Earlier hosted CI/regression checks passed and README image evidence is committed. Updated M5 completion and M6 status. Proposed a controlled comparison at 1/2/4 workers with identical mock latency/arrival rate, measuring throughput and end-to-end p50/p99 plus failures. Begin owner reasoning with fixed replicas versus KEDA changing capacity; no benchmark design approved, implementation, runtime configuration changes, tests or load runs yet. PLAN and local learning notes updated only; no commits or pushes.
 
 - **2026-10-18 (M5 README screenshots):** Owner requested adding screenshots. Reran the existing isolated kind/mock demo and captured real kubectl selected-column output only after all four workers were ready, then after desired zero and no worker Pods remained. The twenty-job burst passed one-attempt/one-eval assertions and returned to zero; delayed retry checks also passed. Rendered the captured output in headless Chrome as docs/screenshots/keda-scale-up.png and keda-scale-down.png, clearly labeled command-output captures rather than a Kubernetes dashboard. Both1200×1280 PNGs visually inspected: complete tables/logs, readable text and no clipped content. Added images/captions/reproduction command to README and corrected stale roadmap wording; explained HPA minimum/last nonzero recommendation versus KEDA's zero transition. Browser emitted display-link diagnostics but exited0 and wrote valid PNGs. No application/runtime/test/chart changes, live provider calls, commits or pushes. Only own terminal fixtures cleaned; temporary capture/render sources remain outside repo. Changed README.md, docs/PLAN.md and the two PNGs; local learning notes updated unstaged. Suggested owner commands: `git add README.md docs/PLAN.md docs/screenshots/keda-scale-up.png docs/screenshots/keda-scale-down.png` then `git commit -m "Document worker autoscaling with live demo captures"`. Hosted checks remain before M5 wrap-up.
 
