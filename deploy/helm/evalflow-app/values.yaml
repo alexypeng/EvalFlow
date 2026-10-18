@@ -55,3 +55,14 @@ migrations:
         limits:
             cpu: "1"
             memory: 512Mi
+
+autoscaling:
+    enabled: false
+    minReplicas: 0
+    maxReplicas: 4
+    targetJobsPerWorker: 1
+    pollingIntervalSeconds: 10
+    cooldownSeconds: 60
+    scaleDownStabilizationSeconds: 30
+    # KEDA runs in another namespace, so use the database Service's full DNS name.
+    databaseHost: evalflow-postgres.evalflow.svc.cluster.local

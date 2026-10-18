@@ -1083,3 +1083,11 @@ Pull requests are not currently expected, but small fixes or suggestions are wel
 ## License
 
 ISC © Alex Peng
+
+### Local worker autoscaling (M5)
+
+Run `bash scripts/kind-keda-up.sh` to install pinned KEDA 2.21.0 and enable workers scaling from
+zero to four in the isolated kind cluster. Eligible queued and running jobs count toward a target
+of one job per worker; retries still in backoff do not. Run `bash scripts/kind-keda-check.sh` for
+the mock-job burst and delayed-retry demo. See the [application chart guide](deploy/helm/evalflow-app/README.md#worker-autoscaling)
+for timing controls, watch commands, and switching back to a fixed worker.

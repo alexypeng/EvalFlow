@@ -9,7 +9,9 @@ metadata:
         {{- include "evalflow-app.labels" $ | nindent 8 }}
         app.kubernetes.io/component: {{ $component }}
 spec:
+    {{- if or (ne $component "worker") (not $.Values.autoscaling.enabled) }}
     replicas: {{ $settings.replicas }}
+    {{- end }}
     strategy:
         type: RollingUpdate
         rollingUpdate:

@@ -2,7 +2,7 @@
 
 This chart contains the migration hook, API Service and API/worker/reaper Deployments.
 The local default is one replica of each process with the mock provider and no API key.
-KEDA autoscaling and Kubernetes monitoring deployment remain later work.
+Optional KEDA autoscaling adjusts workers from Postgres demand. Monitoring remains in Compose.
 
 ## Two releases and startup ordering
 
@@ -159,3 +159,69 @@ kubectl --kubeconfig .evalflow-kind/kubeconfig --context kind-evalflow -n evalfl
 See [Helm hook lifecycle](https://helm.sh/docs/topics/charts_hooks/) and the
 [Prisma migrate deploy command](https://www.prisma.io/docs/cli/v7/migrate/deploy), plus the
 [database chart](../evalflow/README.md).
+
+## Worker autoscaling
+
+```bash
+bash scripts/kind-keda-up.sh
+```
+
+This installs the official KEDA Helm chart pinned to 2.21.0 in namespace `keda`, waits for its
+external metrics API, then deploys the application with `autoscaling.enabled=true`. KEDA adds its
+CRDs, operator, metrics server, admission webhook and cluster permissions only to this local cluster.
+The application owns a ScaledObject and TriggerAuthentication; credentials reference the existing
+namespace Secret. The database hostname is fully qualified because KEDA runs in another namespace.
+The local database uses `sslmode=disable`; this is a local learning setup.
+
+| Setting | Local default |
+| --- | --- |
+| Demand | Eligible queued jobs plus running jobs |
+| Target per worker | 1 job (worker concurrency is 1) |
+| Worker bounds | 0–4 |
+| Activation polling while at zero | 10 seconds |
+| Idle-to-zero cooldown | 60 seconds |
+| HPA nonzero scale-down stabilization | 30 seconds |
+
+`files/worker-demand.sql` is the actual query embedded in the ScaledObject and tested against
+Postgres. Delayed retries remain queued but do not count until `run_after <= CURRENT_TIMESTAMP`.
+Completed and dead-letter jobs do not count. Running jobs count even if their lease has expired;
+the reaper resolves that state. A query failure is a scaler error, not a fabricated zero count.
+
+KEDA activates an idle Deployment; the generated Kubernetes HPA handles nonzero replica counts
+using the external AverageValue metric. Desired capacity is approximately `ceil(demand / target)`,
+limited to four here. The HPA usually reconciles every 15 seconds and has tolerance/rate policies;
+this is not immediate scaling. The 30-second stabilization uses the highest recent recommendation;
+the separate 60-second cooldown governs the final move to zero.
+
+The worker Deployment omits `spec.replicas` when autoscaling is enabled so Helm does not overwrite
+HPA decisions. Kubernetes may select busy workers for scale-down; existing SIGTERM draining,
+heartbeats, fencing and reaper recovery still protect jobs. Four is a conservative local starting
+cap, not a measured optimum or a guarantee that only four Pods exist during rolling updates/drain.
+If worker concurrency changes, revisit the target and measure it in M6.
+
+For later autoscaled image deployments, run `bash scripts/kind-app-up.sh --autoscaling`.
+Running `kind-app-up.sh` without the flag explicitly returns to one fixed worker and removes the
+application's ScaledObject/authentication; KEDA itself remains installed. The older backend and
+migration checks use that fixed-worker mode. Do not submit unrelated jobs during the scaling demo:
+
+```bash
+bash scripts/kind-keda-check.sh
+```
+
+The bundled check verifies the shipped SQL against the dedicated test database, installs the stack,
+waits for zero, observes a delayed retry over three polling intervals, makes it eligible, verifies its
+second attempt completes once, and submits twenty 12-second mock jobs to exercise 0 → 4 → 0.
+It checks one attempt/eval per burst job and removes its terminal jobs. An interrupted/failed demo
+leaves unfinished jobs for inspection. An ignored `.evalflow-kind/keda-check-jobs.json` journal lets
+the next run remove only its previous terminal fixtures and refuses to proceed while they are unfinished.
+The fixture dataset remains idempotently loaded. Workers may
+be absent while idle; API, reaper and Postgres remain running.
+
+Watch the controllers and Pods in another terminal:
+
+```bash
+kubectl --kubeconfig .evalflow-kind/kubeconfig --context kind-evalflow -n evalflow get scaledobject,hpa,deployments,pods --watch
+```
+
+See the [KEDA PostgreSQL scaler](https://keda.sh/docs/2.21/scalers/postgresql/) and
+[ScaledObject settings](https://keda.sh/docs/2.21/reference/scaledobject-spec/).

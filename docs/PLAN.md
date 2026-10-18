@@ -10,14 +10,14 @@ The working plan and status tracker. [`ROADMAP.md`](ROADMAP.md) is the one-parag
 
 ## Status snapshot
 
-_Last updated: 2026-10-17_
+_Last updated: 2026-10-18_
 
 | | |
 |---|---|
-| **Current milestone** | M5 Kubernetes, branch `m5-kubernetes`; backend running in kind with probes |
+| **Current milestone** | M5 Kubernetes, branch `m5-kubernetes`; KEDA autoscaling live-verified in kind |
 | **Done** | M0–M4 merged (PRs #1–#5); M4 learning reviews and hosted CI verified |
-| **Waiting on you** | Commit the completed backend deployment/probe checkpoint |
-| **Next up** | Design KEDA worker autoscaling after owner commit |
+| **Waiting on you** | Owner commit; README scaling screenshot and hosted checks remain |
+| **Next up** | Commit the verified KEDA checkpoint, then finish M5 evidence/CI |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -230,7 +230,7 @@ README now includes the planned local Kubernetes milestone; Compose remains the 
 
 **Decided:**
 - **Postgres in the cluster:** Owner approved a small hand-written, single-instance StatefulSet for learning (2026-10-16).
-- **Release layout:** Existing evalflow database release first, then separate evalflow-app release whose migration hooks precede normal app resources. API/worker/reaper resources are implemented and live-verified; autoscaling follows after review.
+- **Release layout:** Existing evalflow database release first, then separate evalflow-app release whose migration hooks precede normal app resources. API/worker/reaper resources and optional KEDA autoscaling are implemented and live-verified.
 
 Tasks:
 - [x] **Claude** Initial Postgres-only Helm chart: one StatefulSet, headless Service, retained PVC and existing Secret reference; lint/render and live SQL/Pod-replacement persistence verified; introductory chart review complete
@@ -241,10 +241,30 @@ Tasks:
 - [x] **Claude** Postgres-only kind setup and persistence scripts: separate cluster/context, generated Secret, Helm install and row survival across Pod replacement; learning review complete
 - [x] **Claude** Backend image build/load into kind and separate migration-release setup/check scripts
 - [x] **Claude** Backend installation and integration script covers API job completion, outage/readiness/recovery, reaper and graceful worker replacement
-- [ ] **ME** KEDA `ScaledObject` with the Postgres scaler: queue-depth query, target per replica, min/max replicas, cooldown
-- [ ] **You** Demo: enqueue a burst, watch workers scale up and back down (README screenshot)
+- [x] **ME** KEDA `ScaledObject` with Secret-backed Postgres scaler: eligible queued plus running, target1, min0/max4, polling10s/cooldown60s/stabilization30s; live verification and learning review complete
+- [x] **Claude** Automated mock burst and delayed-retry demo: twenty jobs scale 0 → 4 → 0, single attempt/eval per burst job; delayed work stays at zero until eligible
+- [ ] **You** Capture README scaling screenshot and review hosted checks after owner commit/push
 
 Done when: `helm install` on kind brings up a working stack and workers autoscale on queue depth.
+
+**KEDA checkpoint files (uncommitted):** `README.md`, `docs/PLAN.md`,
+`deploy/helm/evalflow-app/Chart.yaml`, `deploy/helm/evalflow-app/README.md`,
+`deploy/helm/evalflow-app/values.yaml`,
+`deploy/helm/evalflow-app/templates/backend-deployments.yaml`,
+`deploy/helm/evalflow-app/templates/worker-autoscaling.yaml`,
+`deploy/helm/evalflow-app/files/worker-demand.sql`, `scripts/kind-app-up.sh`,
+`scripts/kind-keda-up.sh`, `scripts/kind-keda-check.sh`, `scripts/kind-keda-check.mjs`,
+`server/test/db/workerDemand.test.ts`. Local learning notes remain unstaged.
+
+Suggested checkpoint commands after learning review (owner runs):
+
+```bash
+git add README.md docs/PLAN.md deploy/helm/evalflow-app scripts/kind-app-up.sh \
+  scripts/kind-keda-up.sh scripts/kind-keda-check.sh scripts/kind-keda-check.mjs \
+  server/test/db/workerDemand.test.ts
+git commit -m "Add Postgres-driven worker autoscaling with KEDA"
+```
+
 
 ## M6 Benchmark & write-up
 
@@ -263,7 +283,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 - [ ] **ME** Auth: decide access/ownership scope, agree design and implementation scope, then implement with VibeWise.
 - **Known (M1):** ground-truth grading is implemented, so mock runs can lose points on judgment cases; the mock still ignores prompt content when selecting labels, so v1/v2 alone do not demonstrate label regressions.
-- **Known (M3):** a worker crash leaves jobs stuck in `running` forever.
+- **M3 operations:** the separate reaper must remain running to recover jobs after worker crashes.
 - `scoreRetentionAnalysis` evidence check is a substring match: NPS `4` "matches" "14 days". Documented by an `it.fails` test; fixing it flips that test.
 - `parseLlmJson` fails if the model writes prose before the fenced block. Covered by a TODO test.
 - Gemini now uses `@google/genai`; token counts remain character-based estimates and cost remains zero.
@@ -274,6 +294,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-18 | Owner confirmed capacity-based KEDA policy: eligible queued plus running, target1, min0/max4, polling10s, cooldown60s, nonzero stabilization30s | Match target to current worker concurrency1; exclude retries in backoff and terminal work while retaining running demand. Four is a conservative local cap on the shared eight-CPU/~8GB Docker environment, not a benchmark optimum. KEDA2.21.0 is pinned and supports this Kubernetes1.34 cluster. Keep application autoscaling opt-in, omit worker replicas under HPA ownership, use existing Secret authentication and cross-namespace database DNS. No new queue/status or application runtime logic. |
 | 2026-10-17 | Owner approved keeping a responsive backend alive but unready during database outages | Separate /livez process checks from /readyz database checks to avoid dependency-driven restarts. Readiness uses a lazy one-connection pool with one-second connection/query limits and handles idle errors, without altering application query deadlines. Worker readiness does not gate polling; existing backoff and shutdown logic own that behavior. Use direct Node PID 1 and derive worker Kubernetes grace from drain/cleanup plus margin. Default local deployment uses one API, worker and reaper with mock provider; Compose monitoring remains separate. |
 | 2026-10-16 | Use separate database and application releases with a migration hook before new application resources | Owner accepted the database-first startup flow and correctly required migration success before the new backend deploys. Keep existing evalflow database release ready before evalflow-app pre-install/pre-upgrade Job. Database credentials stay in an existing Secret; URL encoding happens in the Job. Preserve previous backend versions during upgrades and use compatible schema changes; Helm does not undo SQL migrations. Failure Job blocks normal resources. |
 | 2026-10-16 | Owner approved a separate evalflow kind cluster and live Postgres persistence check | Use a private ignored kubeconfig with explicit context, generated local Secret and retained claim. Pin the kind node to Kubernetes 1.34.11 for the installed kubectl 1.34 client. Prove new Pod identity, unchanged claim/volume and saved row through Service DNS; leave the development cluster running. This tests graceful Pod replacement, not node loss or crash recovery. |
@@ -335,6 +356,14 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
 
 ## Session log
+
+- **2026-10-18 (KEDA learning review):** Owner correctly explained that running jobs still require worker capacity, calculated four workers for two running plus three eligible queued with max4 (ten delayed excluded), and distinguished the highest recommendation in a rolling 30-second scale-down window from the 60-second idle-to-zero cooldown. Clarified zero demand excludes running jobs too. Learning checkpoint complete; owner commit and final M5 screenshot/hosted checks next. PLAN/local learning notes updated only; no new runtime changes, tests, commits or pushes.
+
+- **2026-10-18 (KEDA implementation and demo):** Owner confirmed the proposed target/bounds/timing and authorized implementation. Added opt-in ScaledObject/TriggerAuthentication with existing namespace Secret, cross-namespace Postgres DNS and exact SQL artifact counting eligible queued plus running work. Worker Deployment omits replicas under autoscaling; app setup accepts --autoscaling, fixed mode remains default. Added pinned KEDA2.21.0 installer and bundled check scripts using only isolated kind/mock jobs. Exact-query DB tests pass (2), typecheck, strict Helm lint, enabled/fixed render checks, shell/Node syntax, Docker server build/load and diff checks pass. Live check confirms delayed retry stays queued at zero over three polling intervals, becomes eligible and completes its second attempt with one eval, then returns to zero. Twenty 12-second mock jobs scale 0 → 1 → 4 → 3 → 1 → 0, never request above four, and all complete with one attempt/eval each. ScaledObject finishes Ready; API/reaper/Postgres remain running with idle workers at zero. Initial demo progress-query syntax error fixed; added ignored fixture journal to recover only its terminal jobs after failure. Prior and final demo fixtures cleaned up; retention dataset remains. No application runtime changes, schema migrations, live provider calls, Compose DB changes, commits or pushes. Updated chart/root docs and local learning notes; full-suite rerun unnecessary for this chart/query-only piece (previous backend full suite354+1 remains separate evidence). File list and suggested owner commit commands are in M5 above. Learning review and README screenshot/hosted checks remain.
+
+- **2026-10-17 (KEDA sizing correction):** Owner clarified four/two and sixteen/eight were examples, not configuration approval. No scaling values or KEDA resources were implemented. Inspected Docker/kind: eight CPUs and roughly 8GB memory; existing API/reaper/worker each request 100m/128Mi and each worker concurrency is one. Proposed target one counted job per worker, matching concurrency and avoiding the target-two case requesting fewer replicas despite all workers being busy. Proposed local min0/max4, 10s activation polling, 60s idle-to-zero cooldown and 30s nonzero scale-down stabilization. Max4 is a conservative initial resource envelope, not a benchmark-derived optimum; validate using mock bursts. Scaler count remains eligible queued plus running, excluding delayed/terminal jobs. Values await confirmation; no install/chart/runtime changes or tests. PLAN/local learning notes updated only.
+
+- **2026-10-17 (KEDA planning start):** Confirmed backend checkpoint committed as f654d83 and tracked tree clean before status notes. Reviewed roadmap/current single-worker defaults and official KEDA PostgreSQL scaler docs (latest resolves to 2.21). Scaler can use one numeric SQL query result as workload signal; planning how retry eligibility and running work should affect it before choosing bounds/cooldown. Starting owner reasoning with delayed retry jobs. No KEDA installation, SQL/chart/runtime changes or tests. PLAN/local learning notes updated only.
 
 - **2026-10-17 (backend probe/shutdown learning review):** After clarifying process liveness versus database readiness and Service routing, owner correctly routed requests to a ready API replica, kept live replicas unready during DB outage, and identified that worker polling needs application logic rather than readiness status alone. Clarified that SIGTERM stopping logic already exists. Explained 30s drain + 5s cleanup + 5s Kubernetes margin; owner correctly chose finishing current work over claiming new work and paraphrased the finish-if-possible/cleanup fallback. Review complete. PLAN/local learning notes updated only; all prior verification remains valid. Owner commit next; KEDA design, scaling demo and M5 final acceptance remain. No code changes, new tests, commits or pushes.
 
