@@ -18,6 +18,8 @@ The first workflow, `retention_risk_analysis`, simulates an analytics agent that
 - [Reliability and Observability](#reliability-and-observability)
 - [API](#api)
 - [Screenshots](#screenshots)
+- [Local worker autoscaling](#local-worker-autoscaling)
+- [Benchmarks](#benchmarks)
 - [Roadmap](#roadmap)
 - [Maintainers](#maintainers)
 - [Contributing](#contributing)
@@ -404,20 +406,44 @@ validation or evaluation can produce regressions; real prompt evaluation require
 
 ## Architecture
 
-```text
-React dashboard
-  -> Node/Fastify API
-    -> PostgreSQL jobs/traces/evals
-      -> Node worker
-        -> mock analytics tools
-        -> Gemini or mock LLM provider
-        -> Zod structured validation
-        -> eval scoring
-        -> PostgreSQL result/traces/metrics
-          -> React dashboard polling
+```mermaid
+flowchart LR
+    UI[React dashboard] -->|Submit jobs / read results| API[Fastify API]
+    API -->|Persist jobs and trace context| DB[(PostgreSQL)]
+    W[Worker processes] -->|Claim due jobs / heartbeat / fenced results| DB
+    W --> T[Analytics tools]
+    T --> L[Mock or Gemini LLM]
+    L --> V[Schema validation and eval scoring]
+    V -->|Persist output, evaluation and step records| DB
+    R[Reaper] -->|Recover expired leases / backoff / dead letters| DB
+    DB -. Optional notification: wake existing idle workers .-> W
+    K[KEDA / HPA in kind] -. Read eligible queued + running demand .-> DB
+    K -. Adjust worker Deployment replicas .-> W
+    P[Prometheus] -->|Scrape metrics| API
+    P -->|Scrape metrics| W
+    API -. OpenTelemetry spans .-> TP[Tempo]
+    W -. OpenTelemetry spans .-> TP
+    G[Grafana] -->|Query metrics| P
+    G -->|Query traces| TP
 ```
 
-The API does not execute LLM work inline. It creates durable jobs in PostgreSQL. The separate worker process polls for queued jobs, claims one safely, executes the workflow, and writes results back to the database.
+PostgreSQL is the durable queue and result store. The API returns after creating a job; workers run
+the pipeline asynchronously. `FOR UPDATE SKIP LOCKED` prevents simultaneous claims. Claims carry a
+lease token; heartbeats renew it, and completion checks ownership and expiry inside a transaction.
+The reaper requeues expired attempts with backoff, or dead-letters exhausted jobs. This provides
+retryable execution with fenced result acceptance: a crash can repeat an external LLM call.
+
+Polling is the default. Optional transactional `LISTEN/NOTIFY` wakes existing idle workers, with
+one-second backup checks; it does not start Pods. KEDA independently polls eligible queued plus
+running demand to scale the worker Deployment. Retries still in backoff do not count as ready work.
+
+The diagram combines application and monitoring relationships, not one deployment manifest.
+Compose includes the dashboard, Prometheus, Grafana and Tempo. The local kind Helm charts deploy
+Postgres and backend processes plus optional KEDA; the monitoring stack remains in Compose and
+trace export is disabled during kind benchmarks. Kubernetes controllers replace failed Pods;
+Services provide stable access names, and the Postgres PVC retains data across Pod replacement.
+Database step records and evaluations remain in Postgres; distributed spans are exported to Tempo.
+Persisted trace context connects API and worker spans across the durable queue.
 
 ## Workflow
 
@@ -1124,39 +1150,36 @@ Reproduce after [setting up the local KEDA stack](deploy/helm/evalflow-app/READM
 node scripts/kind-keda-check.mjs
 ```
 
-## Roadmap
-
-- M5 local Kubernetes is implemented: [Postgres](deploy/helm/evalflow/README.md) and the
-  [backend application](deploy/helm/evalflow-app/README.md) have separate Helm charts, with migration
-  ordering, health checks and live-verified KEDA worker autoscaling. Compose includes the dashboard and monitoring.
-- Add more analytics workflows.
-- Add websocket or server-sent event updates instead of polling.
-- Add richer eval datasets and regression tests.
-- Add real analytics integrations behind the existing mock tool interface.
-- Add better cost modeling for Gemini usage.
-- Add exportable run reports.
-
-## Maintainers
-
-- Alex Peng, GitHub: `alexypeng`
-
-## Contributing
-
-This is a personal local-only resume project. Questions can be asked through the repository issue tracker if the repository is public.
-
-Pull requests are not currently expected, but small fixes or suggestions are welcome. Contributions should keep the project focused on local backend AI infrastructure, including the planned local Kubernetes milestone, and avoid adding authentication, billing, vector databases, real analytics vendor integrations, or unrelated deployment complexity.
-
-## License
-
-ISC © Alex Peng
-
-### Local worker autoscaling (M5)
+## Local worker autoscaling
 
 Run `bash scripts/kind-keda-up.sh` to install pinned KEDA 2.21.0 and enable workers scaling from
 zero to four in the isolated kind cluster. Eligible queued and running jobs count toward a target
 of one job per worker; retries still in backoff do not. Run `bash scripts/kind-keda-check.sh` for
 the mock-job burst and delayed-retry demo. See the [application chart guide](deploy/helm/evalflow-app/README.md#worker-autoscaling)
 for timing controls, watch commands, and switching back to a fixed worker.
+
+## Benchmarks
+
+The M6 experiments measure local queue/worker behavior with deterministic mock calls. KEDA is paused
+during trials so capacity stays fixed. Each reported repeated comparison uses three rotated trials
+per setting, warmup and full drain, with raw evidence retained.
+
+- **Backlog:** Four workers with two-second mock calls completed about 1.94 jobs/s under three
+  arrivals/s; total p99 rose to 32.8 seconds while execution p99 stayed near two seconds.
+- **Idle pickup:** Notifications reduced median trial queue-wait p99 from 952 ms to 12 ms versus
+  one-second polling, using 1.22 empty claim queries/s. Polling every 100 ms measured 103 ms and
+  9.47 empty claims/s. These counters do not measure total database cost.
+- **Concurrency:** One Pod with 1/2/4 slots completed 0.49/0.98/1.90 jobs/s including drain.
+  Extra slots reduced waiting; the two-second mock service time remained similar.
+
+![Four-worker throughput and backlog latency](docs/benchmarks/charts/capacity.svg)
+
+These results identify configured mock slot capacity and idle polling delay. Pool saturation,
+claim contention, CPU limits, real-provider limits and production maximum throughput remain
+independently unmeasured. Three trial p99 values give limited tail evidence, not a production guarantee.
+
+See the [M6 findings, charts and limitations](docs/benchmarks/README.md),
+[measurement protocols](benchmarks/README.md), and the detailed checkpoints below.
 
 ### Fixed-worker benchmarks (M6)
 
@@ -1285,3 +1308,29 @@ Run `bash scripts/kind-concurrency-check.sh` against the existing updated kind s
 application code or schema is required. See the [protocol](benchmarks/README.md#one-pod-worker-concurrency-comparison)
 for smoke/full modes and measurement limits. The report retains every trial and its observed range;
 three local repetitions are not a production p99 guarantee.
+
+## Roadmap
+
+- M5 local Kubernetes is implemented: [Postgres](deploy/helm/evalflow/README.md) and the
+  [backend application](deploy/helm/evalflow-app/README.md) have separate Helm charts, with migration
+  ordering, health checks and live-verified KEDA worker autoscaling. Compose includes the dashboard and monitoring.
+- Add more analytics workflows.
+- Add websocket or server-sent event updates instead of polling.
+- Add richer eval datasets and regression tests.
+- Add real analytics integrations behind the existing mock tool interface.
+- Add better cost modeling for Gemini usage.
+- Add exportable run reports.
+
+## Maintainers
+
+- Alex Peng, GitHub: `alexypeng`
+
+## Contributing
+
+This is a personal local-only resume project. Questions can be asked through the repository issue tracker if the repository is public.
+
+Pull requests are not currently expected, but small fixes or suggestions are welcome. Contributions should keep the project focused on local backend AI infrastructure, including the existing local Kubernetes deployment, and avoid adding authentication, billing, vector databases, real analytics vendor integrations, or unrelated deployment complexity.
+
+## License
+
+ISC © Alex Peng

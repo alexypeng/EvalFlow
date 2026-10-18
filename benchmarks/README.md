@@ -256,3 +256,13 @@ Three local repetitions expose a small range; these measurements do not independ
 size, CPU saturation or claim contention and cannot establish maximum Postgres or production capacity.
 No connection-pool setting is changed. Broader worker-count results remain separate controls with their
 own image, arrival windows and source provenance.
+
+## Saved-result charts and final findings
+
+The [M6 write-up](../docs/benchmarks/README.md) connects the measured results, architecture and limits.
+Run `uv run benchmarks/charts.py` from the root to regenerate its three SVG figures, or add `--check`
+to verify the saved artifacts. Node recomputes valid trial summaries and groups from raw archives;
+Matplotlib renders medians with observed min–max whiskers. No new workload or cluster is needed.
+The script pins its plotting dependency; its initial uv run needs a download. PNG previews are optional
+via `--preview-dir /private/tmp/evalflow-m6-charts`. Ranges are not confidence intervals and trial p99s
+are not pooled. See the write-up for measurement boundaries and evidence links.

@@ -14,10 +14,10 @@ _Last updated: 2026-10-18_
 
 | | |
 |---|---|
-| **Current milestone** | M6 Benchmark & write-up, branch `m6-benchmarks`; one-Pod concurrency comparison verified; introductory learning review complete |
+| **Current milestone** | M6 Benchmark & write-up, branch `m6-benchmarks`; concurrency checkpoint committed as 6ed0718; final write-up, learning review and local acceptance complete |
 | **Done** | M0–M5 merged (PRs #1–#6); M5 local evidence, learning reviews and hosted checks verified |
-| **Waiting on you** | Owner commit for the concurrency benchmark checkpoint |
-| **Next up** | Decide whether further bottleneck checks are justified, then final write-up |
+| **Waiting on you** | Owner commit and hosted CI/PR after final local acceptance |
+| **Next up** | Owner commit the write-up, push m6-benchmarks, open PR and verify hosted checks |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -326,12 +326,51 @@ queries and adds a dedicated connection; no reduced-query/capacity claim is made
 - [x] **Claude** First load generator: independently scheduled direct-queue arrivals, fixed 1 job/s and 2000ms seeded mock latency, configurable count, scoped fixtures and raw report; introductory learning review complete
 - [x] **Claude** Repeated fixed-four-worker capacity sweep: three rates, balanced order, constant arrival windows, full drain, per-trial/range evidence; introductory learning review complete
 - [x] **ME** Measurement plan: throughput and p50/p99 end-to-end latency against worker count and in-process concurrency1/2/4; introductory learning review complete
-- [ ] **ME** Find the bottleneck: connection pool size, poll interval, claim-query contention
+- [x] **ME** Identify measured limits: configured mock service/slot capacity and idle polling delay; owner approved final write-up with explicit limits
+- Deferred/unmeasured: connection-pool saturation, CPU saturation and claim-query contention; require separate controlled experiments, not conclusions from these trials
 - [x] **ME** Compare implemented `LISTEN/NOTIFY` wakeups against polling on the same migrated build; introductory learning review complete
-- [ ] **Claude** Scripts that turn results into tables and charts (Markdown comparison/raw JSON implemented; charts remain)
-- [ ] **ME** README write-up: architecture diagram, numbers, design decisions and trade-offs (Claude drafts diagrams and layout)
+- [x] **Claude** Reproducible tables and three SVG charts from recomputed raw-trial summaries; byte-for-byte regeneration and visual chart checks pass
+- [x] **ME** Review implemented README/write-up: Mermaid architecture, measured findings, tradeoffs and explicit limits; owner learning review complete
 
 Done when: the README has real numbers and an explanation of what limited throughput and why.
+
+**Final write-up implemented (owner approved):** README architecture now shows durable queue,
+fenced worker execution, reaper recovery, optional idle notifications, independent KEDA scaling and
+observability. M5/M6 sections moved before Roadmap rather than beneath License. New
+[findings](benchmarks/README.md) explain the three repeated comparisons and measurement boundaries.
+`benchmarks/chartData.mjs` recomputes raw summaries, rejects invalid/incomplete comparisons and feeds
+`benchmarks/charts.py` (pinned Matplotlib) to render three deterministic SVGs. Dots are medians;
+whiskers are observed min–max of three trial metrics, not confidence intervals or pooled p99s.
+All32 benchmark tests, exact SVG regeneration, visual PNG inspection and diff checks pass. No
+application, schema, runtime deployment or archived evidence changes; no new workloads. Database
+pool/CPU/claim saturation and production maxima remain explicitly unmeasured. Mermaid source is
+included for GitHub rendering; no separate rendered-diagram visual check was performed.
+Owner learning review and final local branch acceptance complete; owner commit, push, PR and hosted checks remain.
+
+**Final local acceptance (2026-10-18):** Compared against local `main` at `f723e39` plus
+uncommitted write-up files. Independent standards and accepted-scope reviews found zero material
+findings; stale learning-review status corrected. Fresh full server suite:40 files,374 passed plus
+one existing expected failure (91.45s), including real worker crash/notification tests against
+`evalflow_test`. Fresh typecheck, server/frontend builds, frontend lint,32 benchmark tests, exact
+SVG regeneration, strict app Helm lint/notify render, Compose config, shell/Node syntax and diff
+checks pass. Both local Docker builds pass (`evalflow-server:m6-review`,
+`evalflow-frontend:m6-review`), with no deployment. Mock CI regression script against the test DB
+and isolated API port3307 exits0:20 unchanged cases,0 regressions. First sandboxed test attempt was
+blocked at DB setup; escalated rerun passed. Logs/reports are under `/private/tmp/evalflow-m6-*`.
+No production/dev database access, cluster scaling, fresh performance workload, commit, push or PR.
+Hosted checks remain to be run after owner pushes; diagram was source-reviewed but not separately
+rendered. Accepted unmeasured limits remain explicit.
+
+**Write-up files:** `README.md`, `benchmarks/README.md`, `benchmarks/chartData.mjs`,
+`benchmarks/charts.py`, `docs/benchmarks/README.md`, `docs/benchmarks/charts/capacity.svg`,
+`docs/benchmarks/charts/wakeup.svg`, `docs/benchmarks/charts/concurrency.svg`, `docs/PLAN.md`.
+Local `.vibe-wise/` and `LEARNING_CHECKLIST.md` remain unstaged. Suggested owner commands after review:
+
+```bash
+git add README.md benchmarks/README.md benchmarks/chartData.mjs benchmarks/charts.py \
+  docs/benchmarks/README.md docs/benchmarks/charts docs/PLAN.md
+git commit -m "Document architecture and benchmark findings with reproducible charts"
+```
 
 **Same-build wakeup comparison verified:** Owner approved poll1000, poll100 and notify1000-backup
 on one image/migration, one warm worker/concurrency1, zero mock delay,30 identical sparse arrivals/trial,
@@ -363,13 +402,13 @@ provider call or pool setting. Prior374+1expected server suite remains separate 
 evidence. Results identify configured service/slot behavior, not independently pool/CPU/claim saturation.
 Introductory learning review complete with offered-load clarification; further bottleneck experiments require justification and owner agreement.
 
-**Concurrency checkpoint files (uncommitted):** `README.md`, `benchmarks/README.md`,
+**Concurrency checkpoint files (committed as `6ed0718`):** `README.md`, `benchmarks/README.md`,
 `benchmarks/produce.mjs`, `benchmarks/scenarios.mjs`, `benchmarks/concurrencyReport.mjs`,
 `benchmarks/test/concurrency.test.mjs`, `benchmarks/test/evidence.test.mjs`, `docs/PLAN.md`,
 `scripts/kind-benchmark.mjs`, `scripts/kind-benchmark.sh`, `scripts/kind-concurrency-check.sh`,
 `docs/benchmarks/2026-10-18-concurrency.{json,md}`. Learning files remain unstaged.
 
-Suggested owner commands after learning review:
+Completed owner checkpoint commands (`6ed0718`; no repeat needed):
 
 ```bash
 git add README.md benchmarks docs/PLAN.md scripts/kind-benchmark.mjs scripts/kind-benchmark.sh \
@@ -530,8 +569,17 @@ git commit -m "Add repeatable worker benchmarks and capacity measurements"
 | 2026-10-01 | Code is formatted with Prettier at 4-space indent, 120 columns (was 80) | Matches the owner's editor settings, so saving a file no longer reformats untouched lines and bloats diffs. One-off reformat of all hand-written TS/TSX; `src/generated/` excluded. |
 | 2026-10-01 | A case passes when its job completed and its risk label matches the answer key; failed jobs don't pass. Pass rate = passed / all cases | A score threshold (e.g. >= 80) lets a wrong label pass: the mock scores 80 on the 4 judgment cases, so it would show 100% despite 4 wrong answers. The label is the task; format/evidence quality shows in mean score. |
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
+| 2026-10-18 | Owner approved final M6 write-up and charts using existing evidence | Explain configured service/slot limits and idle wakeup delay; explicitly leave pool saturation, claim contention, CPU limits and production maxima unmeasured. Avoid new speculative workload changes. Recompute raw trial metrics for charts; show median and observed range, preserving source archives. |
 
 ## Session log
+
+- **2026-10-18 (final M6 branch acceptance):** Owner completed learning review: distinguished worker capacity from Postgres maximum, queue waiting from execution, and absent listeners at zero replicas. Authorized final review/checks. Standards and scope reviews of main f723e39 through M6 plus uncommitted write-up found no material issues; fixed stale review status. Fresh374 passed+1 existing expected failure/40 files,32 benchmark tests,typecheck,application builds,frontend lint,chart exact check,Helm lint/render,Compose config,syntax/diff and both Docker builds pass. Dataset regression gate passes with20 unchanged cases/0 regressions on isolated test API/database. Initial sandbox DB failure resolved by escalated suite rerun. No deployments/new performance experiments or Git mutations. Write-up files still uncommitted; owner commit/push/PR and hosted checks next.
+
+
+- **2026-10-18 (final write-up implementation):** Owner approved the proposed scope. Updated README architecture with Mermaid and accurate data/control/monitoring boundaries; moved M5/M6 sections before Roadmap and restored License as the final section. Added concise evidence-linked M6 findings, tradeoffs and measurement limits. Added raw-summary Node exporter and pinned Matplotlib generator with exact SVG check and optional PNG previews; generated three figures for capacity, wakeup and concurrency. All32 benchmark tests pass, all SVGs reproduce byte-for-byte, all PNG previews visually inspected. Diagram source reviewed against code but not separately rendered. No archived evidence, application/runtime settings, schema or workloads changed. Pool/CPU/claim saturation explicitly unmeasured. No commit/push/PR. Learning review was completed afterward, followed by final local acceptance below. Files and owner commands in M6; local learning notes unstaged.
+
+
+- **2026-10-18 (final write-up proposal):** Verified concurrency checkpoint committed as6ed0718 with clean tracked tree before notes. Recommend consolidating existing evidence into architecture diagram, reproducible charts and concise findings/limitations in README, then final branch checks/review. Current evidence identifies configured mock service/slot throughput and idle polling delay; pool saturation, claim contention and maximum production capacity remain unmeasured. Do not invent a database bottleneck or claim those limits were tested. Owner acceptance of write-up scope versus more targeted measurements pending; no new charts, application changes, tests, deployment, commits or pushes. PLAN/local notes only.
 
 - **2026-10-18 (concurrency learning review):** Recapped one Pod/process with1/2/4 simultaneous slots versus earlier changing Pod count. Owner initially said one arrival/s would not test concurrency; clarified two-second jobs can overlap at1/s, but insufficient offered load hides the four-slot2/s capacity. Owner then correctly explained that1/s cannot sustain2 completions/s because too few jobs arrive, and calculated~1 queued job/s growth under3 arrivals versus~2 completions. Introductory checkpoint complete with reinforcement; revisit offered load versus concurrency when interpreting future tests. PLAN/local notes only, no new application/runtime changes or tests; existing32 benchmark/typecheck/live verification remains. Owner commit next; any further experiment requires a justified scope before implementation.
 
