@@ -15,7 +15,7 @@ if (!dbName.endsWith("_test")) {
 const testLlmEnv = {
     LLM_PROVIDER: "mock", GEMINI_API_KEY: "", RATE_LIMIT_MOCK: "false", WORKER_METRICS_PORT: "0",
     OTEL_SDK_DISABLED: "true", OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "",
-    REAPER_HEALTH_PORT: "0",
+    REAPER_HEALTH_PORT: "0", WORKER_WAKEUP_MODE: "poll",
 };
 
 export default defineConfig({

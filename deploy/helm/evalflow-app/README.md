@@ -225,3 +225,18 @@ kubectl --kubeconfig .evalflow-kind/kubeconfig --context kind-evalflow -n evalfl
 
 See the [KEDA PostgreSQL scaler](https://keda.sh/docs/2.21/scalers/postgresql/) and
 [ScaledObject settings](https://keda.sh/docs/2.21/reference/scaledobject-spec/).
+
+
+### Optional worker notification wakeups
+
+Set `worker.wakeupMode=notify` in application values to enable a dedicated Postgres LISTEN connection
+per worker process. The default remains `poll`. Notification mode uses a fixed1000ms idle backup check;
+`worker.pollIntervalMs` controls polling-only mode. The migration hook installs a transactional queued-job
+notification trigger before backend resources change. Use the existing release upgrade flow, preserving
+your image, database and autoscaling values.
+
+Notifications wake existing idle workers; SQL claiming/leases still assign jobs. With zero worker Pods,
+KEDA's existing demand query and activation polling remain responsible for starting capacity. The listener
+reconnects independently and ordinary backup claims continue during a listener outage. Account for the
+extra connection per worker process when sizing Postgres. The M6 notification performance comparison
+has not yet been run; prior polling evidence remains unchanged.

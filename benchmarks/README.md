@@ -162,3 +162,10 @@ total/execution p99 and empty/all claim rates. Three repeats expose a small loca
 trial cannot establish a stable population p99. A shorter poll can reduce idle queue waiting while
 increasing empty queries; these results alone do not choose a production setting or demonstrate the
 benefit of LISTEN/NOTIFY. The original 1000ms kind setting is restored after the experiment.
+
+
+The current benchmark harness requires `WORKER_WAKEUP_MODE=poll` (an absent setting means poll for
+older images). It refuses notification-enabled workers so a wakeup cannot silently change the polling
+baseline. The next notification comparison must rerun both modes on the same migrated/instrumented
+build; the notification trigger adds work on queue writes even when workers use polling-only mode.
+Existing archived evidence describes its original builds and remains unchanged.

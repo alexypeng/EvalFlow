@@ -27,6 +27,7 @@ worker:
     replicas: 1
     port: 9100
     concurrency: 1
+    wakeupMode: poll
     pollIntervalMs: 1000
     leaseDurationMs: 60000
     heartbeatIntervalMs: 20000

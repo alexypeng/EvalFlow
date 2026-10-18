@@ -179,6 +179,48 @@ zero; they do not yet use the provider's usage metadata or pricing.
 
 `WORKER_CONCURRENCY` is the number of jobs one worker process runs at once.
 
+
+`WORKER_WAKEUP_MODE=poll` preserves polling-only behavior (the default). `POLL_INTERVAL_MS` defaults to
+2000ms for host/Compose commands; kind sets 1000ms. Busy workers immediately claim again after finishing
+work; the idle interval applies after an empty claim or an error.
+
+`WORKER_WAKEUP_MODE=notify` adds LISTEN/NOTIFY wakeups with a fixed **1000ms backup check**, regardless of
+`POLL_INTERVAL_MS`. Apply migrations before starting the updated worker. For host development:
+
+```bash
+WORKER_WAKEUP_MODE=notify pnpm dev:worker
+```
+
+For Compose, set `WORKER_WAKEUP_MODE=notify` in the root `.env`, then recreate the worker through the
+normal `docker compose up --build` flow so the migration service finishes first. For Helm, set
+`worker.wakeupMode=notify` in the application release values; its migration hook installs the trigger
+before the updated backend rolls out. Defaults stay polling-only until the M6 comparison is reviewed.
+
+The migration installs a jobs-table trigger on queued inserts and transitions back to queued.
+It covers individual submissions, run fan-out, manual retries, worker retries, reaper recovery and
+direct benchmark inserts. Postgres sends the empty-payload notification only when the writing transaction
+commits; a rolled-back job sends none. Multiple changes in one transaction can coalesce into one wakeup.
+Notifications carry no job input, result or claim token. See [Postgres NOTIFY semantics](https://www.postgresql.org/docs/16/sql-notify.html).
+
+Each notification-enabled worker process uses one additional dedicated `pg` connection, separate from
+its Prisma pool, to listen on `evalflow_jobs`. After LISTEN succeeds, it checks the saved queue, including
+after reconnecting. A notification wakes every idle slot; existing `SKIP LOCKED` claims, leases and
+fencing decide ownership. Notifications are hints, so duplicate/broadcast wakeups may produce empty claims.
+A generation counter preserves notifications arriving between the start of a claim and registering an
+idle wait. The listener connection does not execute pipeline work or remain inside a transaction.
+
+Backup checks discover delayed retries when `run_after` becomes due and work whose notification was missed.
+Listener failures retry registration at one-second intervals while ordinary claims continue; database
+claim errors still sleep before retrying rather than spinning on notifications. SIGTERM/SIGINT interrupt
+idle waits and reconnect delays, close the listener, and preserve the existing active-job drain behavior.
+The listener is not a durable message queue and does not replace the Postgres jobs table or the reaper.
+When KEDA has scaled workers to zero, no worker listener exists; KEDA's database checks still control startup.
+
+The correctness tests include transaction commit/rollback, all queue-writing paths, real listener
+termination/reconnect, wakeup races, concurrent processes/slots, future eligibility and shutdown.
+Notification performance measurements are still pending: compare both modes on the same migrated build,
+rather than attributing differences between older and newer builds solely to notifications.
+
 `LEASE_DURATION_MS` defaults to 60000; `HEARTBEAT_INTERVAL_MS` defaults to 20000 and must be
 a positive integer smaller than the lease duration. Both are worker settings in milliseconds.
 The worker renews each active claim while waiting for tools or the model. Docker Compose accepts

@@ -89,6 +89,7 @@ try {
     original = await deployment();
     const env = Object.fromEntries(original.spec.template.spec.containers[0].env.map((item) => [item.name, item.value]));
     assert.equal(env.LLM_PROVIDER, "mock", "Only mock workers are allowed");
+    assert.equal(env.WORKER_WAKEUP_MODE ?? "poll", "poll", "Polling benchmarks require polling-only workers");
     assert.equal(env.WORKER_CONCURRENCY, "1", "This scenario requires concurrency 1");
     assert.equal(env.RATE_LIMIT_MOCK, "false", "Mock permits must not throttle this scenario");
     assert(!env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, "Use disabled trace export for this controlled baseline");

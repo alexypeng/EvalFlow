@@ -263,11 +263,12 @@ it("flushes a pending span on shutdown exactly once", async () => {
     } finally { await run.stop(); await target.close(); }
 }, 15000);
 
-it("keeps idle worker polling out of traces and exits cleanly with tracing enabled", async () => {
+it.each(["poll", "notify"])("keeps idle %s wakeups out of traces and exits cleanly with tracing enabled", async (mode) => {
     const target = await collector();
-    const run = child("src/startWorker.ts", target.endpoint);
+    const run = child("src/startWorker.ts", target.endpoint, "false", { WORKER_WAKEUP_MODE: mode });
     try {
-        await run.until(() => run.logs().includes("polling every"));
+        await run.until(() => mode === "poll" ? run.logs().includes("polling every") :
+            run.logs().includes("Worker queue listener listening"));
         await sleep(1200);
         expect(target.bodies).toHaveLength(0);
         run.process.kill("SIGTERM");
