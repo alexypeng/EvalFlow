@@ -18,6 +18,8 @@ The first workflow, `retention_risk_analysis`, simulates an analytics agent that
 - [Reliability and Observability](#reliability-and-observability)
 - [API](#api)
 - [Screenshots](#screenshots)
+- [Local worker autoscaling](#local-worker-autoscaling)
+- [Benchmarks](#benchmarks)
 - [Roadmap](#roadmap)
 - [Maintainers](#maintainers)
 - [Contributing](#contributing)
@@ -178,6 +180,48 @@ Gemini calls use `@google/genai`. Token counts currently remain character-based 
 zero; they do not yet use the provider's usage metadata or pricing.
 
 `WORKER_CONCURRENCY` is the number of jobs one worker process runs at once.
+
+
+`WORKER_WAKEUP_MODE=poll` preserves polling-only behavior (the default). `POLL_INTERVAL_MS` defaults to
+2000ms for host/Compose commands; kind sets 1000ms. Busy workers immediately claim again after finishing
+work; the idle interval applies after an empty claim or an error.
+
+`WORKER_WAKEUP_MODE=notify` adds LISTEN/NOTIFY wakeups with a fixed **1000ms backup check**, regardless of
+`POLL_INTERVAL_MS`. Apply migrations before starting the updated worker. For host development:
+
+```bash
+WORKER_WAKEUP_MODE=notify pnpm dev:worker
+```
+
+For Compose, set `WORKER_WAKEUP_MODE=notify` in the root `.env`, then recreate the worker through the
+normal `docker compose up --build` flow so the migration service finishes first. For Helm, set
+`worker.wakeupMode=notify` in the application release values; its migration hook installs the trigger
+before the updated backend rolls out. Defaults stay polling-only until the M6 comparison is reviewed.
+
+The migration installs a jobs-table trigger on queued inserts and transitions back to queued.
+It covers individual submissions, run fan-out, manual retries, worker retries, reaper recovery and
+direct benchmark inserts. Postgres sends the empty-payload notification only when the writing transaction
+commits; a rolled-back job sends none. Multiple changes in one transaction can coalesce into one wakeup.
+Notifications carry no job input, result or claim token. See [Postgres NOTIFY semantics](https://www.postgresql.org/docs/16/sql-notify.html).
+
+Each notification-enabled worker process uses one additional dedicated `pg` connection, separate from
+its Prisma pool, to listen on `evalflow_jobs`. After LISTEN succeeds, it checks the saved queue, including
+after reconnecting. A notification wakes every idle slot; existing `SKIP LOCKED` claims, leases and
+fencing decide ownership. Notifications are hints, so duplicate/broadcast wakeups may produce empty claims.
+A generation counter preserves notifications arriving between the start of a claim and registering an
+idle wait. The listener connection does not execute pipeline work or remain inside a transaction.
+
+Backup checks discover delayed retries when `run_after` becomes due and work whose notification was missed.
+Listener failures retry registration at one-second intervals while ordinary claims continue; database
+claim errors still sleep before retrying rather than spinning on notifications. SIGTERM/SIGINT interrupt
+idle waits and reconnect delays, close the listener, and preserve the existing active-job drain behavior.
+The listener is not a durable message queue and does not replace the Postgres jobs table or the reaper.
+When KEDA has scaled workers to zero, no worker listener exists; KEDA's database checks still control startup.
+
+The correctness tests include transaction commit/rollback, all queue-writing paths, real listener
+termination/reconnect, wakeup races, concurrent processes/slots, future eligibility and shutdown.
+The [same-build wakeup comparison](docs/benchmarks/2026-10-18-wakeup-comparison.md) measures both modes
+on the same migrated image, with fresh polling controls. Older polling evidence remains unchanged.
 
 `LEASE_DURATION_MS` defaults to 60000; `HEARTBEAT_INTERVAL_MS` defaults to 20000 and must be
 a positive integer smaller than the lease duration. Both are worker settings in milliseconds.
@@ -362,20 +406,44 @@ validation or evaluation can produce regressions; real prompt evaluation require
 
 ## Architecture
 
-```text
-React dashboard
-  -> Node/Fastify API
-    -> PostgreSQL jobs/traces/evals
-      -> Node worker
-        -> mock analytics tools
-        -> Gemini or mock LLM provider
-        -> Zod structured validation
-        -> eval scoring
-        -> PostgreSQL result/traces/metrics
-          -> React dashboard polling
+```mermaid
+flowchart LR
+    UI[React dashboard] -->|Submit jobs / read results| API[Fastify API]
+    API -->|Persist jobs and trace context| DB[(PostgreSQL)]
+    W[Worker processes] -->|Claim due jobs / heartbeat / fenced results| DB
+    W --> T[Analytics tools]
+    T --> L[Mock or Gemini LLM]
+    L --> V[Schema validation and eval scoring]
+    V -->|Persist output, evaluation and step records| DB
+    R[Reaper] -->|Recover expired leases / backoff / dead letters| DB
+    DB -. Optional notification: wake existing idle workers .-> W
+    K[KEDA / HPA in kind] -. Read eligible queued + running demand .-> DB
+    K -. Adjust worker Deployment replicas .-> W
+    P[Prometheus] -->|Scrape metrics| API
+    P -->|Scrape metrics| W
+    API -. OpenTelemetry spans .-> TP[Tempo]
+    W -. OpenTelemetry spans .-> TP
+    G[Grafana] -->|Query metrics| P
+    G -->|Query traces| TP
 ```
 
-The API does not execute LLM work inline. It creates durable jobs in PostgreSQL. The separate worker process polls for queued jobs, claims one safely, executes the workflow, and writes results back to the database.
+PostgreSQL is the durable queue and result store. The API returns after creating a job; workers run
+the pipeline asynchronously. `FOR UPDATE SKIP LOCKED` prevents simultaneous claims. Claims carry a
+lease token; heartbeats renew it, and completion checks ownership and expiry inside a transaction.
+The reaper requeues expired attempts with backoff, or dead-letters exhausted jobs. This provides
+retryable execution with fenced result acceptance: a crash can repeat an external LLM call.
+
+Polling is the default. Optional transactional `LISTEN/NOTIFY` wakes existing idle workers, with
+one-second backup checks; it does not start Pods. KEDA independently polls eligible queued plus
+running demand to scale the worker Deployment. Retries still in backoff do not count as ready work.
+
+The diagram combines application and monitoring relationships, not one deployment manifest.
+Compose includes the dashboard, Prometheus, Grafana and Tempo. The local kind Helm charts deploy
+Postgres and backend processes plus optional KEDA; the monitoring stack remains in Compose and
+trace export is disabled during kind benchmarks. Kubernetes controllers replace failed Pods;
+Services provide stable access names, and the Postgres PVC retains data across Pod replacement.
+Database step records and evaluations remain in Postgres; distributed spans are exported to Tempo.
+Persisted trace context connects API and worker spans across the durable queue.
 
 ## Workflow
 
@@ -1082,9 +1150,168 @@ Reproduce after [setting up the local KEDA stack](deploy/helm/evalflow-app/READM
 node scripts/kind-keda-check.mjs
 ```
 
+## Local worker autoscaling
+
+Run `bash scripts/kind-keda-up.sh` to install pinned KEDA 2.21.0 and enable workers scaling from
+zero to four in the isolated kind cluster. Eligible queued and running jobs count toward a target
+of one job per worker; retries still in backoff do not. Run `bash scripts/kind-keda-check.sh` for
+the mock-job burst and delayed-retry demo. See the [application chart guide](deploy/helm/evalflow-app/README.md#worker-autoscaling)
+for timing controls, watch commands, and switching back to a fixed worker.
+
+## Benchmarks
+
+The M6 experiments measure local queue/worker behavior with deterministic mock calls. KEDA is paused
+during trials so capacity stays fixed. Each reported repeated comparison uses three rotated trials
+per setting, warmup and full drain, with raw evidence retained.
+
+- **Backlog:** Four workers with two-second mock calls completed about 1.94 jobs/s under three
+  arrivals/s; total p99 rose to 32.8 seconds while execution p99 stayed near two seconds.
+- **Idle pickup:** Notifications reduced median trial queue-wait p99 from 952 ms to 12 ms versus
+  one-second polling, using 1.22 empty claim queries/s. Polling every 100 ms measured 103 ms and
+  9.47 empty claims/s. These counters do not measure total database cost.
+- **Concurrency:** One Pod with 1/2/4 slots completed 0.49/0.98/1.90 jobs/s including drain.
+  Extra slots reduced waiting; the two-second mock service time remained similar.
+
+![Four-worker throughput and backlog latency](docs/benchmarks/charts/capacity.svg)
+
+These results identify configured mock slot capacity and idle polling delay. Pool saturation,
+claim contention, CPU limits, real-provider limits and production maximum throughput remain
+independently unmeasured. Three trial p99 values give limited tail evidence, not a production guarantee.
+
+See the [M6 findings, charts and limitations](docs/benchmarks/README.md),
+[measurement protocols](benchmarks/README.md), and the detailed checkpoints below.
+
+### Fixed-worker benchmarks (M6)
+
+The first [benchmark scenario](benchmarks/README.md) compares 1, 2 and 4 fixed workers with one queued
+job/second and two-second mock latency. It records queue wait, execution time, end-to-end p50/p99,
+completion rates, failures and raw samples. Run `bash scripts/kind-benchmark.sh` against an idle M5
+kind stack. KEDA is paused during measurement and restored afterward. This queue/worker benchmark
+excludes HTTP submission and real-provider latency; single-run results are exploratory.
+
+
+The [first captured comparison](docs/benchmarks/2026-10-18-fixed-workers.md) and
+[raw job/sample data](docs/benchmarks/2026-10-18-fixed-workers.json) record 60 completed jobs at each
+worker count. End-to-end p99 was 62.8s / 3.4s / 2.9s for 1 / 2 / 4 workers, respectively. All three
+valid trials had one attempt and one evaluation per job. This is one trial per configuration on a
+shared local host; it does not establish maximum capacity or a stable p99.
+
+
+### Repeated capacity sweep (M6)
+
+`bash scripts/kind-benchmark.sh --sweep` holds four workers fixed and tests 1, 2 and 3 incoming jobs/second
+for 60 seconds each, with three rotated repetitions per rate. It saves individual trials and reports
+the median/range of each trial's completion rate, p99 latency, sampled queue maximum and drain time.
+See the [sweep protocol](benchmarks/README.md#repeated-four-worker-capacity-sweep).
+
+
+The [captured nine-trial sweep](docs/benchmarks/2026-10-18-capacity-sweep.md) and
+[raw data](docs/benchmarks/2026-10-18-capacity-sweep.json) contain 1080 measured jobs, all completed
+with one attempt and one evaluation. Medians across the three trials at each arrival rate:
+
+| Arrivals/sec | Completions/sec including drain | Total p99 latency |
+| ---: | ---: | ---: |
+| 1 | 0.98 | 3.0s |
+| 2 | 1.92 | 3.5s |
+| 3 | 1.94 | 32.8s |
+
+At three arrivals/sec, the sampled queue peaked at 60–63 jobs and took 32.7–32.9s to drain after arrivals
+stopped. Execution p99 stayed near 2.03s. This is consistent with the configured four-worker/two-second
+mock workload reaching its processing limit while excess arrivals accumulate. The detailed report
+retains all trial values and ranges; three shared-host trials are not a production capacity guarantee.
+
+
+### Idle polling tradeoff (M6)
+
+The [six-trial comparison](docs/benchmarks/2026-10-18-idle-polling.md) and
+[raw data](docs/benchmarks/2026-10-18-idle-polling.json) hold one worker fixed, use zero configured mock
+delay, and send the same 30 sparse arrivals per trial. All 180 measured jobs completed once with one
+evaluation. Medians of three trial-level metrics per interval:
+
+| Idle poll interval | Queue-wait p99 | Empty claim queries/sec |
+| ---: | ---: | ---: |
+| 1000ms | 972ms | 0.98 |
+| 100ms | 108ms | 9.47 |
+
+Shorter polling reduced idle queue waiting while increasing empty queries by about 9.7 times.
+Execution p99 stayed near 21ms; these light-load results measure waking an idle worker, not maximum
+throughput. The counter excludes health/producer SQL and measures query frequency, not database CPU
+or monetary cost. Three local trials of 30 jobs each provide limited p99 evidence; all trial values
+and ranges remain in the report. This does not establish an optimal production interval.
+
+Run `bash scripts/kind-polling-check.sh` for checks, a fresh instrumented image and smoke/full trials,
+or see the [protocol](benchmarks/README.md#idle-polling-comparison) for an already deployed image.
+The original 1000ms setting and KEDA controls are restored after measurement. The same-build
+LISTEN/NOTIFY comparison below adds fresh polling controls rather than reusing this older-image baseline.
+
+
+### Polling versus notifications on the same build (M6)
+
+The [nine-trial comparison](docs/benchmarks/2026-10-18-wakeup-comparison.md) and
+[raw evidence](docs/benchmarks/2026-10-18-wakeup-comparison.json) use the same migrated backend image
+for all three conditions: one warm worker/concurrency1, zero configured mock delay, identical sparse
+arrivals and three rotated repetitions per condition. All 270 measured jobs completed once with one
+evaluation. Medians of the three trial-level metrics:
+
+| Wakeup mode | Queue-wait p99 | Empty claim queries/sec |
+| --- | ---: | ---: |
+| Poll every 1000 ms | 952ms | 0.98 |
+| Poll every 100 ms | 103ms | 9.47 |
+| Notifications + 1000 ms backup | 12ms | 1.22 |
+
+Notification trial queue-wait p99 ranged from 7.71–20.65 ms, versus 911.42–965.62 ms for 1000 ms polling and
+102.84–106.13 ms for 100 ms polling. Total p99 medians were 967.49/119.71/28.71 ms respectively; execution
+p99 medians remained 19–25 ms. This supports faster idle-worker pickup in this local workload. It does
+not establish maximum capacity, scale-from-zero latency or a stable production p99.
+
+Notifications used fewer empty claim queries than 100 ms polling, while retaining backup queries and
+one extra listener connection per worker process. The counter excludes other SQL and notification/
+trigger overhead, so it does not measure total database CPU or cost. All notification trials registered
+once before warmup with no observed disconnect/re-registration. Original mode/interval/KEDA settings
+were restored; polling remains the default. Detailed trials, ranges, source hashes and migration/image
+identity remain in the evidence. Earlier archives are preserved.
+
+Run `bash scripts/kind-wakeup-check.sh` for checks, a fresh kind image/migration, smoke and full trials.
+See the [comparison protocol](benchmarks/README.md#same-build-polling-versus-notification-comparison)
+for individual modes and cleanup details.
+
+
+### One-Pod concurrency comparison (M6)
+
+The [nine-trial concurrency comparison](docs/benchmarks/2026-10-18-concurrency.md) and
+[raw evidence](docs/benchmarks/2026-10-18-concurrency.json) keep exactly one worker Pod/process and
+its image, CPU/memory limits and polling unchanged, while varying concurrent job slots. Each trial
+submits 90 jobs at three arrivals/sec for 30 seconds, using two-second mock calls. Three rotated trials
+per setting completed all 810 measured jobs plus 21 warmups once, with one evaluation each.
+Medians of trial-level measurements:
+
+| Concurrent slots | Completions/sec including drain | Total p50 | Total p99 | Queue-wait p99 |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.49 | 78.1s | 151.8s | 149.8s |
+| 2 | 0.98 | 32.5s | 62.3s | 60.3s |
+| 4 | 1.90 | 10.0s | 17.8s | 15.8s |
+
+Execution p99 stayed around 2.02–2.04 seconds. More in-process slots increased completion rate and
+reduced backlog, while three arrivals/sec still exceeded every setting's ideal 0.5/1/2 jobs/sec capacity.
+Sampled queue peaks were 75 / 60 / 30–32; median drain times were 152.94 / 61.90 / 17.45 seconds.
+The finite batch, initial pickup, partial final wave and normal pipeline overhead affect the observed
+rate. These results do not independently identify database pool limits, claim contention or production
+capacity, and are not a matched comparison of one process against several Pods.
+
+Two initial smoke attempts were rejected for large clock divergences, with one expired lease; their
+terminal fixtures/raw reports remain local. A preflight now requires three consecutive host/database
+clock-alignment probes before jobs, retaining the existing in-trial clock guard. The successful smoke
+and full experiment passed all job, clock, Pod, settings and observed-overlap checks. Original concurrency
+and KEDA settings were restored; older benchmark archives remain unchanged.
+
+Run `bash scripts/kind-concurrency-check.sh` against the existing updated kind stack. No new image,
+application code or schema is required. See the [protocol](benchmarks/README.md#one-pod-worker-concurrency-comparison)
+for smoke/full modes and measurement limits. The report retains every trial and its observed range;
+three local repetitions are not a production p99 guarantee.
+
 ## Roadmap
 
-- M5 local Kubernetes work is in progress: [Postgres](deploy/helm/evalflow/README.md) and the
+- M5 local Kubernetes is implemented: [Postgres](deploy/helm/evalflow/README.md) and the
   [backend application](deploy/helm/evalflow-app/README.md) have separate Helm charts, with migration
   ordering, health checks and live-verified KEDA worker autoscaling. Compose includes the dashboard and monitoring.
 - Add more analytics workflows.
@@ -1102,16 +1329,8 @@ node scripts/kind-keda-check.mjs
 
 This is a personal local-only resume project. Questions can be asked through the repository issue tracker if the repository is public.
 
-Pull requests are not currently expected, but small fixes or suggestions are welcome. Contributions should keep the project focused on local backend AI infrastructure, including the planned local Kubernetes milestone, and avoid adding authentication, billing, vector databases, real analytics vendor integrations, or unrelated deployment complexity.
+Pull requests are not currently expected, but small fixes or suggestions are welcome. Contributions should keep the project focused on local backend AI infrastructure, including the existing local Kubernetes deployment, and avoid adding authentication, billing, vector databases, real analytics vendor integrations, or unrelated deployment complexity.
 
 ## License
 
 ISC © Alex Peng
-
-### Local worker autoscaling (M5)
-
-Run `bash scripts/kind-keda-up.sh` to install pinned KEDA 2.21.0 and enable workers scaling from
-zero to four in the isolated kind cluster. Eligible queued and running jobs count toward a target
-of one job per worker; retries still in backoff do not. Run `bash scripts/kind-keda-check.sh` for
-the mock-job burst and delayed-retry demo. See the [application chart guide](deploy/helm/evalflow-app/README.md#worker-autoscaling)
-for timing controls, watch commands, and switching back to a fixed worker.

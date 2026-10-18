@@ -111,6 +111,8 @@ services:
             GEMINI_MODEL: gemini-3.8-flash
             LLM_PROVIDER: mock
             WORKER_CONCURRENCY: 1
+            WORKER_WAKEUP_MODE: ${WORKER_WAKEUP_MODE:-poll}
+            POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-2000}
             WORKER_METRICS_PORT: 9100
             OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
             RATE_LIMIT_MOCK: ${RATE_LIMIT_MOCK:-false}

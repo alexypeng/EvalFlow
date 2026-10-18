@@ -14,10 +14,10 @@ _Last updated: 2026-10-18_
 
 | | |
 |---|---|
-| **Current milestone** | M5 Kubernetes, branch `m5-kubernetes`; KEDA autoscaling live-verified in kind |
-| **Done** | M0–M4 merged (PRs #1–#5); M4 learning reviews and hosted CI verified |
-| **Waiting on you** | Commit screenshot evidence, then push/PR and review hosted checks |
-| **Next up** | Owner commit of README images; hosted checks remain before M5 wrap-up |
+| **Current milestone** | M6 Benchmark & write-up, branch `m6-benchmarks`; concurrency checkpoint committed as 6ed0718; final write-up, learning review and local acceptance complete |
+| **Done** | M0–M5 merged (PRs #1–#6); M5 local evidence, learning reviews and hosted checks verified |
+| **Waiting on you** | Owner commit and hosted CI/PR after final local acceptance |
+| **Next up** | Owner commit the write-up, push m6-benchmarks, open PR and verify hosted checks |
 
 **Auth learning task (2026-10-07):** Requested with VibeWise. Initial inspection complete;
 awaiting the owner's access/ownership reasoning before choosing a design. No auth code changed.
@@ -244,7 +244,7 @@ Tasks:
 - [x] **ME** KEDA `ScaledObject` with Secret-backed Postgres scaler: eligible queued plus running, target1, min0/max4, polling10s/cooldown60s/stabilization30s; live verification and learning review complete
 - [x] **Claude** Automated mock burst and delayed-retry demo: twenty jobs scale 0 → 4 → 0, single attempt/eval per burst job; delayed work stays at zero until eligible
 - [x] **Claude** Capture README scaling evidence: four ready workers and zero worker Pods, using actual kubectl output with selected columns rendered for readability; images visually checked
-- [ ] **You** Commit screenshot evidence and review hosted checks after owner push/PR
+- [x] **You** Screenshot evidence committed; PR #6 hosted typecheck/tests, both Docker builds and regression gate passed; merged as f723e39
 
 Done when: `helm install` on kind brings up a working stack and workers autoscale on queue depth.
 
@@ -269,14 +269,222 @@ git commit -m "Add Postgres-driven worker autoscaling with KEDA"
 
 ## M6 Benchmark & write-up
 
-- [ ] **Claude** Load generator: enqueue N jobs at a fixed rate; mock provider with configurable latency
-- [ ] **ME** Measurement plan: throughput and p50/p99 end-to-end latency (created → completed) against worker count and `WORKER_CONCURRENCY`
-- [ ] **ME** Find the bottleneck: connection pool size, poll interval, claim-query contention
-- [ ] **ME** Implement `LISTEN/NOTIFY` wake-up and compare against polling
-- [ ] **Claude** Scripts that turn results into tables and charts
-- [ ] **ME** README write-up: architecture diagram, numbers, design decisions and trade-offs (Claude drafts diagrams and layout)
+M5 merged in [PR #6](https://github.com/alexypeng/EvalFlow/pull/6) as `f723e39` on 2026-10-18;
+local branch is now `m6-benchmarks`. Owner approved 1/2/4 fixed workers, concurrency 1, one job/second
+and 2000ms mock latency. Implemented 60 jobs per count with warmup/full drain, direct Postgres arrivals
+and timestamp-based queue/execution/end-to-end reports, excluding HTTP. Smoke and full live checks pass.
+All 180 measured jobs completed with one attempt/eval each. p99 total latency: 62.8s / 3.4s / 2.9s;
+completion rate including drain: 0.49 / 0.96 / 0.98 jobs/s. Results and raw samples are in
+[the first report](benchmarks/2026-10-18-fixed-workers.md). This is one exploratory trial per count.
+An earlier long run with an expired lease and a large clock gap was rejected and retained only locally;
+clock-gap detection and macOS idle-sleep prevention preceded the successful rerun. KEDA restored after
+success/failure; valid fixture jobs cleaned, invalid-run terminal fixtures retained for inspection.
+Repetition, order/resource isolation, capacity sweeps and the broader measurement plan remain.
+
+**Capacity sweep approved, implemented and verified:** Four workers/concurrency1,2000ms mock latency,
+1/2/3 arrivals per second over60-second windows, three trials per rate. Counts60/120/180 per trial
+(1080 measured jobs total), rotated1/2/3,2/3/1,3/1/2. Warmup/full drain each trial. All nine trials valid,
+all1080 measured and36 warmup jobs completed with one attempt/eval, no worker changes/clock gaps;
+KEDA restored and valid own fixtures cleaned. Median drain-inclusive completion rates0.979/1.920/1.940
+jobs/s; median trial p99 total3.010/3.503/32.814s. At3/s, sampled peak queue60–63 and drain32.655–32.886s;
+execution p99~2.03s. Individual trials/ranges and raw data are in the
+[capacity sweep report](benchmarks/2026-10-18-capacity-sweep.md). This measures the configured mock
+workload, not maximum Postgres or production capacity. Aggregates withheld for missing/invalid repeats;
+no pooled-job p99. Fourteen report/planning/provenance tests, typecheck and live smoke/full checks pass.
+Baseline evidence remains unchanged with original producer archived. Introductory learning review complete.
+
+
+**Idle polling comparison verified:** One fixed worker/concurrency1, zero configured mock delay,
+30 identical seeded sparse arrivals per trial, three paired repetitions of1000ms versus100ms polling.
+All180 measured and6 warmup jobs completed once with one eval; no claim errors, overlap, worker changes
+or clock gaps. Median trial queue-wait p99:972.33ms versus107.71ms; empty claim queries/s:0.9760 versus9.4733.
+Execution p99 stays near21ms. This isolates idle wakeup waiting and query frequency, not database CPU
+or maximum capacity. Counter snapshots exclude warmup and non-claim SQL. Full raw/Markdown evidence in
+[the polling report](benchmarks/2026-10-18-idle-polling.md); original1000ms environment/KEDA controls
+restored, own valid fixtures cleaned. Twenty benchmark tests, full server357 passed plus1 expected
+failure, typecheck, Docker build/deploy and live smoke/full verification pass. Introductory learning review complete with correction about busy-worker claims; committed as b66bf4a.
+
+**LISTEN/NOTIFY correctness implemented and verified:** Owner approved a database trigger with one-second
+backup checks. Migration `20261018000000_notify_queued_jobs` emits empty-payload notifications for queued
+inserts and transitions back to queued, delivered only at commit. One dedicated listener connection per
+worker process reconnects and wakes slots to recheck after LISTEN; a generation counter prevents lost
+wakeups during claim-to-wait transitions. Existing SKIP LOCKED claims, leases, retries and fencing remain
+in charge of ownership. Shutdown interrupts listener/reconnect/idle waits. `WORKER_WAKEUP_MODE=notify`
+opts in with fixed1000ms backup checks; default `poll` retains existing poll intervals. Compose/Helm
+settings documented; polling harness refuses notify mode to keep its baseline controlled.
+Nine unit tests, seven dedicated DB tests and an added notification-mode tracing case cover commit/rollback,
+all enqueue paths, concurrency, actual listener termination/reconnect, delayed eligibility and shutdown.
+Full suite374 passed plus1 existing expected failure; typecheck, server/frontend build,20 benchmark tests,
+strict Helm lint/notify render, Compose config and diff checks pass. Initial full run exposed a changed
+polling startup message used by a tracing test; original message restored before the successful rerun.
+Migration applied only to evalflow_test; no development/Compose/kind deployment or performance run yet.
+Introductory learning review complete with clarification about rollback and scale-from-zero. Notification mode still performs one-second backup
+queries and adds a dedicated connection; no reduced-query/capacity claim is made.
+
+- [x] **Claude** Notification wakeup correctness: trigger, reconnecting listener, backup checks, race protection and tests; introductory learning review complete
+- [x] **Claude** Repeated idle polling comparison, claim counters, latency/query evidence and settings restoration; introductory learning review complete
+- [x] **Claude** First load generator: independently scheduled direct-queue arrivals, fixed 1 job/s and 2000ms seeded mock latency, configurable count, scoped fixtures and raw report; introductory learning review complete
+- [x] **Claude** Repeated fixed-four-worker capacity sweep: three rates, balanced order, constant arrival windows, full drain, per-trial/range evidence; introductory learning review complete
+- [x] **ME** Measurement plan: throughput and p50/p99 end-to-end latency against worker count and in-process concurrency1/2/4; introductory learning review complete
+- [x] **ME** Identify measured limits: configured mock service/slot capacity and idle polling delay; owner approved final write-up with explicit limits
+- Deferred/unmeasured: connection-pool saturation, CPU saturation and claim-query contention; require separate controlled experiments, not conclusions from these trials
+- [x] **ME** Compare implemented `LISTEN/NOTIFY` wakeups against polling on the same migrated build; introductory learning review complete
+- [x] **Claude** Reproducible tables and three SVG charts from recomputed raw-trial summaries; byte-for-byte regeneration and visual chart checks pass
+- [x] **ME** Review implemented README/write-up: Mermaid architecture, measured findings, tradeoffs and explicit limits; owner learning review complete
 
 Done when: the README has real numbers and an explanation of what limited throughput and why.
+
+**Final write-up implemented (owner approved):** README architecture now shows durable queue,
+fenced worker execution, reaper recovery, optional idle notifications, independent KEDA scaling and
+observability. M5/M6 sections moved before Roadmap rather than beneath License. New
+[findings](benchmarks/README.md) explain the three repeated comparisons and measurement boundaries.
+`benchmarks/chartData.mjs` recomputes raw summaries, rejects invalid/incomplete comparisons and feeds
+`benchmarks/charts.py` (pinned Matplotlib) to render three deterministic SVGs. Dots are medians;
+whiskers are observed min–max of three trial metrics, not confidence intervals or pooled p99s.
+All32 benchmark tests, exact SVG regeneration, visual PNG inspection and diff checks pass. No
+application, schema, runtime deployment or archived evidence changes; no new workloads. Database
+pool/CPU/claim saturation and production maxima remain explicitly unmeasured. Mermaid source is
+included for GitHub rendering; no separate rendered-diagram visual check was performed.
+Owner learning review and final local branch acceptance complete; owner commit, push, PR and hosted checks remain.
+
+**Final local acceptance (2026-10-18):** Compared against local `main` at `f723e39` plus
+uncommitted write-up files. Independent standards and accepted-scope reviews found zero material
+findings; stale learning-review status corrected. Fresh full server suite:40 files,374 passed plus
+one existing expected failure (91.45s), including real worker crash/notification tests against
+`evalflow_test`. Fresh typecheck, server/frontend builds, frontend lint,32 benchmark tests, exact
+SVG regeneration, strict app Helm lint/notify render, Compose config, shell/Node syntax and diff
+checks pass. Both local Docker builds pass (`evalflow-server:m6-review`,
+`evalflow-frontend:m6-review`), with no deployment. Mock CI regression script against the test DB
+and isolated API port3307 exits0:20 unchanged cases,0 regressions. First sandboxed test attempt was
+blocked at DB setup; escalated rerun passed. Logs/reports are under `/private/tmp/evalflow-m6-*`.
+No production/dev database access, cluster scaling, fresh performance workload, commit, push or PR.
+Hosted checks remain to be run after owner pushes; diagram was source-reviewed but not separately
+rendered. Accepted unmeasured limits remain explicit.
+
+**Write-up files:** `README.md`, `benchmarks/README.md`, `benchmarks/chartData.mjs`,
+`benchmarks/charts.py`, `docs/benchmarks/README.md`, `docs/benchmarks/charts/capacity.svg`,
+`docs/benchmarks/charts/wakeup.svg`, `docs/benchmarks/charts/concurrency.svg`, `docs/PLAN.md`.
+Local `.vibe-wise/` and `LEARNING_CHECKLIST.md` remain unstaged. Suggested owner commands after review:
+
+```bash
+git add README.md benchmarks/README.md benchmarks/chartData.mjs benchmarks/charts.py \
+  docs/benchmarks/README.md docs/benchmarks/charts docs/PLAN.md
+git commit -m "Document architecture and benchmark findings with reproducible charts"
+```
+
+**Same-build wakeup comparison verified:** Owner approved poll1000, poll100 and notify1000-backup
+on one image/migration, one warm worker/concurrency1, zero mock delay,30 identical sparse arrivals/trial,
+three rotated repetitions (270 measured+9 warmup jobs). All9 trials valid; all jobs one attempt/eval,
+no clock/worker/claim errors, one image ID throughout and stable registered listeners. Median trial
+queue-wait p99:952.17/103.00/11.55ms; empty claim/s:0.9761/9.4730/1.2161. Notification p99 range7.71–20.65ms.
+Total p99 medians967.49/119.71/28.71ms; execution p99 medians19–25ms. Backup checks and extra listener
+connection remain; claim rates exclude other SQL/trigger/notification CPU and cannot establish total
+DB cost. Original mode, interval and KEDA controls restored; valid own fixtures cleaned. Fresh kind
+Docker build/load, normal Helm migration/deploy, all3 smoke/full9 trials, typecheck and26 benchmark tests
+pass; exact raw report/aggregate/Markdown recomputation, nine source hashes, migration checksum and
+single image verified. No worker runtime changes in this part, so prior374+1expected server correctness
+suite belongs to committed5d869a6. Raw/Markdown evidence in
+[the comparison](benchmarks/2026-10-18-wakeup-comparison.md). Introductory learning review complete; default stays poll.
+
+**One-Pod concurrency comparison verified:** Owner approved one fixed Pod, concurrency1/2/4,2000ms mock
+calls,3 arrivals/s for30s and3 rotated repetitions (90 jobs/trial,810 measured+21 warmups). All9 valid
+trials completed each job once with one eval, exact overlap1/2/4, one image ID, fixed resources/polling,
+no in-trial clock or worker changes. Median full-drain completion/s0.49196/0.97930/1.89677; total p99
+151.773/62.267/17.816s, queue p99 149.757/60.254/15.797s, execution p99~2.02–2.04s. Queue peaks75/60/30–32;
+median drain152.941/61.902/17.449s. Original concurrency/KEDA restored; valid own fixtures cleaned.
+Two earlier smokes invalidated for DB/monotonic clock jumps with stable worker identity, second causing
+one expired-lease dead letter. Their10 terminal fixtures/raw data retained locally; excluded from results.
+Added3 consecutive bounded-RTT host/DB clock alignment probes before jobs, leaving the existing in-trial
+one-second guard intact. Subsequent3 smoke/full9 trials,32 benchmark tests, typecheck and syntax/diff
+checks pass. Raw evidence, all recalculations and10 source hashes verified in
+[the concurrency report](benchmarks/2026-10-18-concurrency.md). No new worker code/schema, image build,
+provider call or pool setting. Prior374+1expected server suite remains separate committed correctness
+evidence. Results identify configured service/slot behavior, not independently pool/CPU/claim saturation.
+Introductory learning review complete with offered-load clarification; further bottleneck experiments require justification and owner agreement.
+
+**Concurrency checkpoint files (committed as `6ed0718`):** `README.md`, `benchmarks/README.md`,
+`benchmarks/produce.mjs`, `benchmarks/scenarios.mjs`, `benchmarks/concurrencyReport.mjs`,
+`benchmarks/test/concurrency.test.mjs`, `benchmarks/test/evidence.test.mjs`, `docs/PLAN.md`,
+`scripts/kind-benchmark.mjs`, `scripts/kind-benchmark.sh`, `scripts/kind-concurrency-check.sh`,
+`docs/benchmarks/2026-10-18-concurrency.{json,md}`. Learning files remain unstaged.
+
+Completed owner checkpoint commands (`6ed0718`; no repeat needed):
+
+```bash
+git add README.md benchmarks docs/PLAN.md scripts/kind-benchmark.mjs scripts/kind-benchmark.sh \
+  scripts/kind-concurrency-check.sh docs/benchmarks/2026-10-18-concurrency.json \
+  docs/benchmarks/2026-10-18-concurrency.md
+git commit -m "Benchmark one-worker concurrency and queue latency"
+```
+
+**Wakeup benchmark checkpoint files (committed as `4345aae`):** `README.md`, `benchmarks/README.md`,
+`benchmarks/produce.mjs`, `benchmarks/scenarios.mjs`, `benchmarks/wakeupReport.mjs`,
+`benchmarks/test/wakeup.test.mjs`, `benchmarks/test/evidence.test.mjs`,
+`deploy/helm/evalflow-app/README.md`, `docs/PLAN.md`, `scripts/kind-benchmark.mjs`,
+`scripts/kind-benchmark.sh`, `scripts/kind-wakeup-check.sh`,
+`docs/benchmarks/2026-10-18-wakeup-comparison.{json,md}`. Learning files stay unstaged.
+
+Completed owner checkpoint commands (`4345aae`; no repeat needed):
+
+```bash
+git add README.md benchmarks deploy/helm/evalflow-app/README.md docs/PLAN.md \
+  scripts/kind-benchmark.mjs scripts/kind-benchmark.sh scripts/kind-wakeup-check.sh \
+  docs/benchmarks/2026-10-18-wakeup-comparison.json docs/benchmarks/2026-10-18-wakeup-comparison.md
+git commit -m "Benchmark polling versus notification worker wakeups"
+```
+
+**Notification correctness checkpoint files (committed as `5d869a6`):** `.env.example`, `README.md`,
+`benchmarks/README.md`, `deploy/helm/evalflow-app/README.md`,
+`deploy/helm/evalflow-app/templates/backend-deployments.yaml`, `deploy/helm/evalflow-app/values.yaml`,
+`docker-compose.yml`, `docs/PLAN.md`, `scripts/kind-benchmark.mjs`,
+`server/prisma/migrations/20261018000000_notify_queued_jobs/migration.sql`, `server/src/queueWakeup.ts`,
+`server/src/worker.ts`, `server/test/db/queueNotifications.test.ts`, `server/test/db/telemetry.test.ts`,
+`server/test/unit/queueWakeup.test.ts`, `server/vitest.config.ts`. Local learning notes stay unstaged.
+
+Completed owner checkpoint commands (`5d869a6`; no repeat needed):
+
+```bash
+git add .env.example README.md benchmarks/README.md deploy/helm/evalflow-app \
+  docker-compose.yml docs/PLAN.md scripts/kind-benchmark.mjs \
+  server/prisma/migrations/20261018000000_notify_queued_jobs server/src/queueWakeup.ts \
+  server/src/worker.ts server/test/db/queueNotifications.test.ts server/test/db/telemetry.test.ts \
+  server/test/unit/queueWakeup.test.ts server/vitest.config.ts
+git commit -m "Add transactional job notifications and reliable worker wakeups"
+```
+
+**Idle polling checkpoint files (committed as `b66bf4a`):** `README.md`, `docs/PLAN.md`, `benchmarks/README.md`,
+`benchmarks/produce.mjs`, `benchmarks/report.mjs`, `benchmarks/scenarios.mjs`,
+`benchmarks/pollingReport.mjs`, `benchmarks/test/polling.test.mjs`, `benchmarks/test/evidence.test.mjs`,
+`scripts/kind-benchmark.mjs`, `scripts/kind-benchmark.sh`, `scripts/kind-polling-check.sh`,
+`server/src/worker.ts`, `server/src/workerMetrics.ts`, `server/test/unit/workerMetrics.test.ts`,
+and `docs/benchmarks/2026-10-18-idle-polling.{json,md}`. Local learning notes stay unstaged.
+
+Completed owner checkpoint commands (`b66bf4a`; no repeat needed):
+
+```bash
+git add README.md docs/PLAN.md benchmarks scripts/kind-benchmark.mjs scripts/kind-benchmark.sh \
+  scripts/kind-polling-check.sh server/src/worker.ts server/src/workerMetrics.ts \
+  server/test/unit/workerMetrics.test.ts docs/benchmarks/2026-10-18-idle-polling.json \
+  docs/benchmarks/2026-10-18-idle-polling.md
+git commit -m "Measure idle polling latency and empty claim query tradeoffs"
+```
+
+**First M6 checkpoint files (committed as `f6ba6a0`):** `.github/workflows/ci.yml`, `package.json`, `README.md`,
+`docs/PLAN.md`, `benchmarks/README.md`, `benchmarks/produce.mjs`, `benchmarks/report.mjs`,
+`benchmarks/test/report.test.mjs`, `scripts/kind-benchmark.mjs`, `scripts/kind-benchmark.sh`,
+`docs/benchmarks/2026-10-18-fixed-workers.md` and `.json`. Capacity sweep additionally changes/adds
+`benchmarks/scenarios.mjs`, `benchmarks/sweepReport.mjs`, `benchmarks/test/sweep.test.mjs`,
+`benchmarks/test/evidence.test.mjs`, `docs/benchmarks/2026-10-18-capacity-sweep.md` and `.json`, and
+`docs/benchmarks/sources/2026-10-18-fixed-workers-produce.mjs`. Local learning notes stay unstaged.
+
+Completed owner checkpoint commands (`f6ba6a0`; no repeat needed):
+
+```bash
+git add .github/workflows/ci.yml package.json README.md docs/PLAN.md benchmarks \
+  scripts/kind-benchmark.mjs scripts/kind-benchmark.sh docs/benchmarks
+git commit -m "Add repeatable worker benchmarks and capacity measurements"
+```
+
 
 ---
 
@@ -295,6 +503,12 @@ Done when: the README has real numbers and an explanation of what limited throug
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-18 | Owner approved one-Pod concurrency1/2/4, two-second mock calls,3 arrivals/s for30s and three rotated trials per setting | Keep Pod count, image, resources and polling fixed while varying in-process job slots. Offer enough work to exceed ideal0.5/1/2 jobs/s service rates, warm each slot and fully drain90 measured jobs/trial. Validate actual timestamp overlap, continuous settings/Pod/clock evidence and restore original concurrency/KEDA. Results do not independently isolate database pool/claim contention. |
+| 2026-10-18 | Owner approved same-build poll1000, poll100 and notify1000 comparison | Keep one warm worker/concurrency1, zero mock delay and identical30 sparse arrivals/trial. Rotate3 conditions across3 repetitions (270 jobs), check migration/trigger/listener/Pods/counters/clocks, report per-trial ranges and restore mode/poll/KEDA settings. Rerun polling controls on the migrated build to avoid conflating code/trigger deployment with wakeup behavior. |
+| 2026-10-18 | Owner approved a jobs-table notification trigger, worker listener and one-second backup checks | Cover every queue writer transactionally, including direct benchmark insertion; notify queued inserts and transitions back to queued only after commit. Preserve SQL claims/leases, listen before rechecking on startup/reconnect, protect query-to-sleep races, broadcast to idle slots and close the dedicated connection on shutdown. Keep polling mode/default for controlled comparison; notifications improve wakeups while one-second backup queries remain. |
+| 2026-10-18 | Owner approved comparing 1000ms and 100ms idle polling with one fixed worker and zero mock delay | Isolate idle wakeup waiting using identical seeded sparse arrivals and three paired repetitions. Count claimed/empty/error claim operations after warmup to measure the query-frequency tradeoff directly; exclude health/producer SQL, reject errors/resets/overlapping arrivals and restore original poll/KEDA settings. Measure before choosing LISTEN/NOTIFY. |
+| 2026-10-18 | Owner approved a repeated arrival-rate sweep at four fixed workers,2000ms latency,1/2/3 arrivals/s,60-second windows and three trials/rate | Vary offered load while holding capacity fixed to bracket overload. Use60/120/180 jobs to keep arrival duration equal, rotate rate order to balance position, warm/drain each trial, retain per-trial results and summarize median/min/max of trial metrics. Withhold aggregates for missing/invalid repetitions and never pool trial p99 values. Existing first-benchmark evidence remains immutable; source archive preserves its producer provenance. |
+| 2026-10-18 | Owner approved fixed 1/2/4 workers at 1 job/s and 2000ms mock latency for the first M6 scenario | Hold replicas fixed to isolate worker-count effects; identical load exposes overload at one worker and spare capacity at four. Use direct queue insertion because the jobs API does not expose mock latency; no public API change. First60-job trial per count is exploratory, with independent arrivals, warmup, raw data, failure accounting and separate arrival/drain completion rates. Pause KEDA using its supported annotation, monitor fixed Pods, then restore prior scaling. Reject clock gaps instead of treating host/VM suspension as capacity evidence; keep macOS awake during measurement. |
 | 2026-10-18 | Owner confirmed capacity-based KEDA policy: eligible queued plus running, target1, min0/max4, polling10s, cooldown60s, nonzero stabilization30s | Match target to current worker concurrency1; exclude retries in backoff and terminal work while retaining running demand. Four is a conservative local cap on the shared eight-CPU/~8GB Docker environment, not a benchmark optimum. KEDA2.21.0 is pinned and supports this Kubernetes1.34 cluster. Keep application autoscaling opt-in, omit worker replicas under HPA ownership, use existing Secret authentication and cross-namespace database DNS. No new queue/status or application runtime logic. |
 | 2026-10-17 | Owner approved keeping a responsive backend alive but unready during database outages | Separate /livez process checks from /readyz database checks to avoid dependency-driven restarts. Readiness uses a lazy one-connection pool with one-second connection/query limits and handles idle errors, without altering application query deadlines. Worker readiness does not gate polling; existing backoff and shutdown logic own that behavior. Use direct Node PID 1 and derive worker Kubernetes grace from drain/cleanup plus margin. Default local deployment uses one API, worker and reaper with mock provider; Compose monitoring remains separate. |
 | 2026-10-16 | Use separate database and application releases with a migration hook before new application resources | Owner accepted the database-first startup flow and correctly required migration success before the new backend deploys. Keep existing evalflow database release ready before evalflow-app pre-install/pre-upgrade Job. Database credentials stay in an existing Secret; URL encoding happens in the Job. Preserve previous backend versions during upgrades and use compatible schema changes; Helm does not undo SQL migrations. Failure Job blocks normal resources. |
@@ -355,8 +569,53 @@ Done when: the README has real numbers and an explanation of what limited throug
 | 2026-10-01 | Code is formatted with Prettier at 4-space indent, 120 columns (was 80) | Matches the owner's editor settings, so saving a file no longer reformats untouched lines and bloats diffs. One-off reformat of all hand-written TS/TSX; `src/generated/` excluded. |
 | 2026-10-01 | A case passes when its job completed and its risk label matches the answer key; failed jobs don't pass. Pass rate = passed / all cases | A score threshold (e.g. >= 80) lets a wrong label pass: the mock scores 80 on the 4 judgment cases, so it would show 100% despite 4 wrong answers. The label is the task; format/evidence quality shows in mean score. |
 | 2026-10-03 | New working agreement: plan together, Claude writes all code, Claude quizzes you after each piece, you commit | Faster than typing everything, while the quizzing keeps you able to explain every part in interviews. |
+| 2026-10-18 | Owner approved final M6 write-up and charts using existing evidence | Explain configured service/slot limits and idle wakeup delay; explicitly leave pool saturation, claim contention, CPU limits and production maxima unmeasured. Avoid new speculative workload changes. Recompute raw trial metrics for charts; show median and observed range, preserving source archives. |
 
 ## Session log
+
+- **2026-10-18 (final M6 branch acceptance):** Owner completed learning review: distinguished worker capacity from Postgres maximum, queue waiting from execution, and absent listeners at zero replicas. Authorized final review/checks. Standards and scope reviews of main f723e39 through M6 plus uncommitted write-up found no material issues; fixed stale review status. Fresh374 passed+1 existing expected failure/40 files,32 benchmark tests,typecheck,application builds,frontend lint,chart exact check,Helm lint/render,Compose config,syntax/diff and both Docker builds pass. Dataset regression gate passes with20 unchanged cases/0 regressions on isolated test API/database. Initial sandbox DB failure resolved by escalated suite rerun. No deployments/new performance experiments or Git mutations. Write-up files still uncommitted; owner commit/push/PR and hosted checks next.
+
+
+- **2026-10-18 (final write-up implementation):** Owner approved the proposed scope. Updated README architecture with Mermaid and accurate data/control/monitoring boundaries; moved M5/M6 sections before Roadmap and restored License as the final section. Added concise evidence-linked M6 findings, tradeoffs and measurement limits. Added raw-summary Node exporter and pinned Matplotlib generator with exact SVG check and optional PNG previews; generated three figures for capacity, wakeup and concurrency. All32 benchmark tests pass, all SVGs reproduce byte-for-byte, all PNG previews visually inspected. Diagram source reviewed against code but not separately rendered. No archived evidence, application/runtime settings, schema or workloads changed. Pool/CPU/claim saturation explicitly unmeasured. No commit/push/PR. Learning review was completed afterward, followed by final local acceptance below. Files and owner commands in M6; local learning notes unstaged.
+
+
+- **2026-10-18 (final write-up proposal):** Verified concurrency checkpoint committed as6ed0718 with clean tracked tree before notes. Recommend consolidating existing evidence into architecture diagram, reproducible charts and concise findings/limitations in README, then final branch checks/review. Current evidence identifies configured mock service/slot throughput and idle polling delay; pool saturation, claim contention and maximum production capacity remain unmeasured. Do not invent a database bottleneck or claim those limits were tested. Owner acceptance of write-up scope versus more targeted measurements pending; no new charts, application changes, tests, deployment, commits or pushes. PLAN/local notes only.
+
+- **2026-10-18 (concurrency learning review):** Recapped one Pod/process with1/2/4 simultaneous slots versus earlier changing Pod count. Owner initially said one arrival/s would not test concurrency; clarified two-second jobs can overlap at1/s, but insufficient offered load hides the four-slot2/s capacity. Owner then correctly explained that1/s cannot sustain2 completions/s because too few jobs arrive, and calculated~1 queued job/s growth under3 arrivals versus~2 completions. Introductory checkpoint complete with reinforcement; revisit offered load versus concurrency when interpreting future tests. PLAN/local notes only, no new application/runtime changes or tests; existing32 benchmark/typecheck/live verification remains. Owner commit next; any further experiment requires a justified scope before implementation.
+
+- **2026-10-18 (one-Pod concurrency comparison):** Owner correctly derived4 slots/2s=2 jobs/s and authorized one fixed Pod at1/2/4 slots,2000ms mock calls,3 arrivals/s for30s,3 rotated repetitions with per-slot warmup/full drain. Extended producer configuration/warmups, pure scenario/report/overlap/settings checks, continuous one-Pod mode/poll/image/resources/concurrency snapshots, original concurrency/KEDA restoration and smoke/full/check modes. No worker runtime/schema/build/pool changes; reuse deployed image evalflow-server:m5-20261018203106-5d869a6. Initial31 report tests/typecheck pass. First two smokes invalidated by DB wall jumps (~47.6s and several minutes) with unchanged workers; second caused one expired-lease dead letter. All10 terminal invalid fixtures retained with raw/manifest, settings restored each time. Added3 consecutive host/DB alignment probes before jobs without weakening the in-trial guard. Third bundle3 smokes passed with exact1/2/4 overlap, then all9 full trials valid:810 measured+21 warmups completed once with one eval, stable settings/clock/Pod/image, own valid fixtures cleaned, original concurrency/KEDA restored. Median full-drain completion/s0.4919619/0.9793040/1.8967734 and total p99 seconds151.77346/62.26696/17.81608; execution p99~2.02–2.04s. Queue peaks75/60/30–32 and drain medians152.941/61.902/17.449s. Archived raw/Markdown evidence, exact summary/aggregate/Markdown recomputation,10 source hashes, single image/resources and all831 UUID/job invariants verified. Added archive regression test (32 total). README/protocol/PLAN/local notes updated; existing artifacts unchanged. This measures configured mock service/slots under finite overload, not independently DB pool/claim/CPU saturation or production capacity. No commits/pushes/PRs; full files/owner commands above. Learning review pending before next work.
+
+- **2026-10-18 (concurrency experiment planning):** Verified owner committed same-build wakeup comparison as4345aae, tracked tree clean before status update. Recommend next isolating WORKER_CONCURRENCY with one fixed worker Pod, proposed slots1/2/4 and2000ms mock latency, keeping wakeup mode/polling and resource settings fixed. This extends existing worker-count results to in-process parallelism before selecting connection-pool experiments; no database bottleneck assumed. Need sufficient offered load/full drain and repeated controlled trials; exact protocol and implementation remain unapproved. Ask owner to reason about four concurrent slots/two-second calls. Current Prisma adapter does not explicitly set pool size. No code, settings, deployment, tests or load runs; PLAN/local notes only.
+
+- **2026-10-18 (wakeup benchmark learning review):** Owner's initial empty-query answer was ambiguous ("jobs can be pulled?"); explained another worker can win a claim, while this one-worker experiment mainly has backup checks and immediate post-completion empty probes. Owner correctly identified waiting time rather than execution as the notification benefit. Independently explained the zero-worker case: nobody is listening, so KEDA polls the database queue and scales workers up. Introductory checkpoint complete; revisit empty-query sources as needed. PLAN/local notes only; prior26 benchmark/typecheck/live results remain, no code/runtime changes or new tests, commits, pushes or PRs. Owner commit next, then agree remaining concurrency/pool measurement scope.
+
+- **2026-10-18 (same-build wakeup comparison):** Owner authorized three-condition implementation/run. Added rotated poll1000/poll100/notify1000 scenario, mode-aware pure report/aggregation tests, extended producer config, harness migration/checksum/enabled-trigger guard, dedicated listener-state evidence, image/source metadata and original mode+interval/KEDA restoration. Added awake check bundle using normal fresh image/Helm migration workflow. All25 initial benchmark tests and typecheck pass; no worker runtime changes and prior374+1expected full correctness suite retained as separate evidence. Fresh kind image evalflow-server:m5-20261018203106-5d869a6 deployed with notification migration; Compose untouched. Three smoke trials valid with settings restored, then9 full trials at30 jobs each/62.479s windows, repeated ABC/BCA/CAB. All270 measured+9 warmup jobs completed once with one eval, stable one-image workers/clocks/listeners, zero claim errors. Median trial queue p99=952.17/103.00/11.55ms and empty claim/s=0.9761/9.4730/1.2161. Notification p99 range7.71–20.65ms. Total p99 medians967.49/119.71/28.71ms; execution p99 medians19–25ms. Own valid fixtures cleaned and original poll/1000ms/KEDA controls restored. Archived complete raw/Markdown evidence, all summaries/aggregates/Markdown exactly recomputed, nine source hashes and migration checksum match; one actual image ID across all conditions. Added archived-evidence regression (26 benchmark tests). README/protocol/chart guide/PLAN/local notes updated. These are sparse local existing-worker wakeups, not cold activation/capacity or total DB CPU/cost; backups and extra listener connection remain. Prior evidence unchanged, polling default retained, no live provider calls, commits/pushes/PRs. Full files/owner commands in M6; learning review pending.
+
+- **2026-10-18 (wakeup comparison proposal):** Verified notification correctness committed as5d869a6 and tracked tree clean before these notes. Recommend three conditions on the same newly migrated backend image: poll1000ms, poll100ms, notify with fixed1000ms backup. Hold one worker/concurrency1, zero configured mock delay, same30 seeded sparse arrivals, warmup/full drain, three repetitions with rotated condition order (270 measuredjobs). Extend scenario/report/harness for mode and polling settings, verify listener registration/stability, retain claim-counter/latency evidence and restore original mode/poll/KEDA settings. Existing archived polling data remains unchanged and is not substituted for a fresh control. Owner protocol/implementation/run confirmation pending. No code, migration, deployment, tests or load runs this turn; PLAN/local notes only.
+
+- **2026-10-18 (notification learning review):** Owner correctly explained row locking prevents concurrent workers claiming one job. Explained transactions/rollback with run fan-out; owner then correctly said a rolled-back insertion leaves no queued job. Owner initially thought notifications can start workers at zero; clarified only existing listener processes wake and KEDA detects demand to start Pods. Owner then correctly identified existing idle workers as the notification benefit. Introductory checkpoint complete with reinforcement; revisit KEDA activation versus in-process wakeups during comparison. PLAN/local notes only, no new code/tests/runtime changes or commits. Prior verification374 passed+1expected and20 benchmark tests remains; owner commit and comparison protocol next.
+
+- **2026-10-18 (notification correctness):** Owner approved database-trigger emission and concrete listener/test scope after selecting one-second backup checks. Added custom transactional migration for queued inserts/status transitions with empty payload, dedicated reconnecting pg listener per process, startup/reconnect queue recheck, generation-based race protection and wake-all idle slots. Retained existing SQL ownership/leases and error backoff; shutdown aborts listener and waits for closure within existing grace/cleanup limits. Validated poll/notify env, poll default for comparison, fixed1000ms notify backup; Compose/Helm wiring/docs and polling-harness mode guard added. Nine unit tests and seven dedicated real-DB cases pass, including rollback versus commit, all writer paths, concurrent two-process/two-slot burst completing20 jobs once, delayed pre-start job eligibility, actual listener termination/reconnect and clean SIGTERM. Initial full run372 passed+1expected/1failed because changed startup text blocked an existing telemetry readiness wait; preserved original polling log, extended telemetry test to notify mode. Final full suite374 passed+1 existing expected failure across40 files, with no pending migrations. Typecheck, server/frontend builds,20 benchmark evidence tests, strict Helm lint/notify render, Compose config, syntax/diff checks pass. Migration only on evalflow_test; dev/Compose/kind settings and existing benchmark archives unchanged. No performance run, live provider calls, commits, pushes or PRs. Notification mode is opt-in and still has one-second backup query load; explain dedicated connection, transactional notification versus claim ownership and quiz owner before comparing modes. Full file list/owner commands in M6; learning notes remain unstaged.
+
+- **2026-10-18 (notification reliability approved):** Owner chose notifications with one-second backup checks, after correctly identifying queue inspection on reconnect and clarifying delayed eligibility sends no fresh notification. Inspected all writing paths: individual creation, transactional run fan-out, manual retry, worker retry and reaper, plus direct benchmark insertions. Recommend a transactional database trigger for queued insert/transitions instead of scattered application calls, dedicated reconnecting listener, wakeup race protection and shutdown cleanup; polling-only mode retained for comparison. Concrete emission/scope approval pending before migration/runtime implementation. PLAN/local notes only; no new tests or application/cluster changes.
+
+- **2026-10-18 (LISTEN/NOTIFY planning):** Verified owner committed polling checkpoint as b66bf4a; tracked tree clean before status update. Polling review complete with correction: owner calculated interval checks and identified empty queues as benefiting most after clarifying busy workers claim again immediately. Inspected worker idle/shutdown flow, queue insertion/run fan-out, retry/reaper scheduling and database adapter; checked official Postgres LISTEN/NOTIFY semantics. Next unfamiliar mechanism: database notification wakes a worker to run its normal fenced claim. Owner reliability reasoning pending: notifications are transient and cannot replace saved jobs or recovery checks. Delayed eligibility/reconnect/startup/concurrency design remains unapproved. No runtime/schema changes or new tests/load runs; PLAN/local learning notes only.
+
+- **2026-10-18 (idle polling comparison):** Owner approved the proposed fixed-one-worker, zero-delay light-load comparison. Added an observed claim counter by claimed/empty/error around the existing claim operation without changing SQL/leases, plus its result/error unit test. Added seeded1500–2499ms arrival gaps,30 jobs/62.479-second window, three paired repetitions and1000/100,100/1000,1000/100 order; pure report validates counters, overlap and existing job/clock/Pod invariants. Harness rolls polling configuration outside measurements, fetches worker metrics from the API Pod, saves before/after counter samples, and independently restores original poll environment/KEDA settings. New awake check bundle runs typecheck/tests, fresh normal Helm/image deployment, smoke and full comparison. Initial sandbox unit run stalled with timeouts/fork errors; complete awake escalated rerun passed357 tests plus1 existing expected failure without timeout changes. Typecheck, Docker build/load/deploy, both smoke trials and all6 full trials pass. All180 measured plus6 warmup jobs completed once with one eval; no claim errors/overlap/worker changes/clock gaps, valid own fixtures cleaned. Original1000ms setting/KEDA restored. Median trial queue p99 fell972.33→107.71ms; empty claim queries/s rose0.9760→9.4733; execution p99 near21ms. Archived raw/Markdown evidence, exact report/aggregate recomputation, all five source hashes and restoration verified; added evidence regression test (20 benchmark tests total). README/protocol/PLAN/local learning notes updated. Query frequency is not CPU/cost, workload sparse/local and p99 samples small. Changed-file list and owner commands above. Learning review pending before LISTEN/NOTIFY design. No schema/dependency/API changes, live provider calls, commits, pushes or PRs.
+
+- **2026-10-18 (polling experiment proposal):** Verified owner committed baseline/capacity work as f6ba6a0 on m6-benchmarks; tracked tree clean before status notes. Reviewed idle worker loop: kind uses1000ms polling, source fallback2000ms, and busy workers can claim again without an idle sleep. Proposed a fixed-one-worker, light-load, zero-mock-delay comparison of1000ms versus100ms idle polling to expose queue wakeup latency and the database-query tradeoff before LISTEN/NOTIFY. Protocol timing/repetition/arrivals and design confirmation remain pending. No benchmark code, workload, Kubernetes settings or tests changed; PLAN/local notes only.
+
+- **2026-10-18 (capacity sweep learning review):** Owner correctly calculated about one extra queued job/second under three arrivals versus about two completions, and identified waiting time as the reason total latency rises while execution stays near two seconds. Owner identified four workers/two-second calls as the configured limit but needed the rate derivation explained; after recap, correctly calculated eight workers/two seconds = four jobs/second. Introductory review complete with reinforcement; revisit capacity assumptions in future experiments. Verified benchmark files remain uncommitted; owner requested commit commands. PLAN/local learning notes updated only; no new code, tests, runtime changes, commits or pushes.
+
+- **2026-10-18 (repeated capacity sweep):** Owner approved the next experiment. Extended producer to rates1/2/3 and optional repetition ID; added pure scenario planner, separate sweep-report module, CLI sweep/smoke/verification modes and regression/provenance tests. Fixed baseline mode/report math preserved, original producer archived against its recorded hash. Rotated rate order1/2/3,2/3/1,3/1/2 with four steady workers/concurrency1 and2000ms mock delay;60-second windows imply60/120/180 jobs. Short three-rate smoke and full nine-trial run pass: all1080 measured plus36 warmup jobs complete once with one eval, stable worker readiness/UID/restarts and clocks. All valid fixture jobs cleaned and original KEDA pause setting restored. Median completion/s including drain0.9786/1.9202/1.9405 and median trial p99 total3.0097/3.5025/32.8144s for rates1/2/3. At3/s, queue sample maximum60–63 and drain32.655–32.886s; execution p99~2.03s throughout. All report/aggregate recalculations match raw evidence; all four source hashes verified. Fourteen reporting/planning/evidence tests, typecheck, Node/shell syntax, CI YAML parse and diff checks pass. Added README protocol/result links/table and complete raw/Markdown artifacts. This identifies saturation for the configured mock service time; no claim about Postgres's maximum throughput or production p99. First baseline files unchanged. No worker/API/schema/image/dependency changes, live provider calls, commits or pushes. Full changed-file list and owner commit commands in M6; local learning notes remain unstaged. Capacity report learning review pending before next experiment.
+
+- **2026-10-18 (next M6 experiment planning):** Owner requested the next part after benchmark recap. Verified first checkpoint remains uncommitted on m6-benchmarks; no runtime changes or new load runs. Proposed keeping four workers/2000ms latency fixed and varying arrivals1/2/3 per second in equal60-second windows, with three trials per rate, to bracket ideal capacity and reduce single-run noise. Owner design confirmation pending; PLAN/local learning notes updated only. Existing first-benchmark verification remains valid.
+
+- **2026-10-18 (first benchmark learning review):** Clarified offered submission rate versus worker capacity after owner attributed one job/s to workers. Explained queue wait plus execution with an arrival timeline; owner correctly calculated10s waiting+2s execution=12s total. Owner correctly excluded the clock-gap run from controlled normal-performance evidence; clarified such disruptions can occur in real systems and merit separate failure testing. Introductory review complete, with offered-load/queue-time distinctions to revisit during later experiments. Owner requested a recap of this implementation. PLAN/local learning notes updated only; no new code, tests, commits or pushes.
+
+- **2026-10-18 (first M6 benchmark):** Owner explained fixed replicas avoid confounding comparisons, that overload increases queue/total latency, correctly calculated four workers / two seconds = two jobs/s, and approved 1/2/4 at one arrival/s and2000ms mock latency. Implemented benchmark-only producer/report modules, kind orchestrator/wrapper, report tests and CI test step. No API/schema/worker/image changes or new dependencies. Smoke4-job trials passed allcounts/restoration. First long run invalidated after one expired lease and a large wall-clock/monotonic discrepancy with stable Pod identity/restarts; suspension or clock change inferred, not proved. Retained invalid results/terminal fixtures locally, added clock-gap rejection and scoped macOS caffeinate idle-sleep prevention, then reran. Successful60-job trials at1/2/4 each complete60/60 once with one eval, no worker changes/clock errors; p99 total62777/3407/2879ms, execution p99~2029/2026/2027ms, batch completion rates0.490/0.961/0.981 jobs/s. KEDA pause restored after success/failure, valid own jobs cleaned. Archived complete raw/report evidence and verified producer/report source hashes and all180 job invariants. Seven report tests, typecheck, Node/shell syntax, CI YAML parse, evidence recomputation and diff checks pass. First baseline is shared-host, single-trial evidence; no maximum-capacity/p99-stability claim, broad bottleneck/concurrency/LISTEN-NOTIFY work remains. Updated README, PLAN and local learning notes; file list/owner commit commands in M6. Learning report review pending. No commits/pushes or real LLM calls.
+
+- **2026-10-18 (M6 planning start):** Verified M5 PR #6 merged at f723e39 and checkout is m6-benchmarks with tracked tree clean before status edits. Earlier hosted CI/regression checks passed and README image evidence is committed. Updated M5 completion and M6 status. Proposed a controlled comparison at 1/2/4 workers with identical mock latency/arrival rate, measuring throughput and end-to-end p50/p99 plus failures. Begin owner reasoning with fixed replicas versus KEDA changing capacity; no benchmark design approved, implementation, runtime configuration changes, tests or load runs yet. PLAN and local learning notes updated only; no commits or pushes.
 
 - **2026-10-18 (M5 README screenshots):** Owner requested adding screenshots. Reran the existing isolated kind/mock demo and captured real kubectl selected-column output only after all four workers were ready, then after desired zero and no worker Pods remained. The twenty-job burst passed one-attempt/one-eval assertions and returned to zero; delayed retry checks also passed. Rendered the captured output in headless Chrome as docs/screenshots/keda-scale-up.png and keda-scale-down.png, clearly labeled command-output captures rather than a Kubernetes dashboard. Both1200×1280 PNGs visually inspected: complete tables/logs, readable text and no clipped content. Added images/captions/reproduction command to README and corrected stale roadmap wording; explained HPA minimum/last nonzero recommendation versus KEDA's zero transition. Browser emitted display-link diagnostics but exited0 and wrote valid PNGs. No application/runtime/test/chart changes, live provider calls, commits or pushes. Only own terminal fixtures cleaned; temporary capture/render sources remain outside repo. Changed README.md, docs/PLAN.md and the two PNGs; local learning notes updated unstaged. Suggested owner commands: `git add README.md docs/PLAN.md docs/screenshots/keda-scale-up.png docs/screenshots/keda-scale-down.png` then `git commit -m "Document worker autoscaling with live demo captures"`. Hosted checks remain before M5 wrap-up.
 
@@ -411,7 +670,7 @@ Done when: the README has real numbers and an explanation of what limited throug
 Pipeline checkpoint files: `README.md`, `docs/PLAN.md`, `server/src/pipelineTracing.ts`, `server/src/worker.ts`,
 `server/test/unit/pipelineTracing.test.ts`, `server/test/db/telemetry.test.ts`.
 
-Suggested owner commands after learning review:
+Completed owner checkpoint commands (`f6ba6a0`; no repeat needed):
 
 ```bash
 git add README.md docs/PLAN.md server/src/pipelineTracing.ts server/src/worker.ts \
@@ -436,7 +695,7 @@ Propagation checkpoint files: `README.md`, `docs/PLAN.md`, `server/prisma/schema
 `server/test/unit/jobTracing.test.ts`, `server/test/db/jobTracing.test.ts`, `server/test/db/telemetry.test.ts`,
 `server/test/fixtures/inMemoryTracing.ts`.
 
-Suggested owner commands after learning review:
+Completed owner checkpoint commands (`f6ba6a0`; no repeat needed):
 
 ```bash
 git add README.md docs/PLAN.md server/prisma/schema.prisma \
@@ -461,7 +720,7 @@ SDK checkpoint files: `.env.example`, `README.md`, `docs/PLAN.md`, `docker-compo
 `server/src/startApi.ts`, `server/src/startWorker.ts`, `server/vitest.config.ts`,
 `server/test/unit/telemetry.test.ts`, `server/test/db/telemetry.test.ts`, `server/test/fixtures/telemetryShutdown.ts`.
 
-Suggested owner commands after learning review:
+Completed owner checkpoint commands (`f6ba6a0`; no repeat needed):
 
 ```bash
 git add .env.example README.md docs/PLAN.md docker-compose.yml pnpm-lock.yaml server/package.json \
@@ -477,7 +736,7 @@ git commit -m "Add OpenTelemetry SDK and API database tracing"
 
 - **2026-10-15 (local Tempo backend):** Owner approved the bounded backend piece. Added pinned Tempo 3.1.0 in single-process mode, read-only configuration, OTLP HTTP reception on 4318, query/readiness on 3200, loopback host bindings, persistent /var/tempo volume and seven-day retention override with usage reporting disabled. Provisioned read-only evalflow-tempo datasource; Prometheus remains default. README explains startup, Grafana Explore, endpoint roles, persistence, retention and lack of application instrumentation at this stage. Compose config and diff checks pass. Isolated Tempo/Grafana integration accepted a synthetic parent/child trace over OTLP HTTP and retrieved both spans directly and through Grafana; confirmed loaded seven-day override and reporting setting, then verified trace retrieval after Tempo restart and replacement of both containers using named volumes. Initial smoke assertions required accepting Tempo's 1w normalization and resolving dynamically reassigned host ports after restart; corrected harness rerun passed. No application code/schema/dependency changes, job submissions, Postgres access, live LLM calls, commits, pushes or PRs. Existing application suite not rerun for configuration-only work. Removed temporary test containers, network and volumes. Learning review pending. Files: docker-compose.yml, observability/tempo/tempo.yml, observability/grafana/provisioning/datasources/tempo.yml, README.md, docs/PLAN.md.
 
-Suggested owner commands after learning review:
+Completed owner checkpoint commands (`f6ba6a0`; no repeat needed):
 
 ```bash
 git add docker-compose.yml observability/tempo/tempo.yml \
@@ -491,7 +750,7 @@ git commit -m "Add local Tempo trace storage and Grafana datasource"
 - **2026-10-15 (stage timing learning review):** Clarified that high permit wait means waiting for shared rate-limit admission rather than slow model execution. Owner correctly distinguished a successful call returning invalid JSON from a successful job and explained that zero wait means a measured permit was immediately available, whereas disabled limiting produces no observations because the step did not run. Learning checkpoint completed. Updated PLAN and local learning notes only; prior verification remains 284 passed plus one existing expected failure, typecheck/builds and live query checks passed. No new implementation or tests. Owner commit next; trace-backend design remains undecided.
 
 
-- **2026-10-15 (LLM and permit timing):** Implemented the approved separate provider/outcome duration histograms around permit admission and the LLM wrapper. Both record success/error/cancelled/lease_lost without changing results or original errors; trace persistence stays outside the timers. Invalid JSON is a successful call followed by validation failure. Disabled mock limiting and unfinished operations produce no completed wait samples. Added two Grafana p50/p95 panels that hide unused series and documented boundaries/limitations. Added four parameterized unit cases and three real-worker DB cases; updated success/retry coverage. Verification: 11 worker-metric unit tests, 10 focused DB tests, full suite 284 passed plus one existing expected failure; typecheck and server/frontend builds passed. Isolated two-worker Docker smoke validated DNS discovery, 21 permit admissions, 20 successful calls and one rejected wrapper call, separate timing totals and finite ordered Grafana datasource query results. Browser loaded the dashboard; final chart inspection timed out, so visual verification is incomplete. Removed the temporary stack, network and volumes. No live Gemini calls, schema/dependency changes, development DB writes, commits, pushes or PRs. Learning review pending. Changed files: README.md, docs/PLAN.md, observability/grafana/dashboards/api.json, server/src/worker.ts, server/src/workerMetrics.ts, server/test/db/workerMetrics.test.ts, server/test/unit/workerMetrics.test.ts. Suggested owner commands after learning review: `git add README.md docs/PLAN.md observability/grafana/dashboards/api.json server/src/worker.ts server/src/workerMetrics.ts server/test/db/workerMetrics.test.ts server/test/unit/workerMetrics.test.ts` then `git commit -m "Add LLM call and rate-limit wait metrics"`.
+- **2026-10-15 (LLM and permit timing):** Implemented the approved separate provider/outcome duration histograms around permit admission and the LLM wrapper. Both record success/error/cancelled/lease_lost without changing results or original errors; trace persistence stays outside the timers. Invalid JSON is a successful call followed by validation failure. Disabled mock limiting and unfinished operations produce no completed wait samples. Added two Grafana p50/p95 panels that hide unused series and documented boundaries/limitations. Added four parameterized unit cases and three real-worker DB cases; updated success/retry coverage. Verification: 11 worker-metric unit tests, 10 focused DB tests, full suite 284 passed plus one existing expected failure; typecheck and server/frontend builds passed. Isolated two-worker Docker smoke validated DNS discovery, 21 permit admissions, 20 successful calls and one rejected wrapper call, separate timing totals and finite ordered Grafana datasource query results. Browser loaded the dashboard; final chart inspection timed out, so visual verification is incomplete. Removed the temporary stack, network and volumes. No live Gemini calls, schema/dependency changes, development DB writes, commits, pushes or PRs. Learning review pending. Changed files: README.md, docs/PLAN.md, observability/grafana/dashboards/api.json, server/src/worker.ts, server/src/workerMetrics.ts, server/test/db/workerMetrics.test.ts, server/test/unit/workerMetrics.test.ts. Completed owner checkpoint commands (`f6ba6a0`; no repeat needed): `git add README.md docs/PLAN.md observability/grafana/dashboards/api.json server/src/worker.ts server/src/workerMetrics.ts server/test/db/workerMetrics.test.ts server/test/unit/workerMetrics.test.ts` then `git commit -m "Add LLM call and rate-limit wait metrics"`.
 
 
 - **2026-10-15 (Worker attempt learning review):** Owner correctly counted a retry followed by success as two attempts (clarified metric names retried/completed), excluded prior queue wait from attempt duration, classified a rejected replacement-lease result as lease_lost, and identified that updates before the next scrape are not guaranteed to survive worker exit. Learning review completed. Updated PLAN and local learning notes only; no code changes or additional tests. Owner commit next, followed by agreement on separate LLM/rate-limit timing metrics.
@@ -524,7 +783,7 @@ git commit -m "Add local Tempo trace storage and Grafana datasource"
 Chaos checkpoint files: `.github/workflows/ci.yml`, `README.md`, `docs/PLAN.md`, `server/package.json`,
 `server/test/db/chaos.test.ts`, `server/test/db/chaosHarness.ts`.
 
-Suggested owner commands after learning review:
+Completed owner checkpoint commands (`f6ba6a0`; no repeat needed):
 
 ```bash
 git add .github/workflows/ci.yml README.md docs/PLAN.md server/package.json \
@@ -543,7 +802,7 @@ regenerated files under `server/src/generated/prisma/`, `server/src/jobs.ts`, `s
 `server/test/db/providerRateLimit.test.ts`, `server/test/db/rateLimitedWorker.test.ts`,
 `server/test/unit/llm.test.ts`, `server/test/unit/providerRateLimit.test.ts`, `server/vitest.config.ts`.
 
-Suggested owner commands after learning review:
+Completed owner checkpoint commands (`f6ba6a0`; no repeat needed):
 
 ```bash
 git add .env.example README.md docker-compose.yml docs/PLAN.md server/prisma/schema.prisma \
@@ -563,7 +822,7 @@ Shutdown checkpoint files: `.env.example`, `README.md`, `docker-compose.yml`, `d
 `server/src/leaseSettings.ts`, `server/src/worker.ts`, `server/test/db/workerShutdown.test.ts`,
 `server/test/unit/heartbeat.test.ts`.
 
-Suggested owner commands after learning review:
+Completed owner checkpoint commands (`f6ba6a0`; no repeat needed):
 
 ```bash
 git add .env.example README.md docker-compose.yml docs/PLAN.md \
@@ -585,7 +844,7 @@ Dead-letter checkpoint files: `README.md`, `docs/PLAN.md`, `frontend/src/App.tsx
 `server/test/db/deadLetters.test.ts`, `server/test/db/jobs.test.ts`, `server/test/db/leases.test.ts`,
 `server/test/db/reaper.test.ts`, `server/test/db/runLists.test.ts`, `server/test/db/runs.test.ts`.
 
-Suggested owner commands after learning review:
+Completed owner checkpoint commands (`f6ba6a0`; no repeat needed):
 
 ```bash
 git add README.md docs/PLAN.md frontend/src/App.tsx frontend/src/RunsDashboard.tsx frontend/src/api.ts \
@@ -600,7 +859,7 @@ git commit -m "Replace exhausted job status with dead letters and add recovery U
 
 - **2026-10-14 (dead-letter planning):** Confirmed backoff checkpoint committed as b3463e3; no tracked changes pending before this update. Inspected status enum and API/report/dashboard consumers. Current failed already means exhausted execution retries, so proposed replacing that status with dead_letter rather than introducing two indistinguishable terminal statuses. Proposal keeps jobs in the same table, migrates existing failed rows, adds a dead-letter listing/filter and manual requeue, preserves terminal failed evaluation outcomes and immediate manual retry with attempts reset. Reports/CLI/dashboard must handle the state consistently. Owner agreement pending; no schema or application changes, tests, commits, pushes or PRs. PLAN only.
 - **2026-10-14 (backoff learning review):** Owner correctly explained that delayed jobs remain queued without occupying a worker slot, that randomness spreads retry traffic to reduce synchronized load, and that the saved database timestamp preserves scheduling across worker restarts. Clarified jitter targets retries and illustrated run_after surviving replacement of a worker process. Backoff learning checkpoint completed. Updated PLAN only; existing verification remains 221 passed and 1 expected failure with typecheck/server build passing. No application changes, new design decisions, tests, commits, pushes or PRs. Owner commit next; dead-letter design follows.
-- **2026-10-14 (automatic retry backoff):** Owner approved the proposed delay policy. Added one shared parameterized Prisma SQL expression for worker failure and reaper scheduling: capped exponential equal jitter, using persisted attempts, per-row Postgres random(), database time and whole milliseconds. Exponent is clamped before exponentiation to support large attempt counts safely. Existing row locking/fencing, terminal failure and immediate manual retry behavior retained. Added 19 DB cases covering both paths' ranges/cap/large counts with application-clock skew, skipping delayed jobs while claiming fresh work, concurrent due retry claims, stale failure rejection, terminal exhaustion/manual retry and independent batch jitter. Updated existing retry/reaper fixtures with a test-only makeJobDue helper so unrelated ownership tests do not sleep through backoff. README explains timing and polling/backlog limits. Full suite passes 221 tests plus 1 existing expected failure across 20 files, including real-worker mock integration with normal retry delays; typecheck/server build and diff check pass. Initial sandbox DB connection failed; approved escalated test run reached evalflow_test with no pending migrations. No schema changes, development DB writes, commits, pushes or PRs; learning files preserved. Learning review pending. Changed files: README.md, docs/PLAN.md, server/src/jobs.ts, server/test/db/backoff.test.ts, server/test/db/helpers.ts, server/test/db/jobs.test.ts, server/test/db/leases.test.ts, server/test/db/reaper.test.ts. Suggested owner commands after learning review: `git add README.md docs/PLAN.md server/src/jobs.ts server/test/db/backoff.test.ts server/test/db/helpers.ts server/test/db/jobs.test.ts server/test/db/leases.test.ts server/test/db/reaper.test.ts` then `git commit -m "Add exponential backoff and jitter for automatic retries"`.
+- **2026-10-14 (automatic retry backoff):** Owner approved the proposed delay policy. Added one shared parameterized Prisma SQL expression for worker failure and reaper scheduling: capped exponential equal jitter, using persisted attempts, per-row Postgres random(), database time and whole milliseconds. Exponent is clamped before exponentiation to support large attempt counts safely. Existing row locking/fencing, terminal failure and immediate manual retry behavior retained. Added 19 DB cases covering both paths' ranges/cap/large counts with application-clock skew, skipping delayed jobs while claiming fresh work, concurrent due retry claims, stale failure rejection, terminal exhaustion/manual retry and independent batch jitter. Updated existing retry/reaper fixtures with a test-only makeJobDue helper so unrelated ownership tests do not sleep through backoff. README explains timing and polling/backlog limits. Full suite passes 221 tests plus 1 existing expected failure across 20 files, including real-worker mock integration with normal retry delays; typecheck/server build and diff check pass. Initial sandbox DB connection failed; approved escalated test run reached evalflow_test with no pending migrations. No schema changes, development DB writes, commits, pushes or PRs; learning files preserved. Learning review pending. Changed files: README.md, docs/PLAN.md, server/src/jobs.ts, server/test/db/backoff.test.ts, server/test/db/helpers.ts, server/test/db/jobs.test.ts, server/test/db/leases.test.ts, server/test/db/reaper.test.ts. Completed owner checkpoint commands (`f6ba6a0`; no repeat needed): `git add README.md docs/PLAN.md server/src/jobs.ts server/test/db/backoff.test.ts server/test/db/helpers.ts server/test/db/jobs.test.ts server/test/db/leases.test.ts server/test/db/reaper.test.ts` then `git commit -m "Add exponential backoff and jitter for automatic retries"`.
 - **2026-10-14 (backoff planning):** Confirmed reaper checkpoint committed as df4dd62, with no tracked edits pending before this update. Inspected worker failure/reaper recovery/manual retry scheduling and status consumers. Proposed doing delayed retry backoff as the next learning piece before introducing dead-letter status across reports, CLI and dashboard. Proposed shared policy for worker failures and expired-lease recovery: random delays of 1–2 seconds after attempt 1, 2–4 after attempt 2, doubling with an upper bound of 30 seconds; compute run_after from database time, preserve attempts until claiming, leave explicit manual retries immediately eligible and exhausted jobs failed for now. Owner agreement pending; these are proposals, not approved decisions. Updated PLAN only; no implementation, tests, commits, pushes or PRs.
 - **2026-10-14 (reaper learning review):** Owner explained that recovery requeues expired work and clears its token, a new worker can claim it, and stale results must be rejected. Clarified that recovery preserves attempts while the next claim increments them; row locks are held only during database operations, with SKIP LOCKED letting other reapers skip busy rows. Explained that application completion code checks ownership inside a Postgres transaction rather than relying on an automatic database constraint. Owner correctly identified exhausted expired claims as failed. Learning checkpoint completed. Updated PLAN only; existing verification remains 202 passed and 1 expected failure with typecheck/build/Compose validation passing. No application changes, new design decisions, tests, commits, pushes or PRs. Owner commit next; delayed backoff/dead-letter design follows.
 - **2026-10-14 (separate local reaper):** Owner approved implementing a separate reaper locally after discussing independent deployment for learning. Added bounded expired-lease recovery with database time and SKIP LOCKED row locks; remaining attempts requeue immediately, exhausted attempts become failed, both clear ownership without incrementing attempts. Added separate sequential polling entrypoint, validated interval/batch settings, interruptible idle sleep, SIGTERM/SIGINT draining and DB disconnect, dev/start scripts and Compose service. Updated environment example and README/roadmap. Added tests for terminal/live/queued exclusion, attempt preservation, due scheduling, stale renewal/failure/completion rejection, concurrent bounded recovery, locked renewal exclusion, heartbeat race and actual reaper-process recovery/shutdown. Full suite passes 202 tests plus 1 existing expected failure; typecheck, server build, Compose config and diff check pass. Initial sandbox test run could not reach Postgres; rerun with approved escalation passed against evalflow_test with no pending migrations. No schema changes, development DB changes, hosted deployment, commits, pushes or PRs. Existing learning files preserved. Learning quiz pending before further implementation. Suggested owner commit after review: `git add .env.example README.md docker-compose.yml docs/PLAN.md docs/ROADMAP.md package.json server/package.json server/src/jobs.ts server/src/reaper.ts server/src/reaperSettings.ts server/test/db/reaper.test.ts server/test/unit/reaperSettings.test.ts` then `git commit -m "Add separate reaper for expired worker leases"`.

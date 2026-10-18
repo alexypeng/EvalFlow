@@ -67,6 +67,8 @@ spec:
                         value: {{ $settings.port | quote }}
                       - name: WORKER_CONCURRENCY
                         value: {{ $settings.concurrency | quote }}
+                      - name: WORKER_WAKEUP_MODE
+                        value: {{ $settings.wakeupMode | quote }}
                       - name: POLL_INTERVAL_MS
                         value: {{ $settings.pollIntervalMs | quote }}
                       - name: LEASE_DURATION_MS

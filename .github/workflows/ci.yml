@@ -47,6 +47,9 @@ jobs:
             - name: Typecheck server and frontend
               run: pnpm typecheck
 
+            - name: Test benchmark reporting
+              run: pnpm test:benchmark
+
             - name: Test server (including worker chaos recovery)
               timeout-minutes: 5
               run: pnpm --filter server test

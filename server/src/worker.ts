@@ -17,8 +17,9 @@ import { beginJobAttemptTrace } from "./jobTracing.js";
 import type { AttemptOutcome } from "./workerMetrics.js";
 import { tracePipelineStep } from "./pipelineTracing.js";
 import { installHealthChecks } from "./health.js";
+import { createIdleWakeup, startQueueListener, workerWakeupSettings } from "./queueWakeup.js";
 
-const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS ?? 2000);
+const { mode: wakeupMode, idleIntervalMs: pollIntervalMs } = workerWakeupSettings(process.env);
 const workerId = randomUUID();
 const { leaseDurationMs, heartbeatIntervalMs } = workerLeaseSettings(process.env);
 const { graceMs, cleanupMs } = workerShutdownSettings(process.env);
@@ -32,6 +33,8 @@ if (!Number.isInteger(concurrency) || concurrency < 1) {
 }
 
 const idleSleep = new AbortController();
+const wakeup = createIdleWakeup(pollIntervalMs, idleSleep.signal);
+let listener: ReturnType<typeof startQueueListener> | undefined;
 const active = new Map<string, {
     lease: JobLease;
     heartbeat: ReturnType<typeof startHeartbeat>;
@@ -64,6 +67,7 @@ async function abandonAndExit() {
         }
     }
     await metrics.app.close();
+    await listener?.closed;
     await prisma.$disconnect();
     await shutdownTelemetry();
     clearTimeout(hardStop);
@@ -91,9 +95,17 @@ installHealthChecks(metrics.app, { isStopping: () => stopping });
 await metrics.app.listen({ port: metricsPort, host: "0.0.0.0" });
 const address = metrics.app.server.address();
 console.log(`Worker metrics listening on port ${typeof address === "object" ? address?.port : metricsPort}`);
+if (wakeupMode === "notify") {
+    listener = startQueueListener({
+        connectionString: process.env.DATABASE_URL, signal: idleSleep.signal, wake: () => wakeup.wake(),
+        onState: (state) => console.log(`Worker queue listener ${state}`),
+    });
+}
 
 console.log(
-    `Worker ${workerId} running ${concurrency} slot(s), polling every ${pollIntervalMs}ms when idle; ` +
+    `Worker ${workerId} running ${concurrency} slot(s), ` +
+        (wakeupMode === "poll" ? `polling every ${pollIntervalMs}ms when idle; ` :
+            `notify wakeups, idle check ${pollIntervalMs}ms; `) +
         `lease ${leaseDurationMs}ms, heartbeat ${heartbeatIntervalMs}ms`,
 );
 
@@ -285,7 +297,7 @@ async function processJob(
 }
 
 async function runOnce() {
-    const job = await claimNextJob(workerId, leaseDurationMs);
+    const job = await metrics.measureClaim(() => claimNextJob(workerId, leaseDurationMs));
 
     if (!job) return false;
 
@@ -355,10 +367,11 @@ async function runOnce() {
 async function workerLoop(slot: number) {
     while (!stopping) {
         try {
+            const version = wakeup.version();
             const claimed = await runOnce();
 
             if (!claimed && !stopping) {
-                await sleep(pollIntervalMs, undefined, { signal: idleSleep.signal });
+                await wakeup.wait(version);
             }
         } catch (error) {
             if (stopping) return;
@@ -377,6 +390,7 @@ await Promise.all(Array.from({ length: concurrency }, (_, slot) => workerLoop(sl
 if (!abandoning) {
     // Keep the shutdown deadline armed until disconnect finishes; a stuck DB must not hang exit forever.
     await metrics.app.close();
+    await listener?.closed;
     await prisma.$disconnect();
     await shutdownTelemetry();
     clearTimeout(graceTimer);

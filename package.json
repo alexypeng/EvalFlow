@@ -12,7 +12,8 @@
         "evalflow": "pnpm --filter server exec node --import tsx src/cli.ts",
         "build": "pnpm --filter server build && pnpm --filter frontend build",
         "typecheck": "pnpm -r typecheck",
-        "test": "pnpm --filter server test"
+        "test": "pnpm --filter server test",
+        "test:benchmark": "node --test benchmarks/test/*.test.mjs"
     },
     "keywords": [],
     "author": "",
