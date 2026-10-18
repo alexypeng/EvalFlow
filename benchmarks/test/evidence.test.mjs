@@ -75,3 +75,31 @@ test("same-build wakeup evidence recomputes all conditions with a stable listene
     assert.equal(await readFile(new URL(
         "../../docs/benchmarks/2026-10-18-wakeup-comparison.md", import.meta.url), "utf8"), wakeupMarkdown(report));
 });
+
+test("one-Pod concurrency evidence recomputes nine controlled trials and restored settings", async () => {
+    const { summarizeConcurrency, aggregateConcurrency, concurrencyMarkdown } = await import("../concurrencyReport.mjs");
+    const report = JSON.parse(await readFile(new URL(
+        "../../docs/benchmarks/2026-10-18-concurrency.json", import.meta.url), "utf8"));
+    assert.equal(report.plan.smoke, false);
+    assert.equal(report.trials.length, 9);
+    assert.equal(report.concurrencySettingRestored, true);
+    assert.equal(report.scalingSettingRestored, true);
+    assert.deepEqual(report.summaries, report.trials.map(summarizeConcurrency));
+    assert.deepEqual(report.aggregates, aggregateConcurrency(report));
+    assert(report.aggregates.every((group) => group.comparable && group.validTrials === 3));
+    const jobs = report.trials.flatMap((trial) => trial.jobs);
+    const warmup = report.trials.flatMap((trial) => trial.warmup);
+    assert.equal(jobs.length, 810);
+    assert.equal(warmup.length, 21);
+    assert.equal(new Set([...jobs, ...warmup].map((job) => job.id)).size, 831);
+    assert([...jobs, ...warmup].every((job) =>
+        job.status === "completed" && job.attempts === 1 && job.evaluations === 1));
+    assert.equal(new Set(report.trials.map((trial) => trial.workerStates.before.pods[0].imageId)).size, 1);
+    for (const trial of report.trials) {
+        assert.equal(trial.workerStates.before.settings.image, report.environment.image);
+        assert.deepEqual(trial.workerStates.before.settings.resources, report.environment.resources);
+        assert.equal(trial.warmup.length, trial.config.concurrency);
+    }
+    assert.equal(await readFile(new URL(
+        "../../docs/benchmarks/2026-10-18-concurrency.md", import.meta.url), "utf8"), concurrencyMarkdown(report));
+});

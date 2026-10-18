@@ -1251,3 +1251,37 @@ identity remain in the evidence. Earlier archives are preserved.
 Run `bash scripts/kind-wakeup-check.sh` for checks, a fresh kind image/migration, smoke and full trials.
 See the [comparison protocol](benchmarks/README.md#same-build-polling-versus-notification-comparison)
 for individual modes and cleanup details.
+
+
+### One-Pod concurrency comparison (M6)
+
+The [nine-trial concurrency comparison](docs/benchmarks/2026-10-18-concurrency.md) and
+[raw evidence](docs/benchmarks/2026-10-18-concurrency.json) keep exactly one worker Pod/process and
+its image, CPU/memory limits and polling unchanged, while varying concurrent job slots. Each trial
+submits 90 jobs at three arrivals/sec for 30 seconds, using two-second mock calls. Three rotated trials
+per setting completed all 810 measured jobs plus 21 warmups once, with one evaluation each.
+Medians of trial-level measurements:
+
+| Concurrent slots | Completions/sec including drain | Total p50 | Total p99 | Queue-wait p99 |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.49 | 78.1s | 151.8s | 149.8s |
+| 2 | 0.98 | 32.5s | 62.3s | 60.3s |
+| 4 | 1.90 | 10.0s | 17.8s | 15.8s |
+
+Execution p99 stayed around 2.02–2.04 seconds. More in-process slots increased completion rate and
+reduced backlog, while three arrivals/sec still exceeded every setting's ideal 0.5/1/2 jobs/sec capacity.
+Sampled queue peaks were 75 / 60 / 30–32; median drain times were 152.94 / 61.90 / 17.45 seconds.
+The finite batch, initial pickup, partial final wave and normal pipeline overhead affect the observed
+rate. These results do not independently identify database pool limits, claim contention or production
+capacity, and are not a matched comparison of one process against several Pods.
+
+Two initial smoke attempts were rejected for large clock divergences, with one expired lease; their
+terminal fixtures/raw reports remain local. A preflight now requires three consecutive host/database
+clock-alignment probes before jobs, retaining the existing in-trial clock guard. The successful smoke
+and full experiment passed all job, clock, Pod, settings and observed-overlap checks. Original concurrency
+and KEDA settings were restored; older benchmark archives remain unchanged.
+
+Run `bash scripts/kind-concurrency-check.sh` against the existing updated kind stack. No new image,
+application code or schema is required. See the [protocol](benchmarks/README.md#one-pod-worker-concurrency-comparison)
+for smoke/full modes and measurement limits. The report retains every trial and its observed range;
+three local repetitions are not a production p99 guarantee.

@@ -23,6 +23,9 @@ elif [[ "${1:-}" == "--verify-polling" && "$#" == 1 ]]; then
 elif [[ "${1:-}" == "--verify-wakeup" && "$#" == 1 ]]; then
     run_trial --wakeup-smoke
     run_trial --wakeup
+elif [[ "${1:-}" == "--verify-concurrency" && "$#" == 1 ]]; then
+    run_trial --concurrency-smoke
+    run_trial --concurrency
 else
     run_trial "$@"
 fi

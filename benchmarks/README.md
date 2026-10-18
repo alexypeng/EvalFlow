@@ -215,3 +215,44 @@ Normal completion/failure restores both original worker environment entries (inc
 KEDA pause settings independently, writing restoration flags in the report. The manifest records all
 original entries and fixture IDs. Own valid terminal fixtures are cleaned; invalid trials remain for
 inspection. Forced kill/host loss cannot run cleanup; follow the lock/manifest guidance above.
+
+
+## One-Pod worker concurrency comparison
+
+```bash
+bash scripts/kind-concurrency-check.sh            # checks, smoke and full experiment on the existing kind image
+bash scripts/kind-benchmark.sh --concurrency-smoke # 4 jobs/setting, one repetition; validation only
+bash scripts/kind-benchmark.sh --concurrency       # 90 jobs/setting, three repetitions
+```
+
+`--verify-concurrency` runs smoke then full comparison. Use the existing updated mock kind deployment
+with polling mode/1000ms idle checks, mock permits disabled and trace export disabled. This benchmark
+requires no image build, database migration, worker code change or real-provider call. It changes only
+`WORKER_CONCURRENCY`, pausing KEDA to keep exactly one Pod. Image, resources and polling stay fixed.
+
+Full trials offer3 jobs/s for30 seconds (90 jobs), hold configured mock calls at2000ms, and test1/2/4
+in-process slots. Three repetitions rotate1/2/4,2/4/1,4/1/2:810 measured jobs plus21 warmup jobs. Each
+trial warms one job per slot, schedules arrivals independently, fully drains its backlog, then persists
+raw evidence before cleaning only its own valid terminal fixtures. The slowest setting needs about
+three minutes per trial; expect roughly16–20minutes for the full experiment with setup/rollouts.
+Smoke uses4 jobs at3/s (a4/3-second arrival window) and one trial/setting; its results are not capacity evidence.
+
+Before submitting jobs, three consecutive probes must show database/host clocks aligned without a large
+round-trip delay or host wall/monotonic divergence. This avoids starting while a resumed VM clock is still
+catching up; the original in-trial one-second clock-divergence rejection remains unchanged.
+
+The one-Pod environment includes concurrency, mode, poll interval, image and resources in every monitored
+worker snapshot. Changed settings, Pod identity/readiness/restarts, image/resources, scheduling/clock
+failures, missing/retried/failed jobs or duplicate evals invalidate a trial. Start/completion timestamps
+must show pipeline overlap reaching the requested slot count. This overlap is not an exact active-slot
+metric because completion markers precede the final commit tail. Warmup counts scale with slots.
+Original concurrency environment entry and KEDA controls are restored in cleanup; the manifest preserves
+those original values and fixture IDs. Interrupted/invalid results remain local for inspection.
+
+Ideal rates before overhead are0.5/1/2 jobs/s, so3 arrivals/s overloads every setting. Compare the full-drain
+completion rate and queue/total p50/p99, not just completions within the short arrival window. Nine-trial
+reports retain each run and median/min/max of trial metrics, withholding incomplete/invalid groups.
+Three local repetitions expose a small range; these measurements do not independently isolate pool
+size, CPU saturation or claim contention and cannot establish maximum Postgres or production capacity.
+No connection-pool setting is changed. Broader worker-count results remain separate controls with their
+own image, arrival windows and source provenance.

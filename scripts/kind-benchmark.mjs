@@ -10,6 +10,7 @@ import { scenario } from "../benchmarks/scenarios.mjs";
 import { aggregateSweep, sweepMarkdown } from "../benchmarks/sweepReport.mjs";
 import { summarizePolling, aggregatePolling, pollingMarkdown } from "../benchmarks/pollingReport.mjs";
 import { summarizeWakeup, aggregateWakeup, wakeupMarkdown } from "../benchmarks/wakeupReport.mjs";
+import { summarizeConcurrency, aggregateConcurrency, concurrencyMarkdown } from "../benchmarks/concurrencyReport.mjs";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
 const args = ["--kubeconfig", `${repo}.evalflow-kind/kubeconfig`, "--context", "kind-evalflow", "-n", "evalflow"];
@@ -24,12 +25,13 @@ const handle = await open(lock, "wx");
 await handle.writeFile(JSON.stringify({ pid: process.pid, folder }));
 await handle.close();
 const pausedKey = "autoscaling.keda.sh/paused-replicas";
+const isConcurrency = plan.methodology === "queue-worker-concurrency-v1";
 const isWakeup = plan.methodology === "queue-worker-wakeup-comparison-v1";
 const isPolling = plan.methodology === "queue-worker-idle-polling-v1";
 const sparse = isPolling || isWakeup;
 const isSweep = plan.methodology === "queue-worker-arrival-sweep-v1";
 const report = { capturedAt: new Date().toISOString(), methodology: plan.methodology, plan, trials: [], summaries: [] };
-let original, scaler, changed = false, pollingChanged = false, stopping = false;
+let original, scaler, changed = false, pollingChanged = false, concurrencyChanged = false, stopping = false;
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => {
     stopping = true;
     console.error("Stop requested: finishing the bounded current trial, then restoring scaling. Do not send another signal.");
@@ -41,7 +43,11 @@ const deployment = async () => JSON.parse(await kube("get", "deployment", "evalf
 async function workerState() {
     const d = await deployment();
     const list = JSON.parse(await kube("get", "pods", "-l", "app.kubernetes.io/component=worker", "-o", "json")).items;
-    return { desired: d.spec.replicas, ready: d.status.readyReplicas ?? 0, pods: list.map((pod) => ({
+    const container = d.spec.template.spec.containers[0];
+    const env = Object.fromEntries(container.env.map((entry) => [entry.name, entry.value]));
+    return { ...(isConcurrency ? { settings: { concurrency: env.WORKER_CONCURRENCY,
+        wakeupMode: env.WORKER_WAKEUP_MODE ?? "poll", pollIntervalMs: env.POLL_INTERVAL_MS,
+        image: container.image, resources: container.resources } } : {}), desired: d.spec.replicas, ready: d.status.readyReplicas ?? 0, pods: list.map((pod) => ({
         uid: pod.metadata.uid, name: pod.metadata.name, ip: pod.status.podIP, deleting: Boolean(pod.metadata.deletionTimestamp),
         ready: pod.status.conditions?.some((c) => c.type === "Ready" && c.status === "True") ?? false,
         imageId: pod.status.containerStatuses?.[0]?.imageID,
@@ -66,8 +72,9 @@ async function persist() {
     if (isSweep) report.aggregates = aggregateSweep(report);
     if (isPolling) report.aggregates = aggregatePolling(report);
     if (isWakeup) report.aggregates = aggregateWakeup(report);
+    if (isConcurrency) report.aggregates = aggregateConcurrency(report);
     await writeFile(`${folder}/report.json`, JSON.stringify(report, null, 2));
-    await writeFile(`${folder}/report.md`, (isWakeup ? wakeupMarkdown(report) : isPolling ? pollingMarkdown(report) : isSweep ? sweepMarkdown(report) : markdown(report)));
+    await writeFile(`${folder}/report.md`, (isConcurrency ? concurrencyMarkdown(report) : isWakeup ? wakeupMarkdown(report) : isPolling ? pollingMarkdown(report) : isSweep ? sweepMarkdown(report) : markdown(report)));
 }
 function remote(config) {
     return new Promise((resolve, reject) => {
@@ -103,7 +110,10 @@ try {
     assert.equal(env.LLM_PROVIDER, "mock", "Only mock workers are allowed");
     if (!isWakeup) assert.equal(env.WORKER_WAKEUP_MODE ?? "poll", "poll", "Polling benchmarks require polling-only workers");
     else assert(["poll", "notify"].includes(env.WORKER_WAKEUP_MODE ?? "poll"), "Unsupported original worker mode");
-    assert.equal(env.WORKER_CONCURRENCY, "1", "This scenario requires concurrency 1");
+    if (isConcurrency) {
+        assert(["1", "2", "4"].includes(env.WORKER_CONCURRENCY), "Unsupported original concurrency");
+        assert.equal(env.POLL_INTERVAL_MS, "1000", "Concurrency comparison holds polling at 1000ms");
+    } else assert.equal(env.WORKER_CONCURRENCY, "1", "This scenario requires concurrency 1");
     assert.equal(env.RATE_LIMIT_MOCK, "false", "Mock permits must not throttle this scenario");
     assert(!env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, "Use disabled trace export for this controlled baseline");
     const rawScaler = await kube("get", "scaledobject", "evalflow-app-worker", "--ignore-not-found", "-o", "json");
@@ -135,6 +145,7 @@ try {
         reportSha256: createHash("sha256").update(await readFile(`${repo}benchmarks/report.mjs`)).digest("hex"),
         scenarioSha256: createHash("sha256").update(await readFile(`${repo}benchmarks/scenarios.mjs`)).digest("hex"),
         harnessSha256: createHash("sha256").update(await readFile(`${repo}scripts/kind-benchmark.mjs`)).digest("hex"),
+        concurrencyReportSha256: createHash("sha256").update(await readFile(`${repo}benchmarks/concurrencyReport.mjs`)).digest("hex"),
         wakeupReportSha256: createHash("sha256").update(await readFile(`${repo}benchmarks/wakeupReport.mjs`)).digest("hex"),
         queueWakeupSha256: createHash("sha256").update(await readFile(`${repo}server/src/queueWakeup.ts`)).digest("hex"),
         workerSha256: createHash("sha256").update(await readFile(`${repo}server/src/worker.ts`)).digest("hex"),
@@ -143,18 +154,19 @@ try {
         sweepReportSha256: createHash("sha256").update(await readFile(`${repo}benchmarks/sweepReport.mjs`)).digest("hex"),
         image: original.spec.template.spec.containers[0].image,
         resources: original.spec.template.spec.containers[0].resources,
-        pollIntervalMs: env.POLL_INTERVAL_MS, concurrency: 1, mockPermits: false, tracingExport: false,
+        pollIntervalMs: env.POLL_INTERVAL_MS, concurrency: Number(env.WORKER_CONCURRENCY), mockPermits: false, tracingExport: false,
         node: JSON.parse(await kube("get", "node", "evalflow-control-plane", "-o", "json")).status.capacity,
         isolation: "Local kind queue; shared Docker host, other services not stopped",
     };
     const configs = plan.trials.map((trial) => ({ ...trial,
         ids: Array.from({ length: trial.jobs }, () => randomUUID()),
-        warmupIds: Array.from({ length: trial.workers }, () => randomUUID()),
+        warmupIds: Array.from({ length: trial.workers * (trial.concurrency ?? 1) }, () => randomUUID()),
     }));
     await writeFile(`${folder}/manifest.json`, JSON.stringify({ configs, originalReplicas: original.spec.replicas,
         originalPausedReplicas: scaler?.metadata.annotations?.[pausedKey] ?? null,
         originalPollEnv: original.spec.template.spec.containers[0].env.find((item) => item.name === "POLL_INTERVAL_MS") ?? null,
-        originalModeEnv: original.spec.template.spec.containers[0].env.find((item) => item.name === "WORKER_WAKEUP_MODE") ?? null }, null, 2));
+        originalModeEnv: original.spec.template.spec.containers[0].env.find((item) => item.name === "WORKER_WAKEUP_MODE") ?? null,
+        originalConcurrencyEnv: original.spec.template.spec.containers[0].env.find((item) => item.name === "WORKER_CONCURRENCY") ?? null }, null, 2));
     for (const config of configs) {
         if (stopping) throw new Error("Benchmark stopped before next trial");
         changed = true;
@@ -166,6 +178,15 @@ try {
                     !(await kube("get", "hpa", "keda-hpa-evalflow-app-worker", "--ignore-not-found", "-o", "name"));
             });
         } else await kube("scale", "deployment", "evalflow-app-worker", `--replicas=${config.workers}`);
+        if (isConcurrency) {
+            concurrencyChanged = true;
+            await kube("patch", "deployment", "evalflow-app-worker", "--type=strategic", "-p", JSON.stringify({
+                spec: { template: { spec: { containers: [{ name: "worker", env: [
+                    { name: "WORKER_CONCURRENCY", value: String(config.concurrency) },
+                ] }] } } },
+            }));
+            await kube("rollout", "status", "deployment/evalflow-app-worker", "--timeout=120s");
+        }
         if (sparse) {
             pollingChanged = true;
             await kube("patch", "deployment", "evalflow-app-worker", "--type=strategic", "-p", JSON.stringify({
@@ -182,6 +203,11 @@ try {
                 state.pods.length === config.workers && state.pods.every((pod) => pod.ready && !pod.deleting);
         });
         const before = await workerState();
+        if (isConcurrency) {
+            assert.equal(before.settings.concurrency, String(config.concurrency));
+            assert.equal(before.settings.image, report.environment.image, "Worker image changed between conditions");
+            assert.deepEqual(before.settings.resources, report.environment.resources, "Worker resources changed");
+        }
         if (sparse) {
             const port = env.WORKER_METRICS_PORT ?? "9100";
             config.metricsUrl = `http://${before.pods[0].ip}:${port}/metrics`;
@@ -196,8 +222,22 @@ try {
                 return (await listenerEvents(before.pods[0])).at(-1)?.state === "listening";
             }, 20_000);
         }
+        if (isConcurrency) {
+            let aligned = 0;
+            await until("database and host clocks aligned for three consecutive probes", async () => {
+                const started = performance.now(), wallStart = Date.now();
+                const databaseAt = Date.parse(await database(
+                    'console.log((await prisma.$queryRaw`SELECT clock_timestamp() AS now`)[0].now.toISOString());'));
+                const ended = Date.now();
+                const roundTripMs = performance.now() - started;
+                const ok = roundTripMs < 3000 && Math.abs(ended - wallStart - roundTripMs) < 1000 &&
+                    databaseAt >= ended - 2000 && databaseAt <= ended + 1000;
+                aligned = ok ? aligned + 1 : 0;
+                return aligned >= 3;
+            });
+        }
         const listenersBefore = isWakeup ? await listenerEvents(before.pods[0]) : undefined;
-        console.log(`Starting trial: ${config.workers} workers, ${config.jobs} jobs, ${config.arrivalRate} job/s, repetition ${config.repetition ?? 1}, ${config.latencyMs}ms mock latency${isWakeup ? `, ${config.condition}` : isPolling ? `, poll ${config.pollIntervalMs}ms` : ""}.`);
+        console.log(`Starting trial: ${config.workers} workers, ${config.jobs} jobs, ${config.arrivalRate} job/s, repetition ${config.repetition ?? 1}, ${config.latencyMs}ms mock latency${isConcurrency ? `, concurrency ${config.concurrency}` : isWakeup ? `, ${config.condition}` : isPolling ? `, poll ${config.pollIntervalMs}ms` : ""}.`);
         const observed = [];
         let finished = false;
         const monitor = (async () => {
@@ -221,7 +261,7 @@ try {
             }
         }
         report.trials.push(trial);
-        const summary = isWakeup ? summarizeWakeup(trial) : isPolling ? summarizePolling(trial) : summarize(trial);
+        const summary = isConcurrency ? summarizeConcurrency(trial) : isWakeup ? summarizeWakeup(trial) : isPolling ? summarizePolling(trial) : summarize(trial);
         report.summaries.push(summary);
         await persist();
         console.log(JSON.stringify(summary, null, 2));
@@ -233,8 +273,8 @@ try {
     const restorationErrors = [];
     try {
         try {
-            if (pollingChanged && original) {
-                const names = isWakeup ? ["POLL_INTERVAL_MS", "WORKER_WAKEUP_MODE"] : ["POLL_INTERVAL_MS"];
+            if ((pollingChanged || concurrencyChanged) && original) {
+                const names = isConcurrency ? ["WORKER_CONCURRENCY"] : isWakeup ? ["POLL_INTERVAL_MS", "WORKER_WAKEUP_MODE"] : ["POLL_INTERVAL_MS"];
                 const entries = names.map((name) => original.spec.template.spec.containers[0].env.find((item) => item.name === name));
                 await kube("patch", "deployment", "evalflow-app-worker", "--type=strategic", "-p", JSON.stringify({
                     spec: { template: { spec: { containers: [{ name: "worker", env: entries.map((old, index) =>
@@ -245,7 +285,8 @@ try {
                 for (let index = 0; index < names.length; index++) {
                     assert.deepEqual(restored.find((item) => item.name === names[index]), entries[index]);
                 }
-                report.pollingSettingRestored = true;
+                if (pollingChanged) report.pollingSettingRestored = true;
+                if (isConcurrency) report.concurrencySettingRestored = true;
                 if (isWakeup) report.wakeupSettingRestored = true;
             }
         } catch (error) { restorationErrors.push(error); }

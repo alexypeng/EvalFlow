@@ -3,6 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 const { z } = await import("zod");
 const config = z.strictObject({
+    concurrency: z.union([z.literal(1), z.literal(2), z.literal(4)]).optional(),
     workers: z.union([z.literal(1), z.literal(2), z.literal(4)]),
     jobs: z.number().int().min(4).max(600), arrivalRate: z.number().positive().max(3),
     latencyMs: z.union([z.literal(0), z.literal(2000)]), repetition: z.number().int().min(1).max(3).optional(),
@@ -13,7 +14,9 @@ const config = z.strictObject({
     arrivalWindowMs: z.number().int().positive().optional(), metricsUrl: z.url().optional(),
     ids: z.array(z.uuid()), warmupIds: z.array(z.uuid()),
 }).parse(JSON.parse(process.argv[2]));
-if (config.ids.length !== config.jobs || config.warmupIds.length !== config.workers) throw new Error("ID count mismatch");
+if (config.ids.length !== config.jobs || config.warmupIds.length !== config.workers * (config.concurrency ?? 1)) throw new Error("ID count mismatch");
+if (config.concurrency !== undefined && (config.workers !== 1 || config.latencyMs !== 2000 ||
+    config.arrivalRate !== 3 || config.pollIntervalMs !== undefined)) throw new Error("Invalid concurrency configuration");
 if (Boolean(config.wakeupMode) !== Boolean(config.condition) ||
     (config.wakeupMode && config.condition !== `${config.wakeupMode}-${config.pollIntervalMs}`) ||
     (config.wakeupMode === "notify" && config.pollIntervalMs !== 1000)) throw new Error("Invalid wakeup condition");
@@ -69,8 +72,8 @@ try {
     await Promise.all(config.warmupIds.map((id, index) => enqueue(id, index)));
     const warmup = await waitTerminal(config.warmupIds, 60_000);
     if (warmup.some((job) => job.status !== "completed" || job.attempts !== 1 || job._count.evals !== 1) ||
-        warmup.length !== config.workers) throw new Error("Warmup failed; inspect fixture IDs in manifest");
-    console.error(`Completed warmup batch of ${config.workers} jobs; scheduling ${config.jobs} jobs at ${config.arrivalRate}/s.`);
+        warmup.length !== config.workers * (config.concurrency ?? 1)) throw new Error("Warmup failed; inspect fixture IDs in manifest");
+    console.error(`Completed warmup batch of ${config.workers * (config.concurrency ?? 1)} jobs; scheduling ${config.jobs} jobs at ${config.arrivalRate}/s.`);
     const readClaims = async () => {
         const response = await fetch(config.metricsUrl, { signal: AbortSignal.timeout(3000) });
         if (!response.ok) throw new Error(`Worker metrics HTTP ${response.status}`);
